@@ -1,0 +1,6 @@
+
+.roblox
+*.rbxl.lock
+*.rbxm
+*.rbxmx
+.DS_Store
