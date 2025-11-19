@@ -61,5 +61,3 @@ SpawnEvent.OnClientEvent:Connect(function(event, payload)
 	local name = resolveName(payload)
 	popAndFade(("You claimed %s!"):format(name))
 end)
-
--- hello
