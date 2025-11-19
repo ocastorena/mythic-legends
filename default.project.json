@@ -4,22 +4,39 @@
     "$className": "DataModel",
 
     "ReplicatedStorage": {
-      "Shared": {
-        "$path": "src/shared"
+      "$className": "ReplicatedStorage",
+      "ClientModules": {
+        "$path": "src/shared/ClientModules"
+      },
+      "Metadata": {
+        "$path": "src/shared/Metadata"
+      },
+      "Remotes": {
+        "$path": "src/shared/Remotes"
+      },
+      "Templates": {
+        "$path": "src/shared/Templates"
       }
     },
 
     "ServerScriptService": {
-      "Server": {
-        "$path": "src/server"
+      "$className": "ServerScriptService",
+      "Services": {
+        "$path": "src/server/Services",
+        "BaseUtils": {
+          "$path": "src/server/Services/BaseUtils"
+        }
+      },
+      "Systems": {
+        "$path": "src/server/Systems"
       }
     },
 
     "StarterPlayer": {
+      "$className": "StarterPlayer",
       "StarterPlayerScripts": {
-        "Client": {
-          "$path": "src/client"
-        }
+        "$className": "StarterPlayerScripts",
+        "$path": "src/client"
       }
     },
 
@@ -31,32 +48,16 @@
         "$className": "Part",
         "$properties": {
           "Anchored": true,
-          "Color": [
-            0.38823,
-            0.37254,
-            0.38823
-          ],
+          "Color": [0.38823, 0.37254, 0.38823],
           "Locked": true,
-          "Position": [
-            0,
-            -10,
-            0
-          ],
-          "Size": [
-            512,
-            20,
-            512
-          ]
+          "Position": [0, -10, 0],
+          "Size": [512, 20, 512]
         }
       }
     },
     "Lighting": {
       "$properties": {
-        "Ambient": [
-          0,
-          0,
-          0
-        ],
+        "Ambient": [0, 0, 0],
         "Brightness": 2,
         "GlobalShadows": true,
         "Outlines": false,
