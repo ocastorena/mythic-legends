@@ -8,7 +8,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Systems = ServerScriptService:WaitForChild("Systems")
 
-local GetMythlingsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GetMythlings")
+local InventoryRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("InventoryRequest")
 
 local Ctx = nil
 local InventoryService = {}
@@ -24,7 +24,7 @@ end
 
 -- Extract traits from a captured live model (optional conveniences).
 -- Reads Settings/Mutations (NumberValue/StringValue/BoolValue) and Settings/Perks (StringValue/BoolValue)
-local function readTraitsFromModel(model: Model): ({ mutations: {any}, perks: {string} })
+local function readTraitsFromModel(model: Model): { mutations: { any }, perks: { string } }
 	local mutations = {}
 	local perks = {}
 
@@ -71,7 +71,6 @@ end
 
 function InventoryService.Init(context)
 	Ctx = context
-	
 
 	local inventoryEvent = Ctx.Remotes.InventoryEvent
 	inventoryEvent.OnServerEvent:Connect(function(player, event, msg)
@@ -83,7 +82,7 @@ function InventoryService.Init(context)
 			end
 		end
 	end)
-	
+
 	print("[InventoryService] Initialized")
 end
 
@@ -102,16 +101,16 @@ function InventoryService.SaveWonMythling(player: Player, params: any): string
 	local list = Ctx.Services.DataService.GetSection(player, "mythlings")
 	local model: Model? = params.model
 	local traits = model and readTraitsFromModel(model)
-	local id     = makeId()
+	local id = makeId()
 	local entry = {
-		id          = id,
+		id = id,
 		displayName = params.displayName,
-		typeId      = params.typeId,                                        -- optional
-		claimedAt   = os.time(),
-		standId     = -1,                                                   -- filled later by BaseService
-		rarity      = params.rarity,
-		variantId   = params.variantId,
-		mutations   = nil
+		typeId = params.typeId, -- optional
+		claimedAt = os.time(),
+		standId = -1, -- filled later by BaseService
+		rarity = params.rarity,
+		variantId = params.variantId,
+		mutations = nil,
 	}
 
 	list[id] = entry
@@ -145,7 +144,7 @@ end
 
 -- Lightweight list for UI grids (bandwidth-friendly).
 -- Each row: { id, typeName, standIndex, claimedAt, thumbnailId? }
-function InventoryService.ListMythlings(player: Player): {any}
+function InventoryService.ListMythlings(player: Player): { any }
 	assert(player and player.UserId, "[InventoryService.ListMythlings] invalid player")
 
 	local list = Ctx.Services.DataService.GetSection(player, "mythlings")
@@ -161,10 +160,11 @@ function InventoryService.GetMythling(player: Player, mythlingId: string): any?
 	return mythlingId and list[mythlingId] or nil
 end
 
-
 -- Remote functions
-GetMythlingsRemote.OnServerInvoke = function(player)
-	return InventoryService.ListMythlings(player)
+InventoryRequest.OnServerInvoke = function(player, action)
+	if action == "getMythlings" then
+		return InventoryService.ListMythlings(player)
+	end
 end
 
 return InventoryService

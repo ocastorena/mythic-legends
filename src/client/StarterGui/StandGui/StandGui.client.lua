@@ -3,63 +3,52 @@
 -- NOTE: Behavior intentionally unchanged.
 
 --// Services
-local ReplicatedStorage      = game:GetService("ReplicatedStorage")
-local Players                = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
-local TweenService           = game:GetService("TweenService")
+local TweenService = game:GetService("TweenService")
 
 --// Modules
-local InputGuard       = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
-local MythlingConfig   = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("MythlingConfig"))
+local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
+local MythlingData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 
 --// Player/UI roots
 local localPlayer = Players.LocalPlayer
-local playerGui   = localPlayer:WaitForChild("PlayerGui")
+local playerGui = localPlayer:WaitForChild("PlayerGui")
 
 -- ScreenGui + major frames
-local standGui         = playerGui:WaitForChild("StandGui")
-local mainFrame        = standGui:WaitForChild("Main")
-local standLabel       = mainFrame:WaitForChild("StandLabel")
-local closeButton      = mainFrame:WaitForChild("CloseButton")
-local mythlingsFolder  = mainFrame:WaitForChild("Mythlings")
+local standGui = playerGui:WaitForChild("StandGui")
+local mainFrame = standGui:WaitForChild("Main")
+local standLabel = mainFrame:WaitForChild("StandLabel")
+local closeButton = mainFrame:WaitForChild("CloseButton")
+local mythlingsFolder = mainFrame:WaitForChild("Mythlings")
 
 -- Mythling list + template + info panel
-local mythlingScrollFrame  = mythlingsFolder:WaitForChild("ScrollingFrame")
-local mythlingCardTemplate = mythlingScrollFrame:WaitForChild("CardTemplate")
-local mythlingInfoFrame    = mythlingsFolder:WaitForChild("Info")
+local mythlingScrollFrame = mythlingsFolder:WaitForChild("ScrollingFrame")
+local mythlingCardTemplate = mythlingScrollFrame:WaitForChild("CardTemplate") :: ImageButton
+local mythlingInfoFrame = mythlingsFolder:WaitForChild("Info")
 
 --// Remotes
-local getMythlingsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GetMythlings")
-local inventoryEvent     = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("InventoryEvent")
-local baseEvent          = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BaseEvent")
-local ProductionEvent    = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ProductionEvent")
-local ProductionRequest  = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ProductionRequest")
+local InventoryRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("InventoryRequest")
+local inventoryEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("InventoryEvent")
+local baseEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BaseEvent")
+local ProductionEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ProductionEvent")
+local ProductionRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ProductionRequest")
 
 --// UI palette (unchanged colors, standardized names)
 local COLOR_CARD_DESELECT = Color3.fromRGB(29, 31, 37)
 local COLOR_CARD_SELECTED = Color3.fromRGB(0, 255, 127)
-local COLOR_CARD_ACTIVE   = Color3.fromRGB(255, 212, 121)
-
---// Input guard defaults (unchanged)
-local GUARD_OPTS = {
-	blockJump          = true,
-	hideMobileControls = true,
-	blockScrollZoom    = true,
-	blockRMBRotate     = true,
-	blockCameraKeys    = true,
-}
-
-
+local COLOR_CARD_ACTIVE = Color3.fromRGB(255, 212, 121)
 
 --// State
 local standId: any = nil
 -- Map: mythlingId -> card Instance
-local mythlingCards: {[string]: Instance} = {}
+local mythlingCards: { [string]: Instance } = {}
 -- Map: mythlingId -> mythlingData table
-local mythlingCardData: {[string]: any} = {}
+local mythlingCardData: { [string]: any } = {}
 -- Selection state
-local selectedCard: Instance? = nil
-local activeCard: Instance? = nil
+local selectedCard: ImageButton? = nil
+local activeCard: ImageButton? = nil
 
 local productionTween: Tween = nil
 local productionValue: NumberValue = Instance.new("NumberValue")
@@ -68,14 +57,14 @@ productionValue.Value = 0
 --//////////////////////////////////////////////////////////////////////////////////////////////////
 -- Helpers
 --//////////////////////////////////////////////////////////////////////////////////////////////////
--- 
+--
 local function startProductionTween(production: number, capacity: number, rate: number): ()
 	if productionTween then
 		productionTween:Cancel()
 	end
 	-- update the production value based on the current values
 	local productionLabel = mythlingInfoFrame.ProductionLabel
-	
+
 	-- Reset starting value
 	productionValue.Value = production
 
@@ -100,7 +89,6 @@ local function startProductionTween(production: number, capacity: number, rate: 
 	productionTween:Play()
 end
 
-
 --- Destroys all card instances and clears lookup.
 local function clearCards(): ()
 	for _, card in pairs(mythlingCards) do
@@ -111,8 +99,8 @@ end
 
 --- Resets info panel and active selection visuals.
 local function clearInfo(): ()
-	mythlingInfoFrame.NameLabel.Text        = "None"
-	mythlingInfoFrame.VariantLabel.Text     = ""
+	mythlingInfoFrame.NameLabel.Text = "None"
+	mythlingInfoFrame.VariantLabel.Text = ""
 	mythlingInfoFrame.DescriptionLabel.Text = ""
 	activeCard = nil
 end
@@ -131,33 +119,35 @@ end
 
 --- Updates button visibility on the info panel based on selection/active states.
 local function updateInfoButtons(): ()
-	local addBtn    = mythlingInfoFrame.AddButton
+	local addBtn = mythlingInfoFrame.AddButton
 	local removeBtn = mythlingInfoFrame.RemoveButton
 	local switchBtn = mythlingInfoFrame.SwitchButton
 
 	if selectedCard == activeCard then
 		removeBtn.Visible = true
-		addBtn.Visible    = false
+		addBtn.Visible = false
 		switchBtn.Visible = false
 	elseif activeCard and selectedCard ~= activeCard then
 		removeBtn.Visible = false
-		addBtn.Visible    = false
+		addBtn.Visible = false
 		switchBtn.Visible = true
 	elseif selectedCard and not activeCard then
 		removeBtn.Visible = false
-		addBtn.Visible    = true
+		addBtn.Visible = true
 		switchBtn.Visible = false
 	else
 		-- No selection: hide all (not strictly needed, but explicit)
 		removeBtn.Visible = false
-		addBtn.Visible    = false
+		addBtn.Visible = false
 		switchBtn.Visible = false
 	end
 end
 
 --- Applies selected highlight to the given card.
-local function selectCard(card: Instance): ()
-	if selectedCard == card then return end
+local function selectCard(card: ImageButton): ()
+	if selectedCard == card then
+		return
+	end
 	clearSelectedCard()
 	card.BackgroundColor3 = COLOR_CARD_SELECTED
 	selectedCard = card
@@ -172,19 +162,21 @@ local function showMythlingInfo(): ()
 
 	local id = activeCard.Name
 	local data = mythlingCardData[id]
-	if not data then return end
+	if not data then
+		return
+	end
 
-	mythlingInfoFrame.NameLabel.Text        = data.displayName
-	mythlingInfoFrame.VariantLabel.Text     = data.rarity
-	mythlingInfoFrame.DescriptionLabel.Text = MythlingConfig[data.typeId].description
-	
-	local response = ProductionRequest:InvokeServer("GetProduction", {mythlingId = id})
-	
-	local resource = MythlingConfig[data.typeId].production.resource
+	mythlingInfoFrame.NameLabel.Text = data.displayName
+	mythlingInfoFrame.VariantLabel.Text = data.rarity
+	mythlingInfoFrame.DescriptionLabel.Text = MythlingData[data.typeId].description
+
+	local response = ProductionRequest:InvokeServer("GetProduction", { mythlingId = id })
+
+	local resource = MythlingData[data.typeId].production.resource
 	local production = response.production or 0
 	local rate = response.rate or 0
 	local capacity = response.capacity or 0
-	local color = MythlingConfig[data.typeId].production.guiColor
+	local color = MythlingData[data.typeId].production.guiColor
 	mythlingInfoFrame.ResourceLabel.Text = resource
 	mythlingInfoFrame.ResourceLabel.TextColor3 = Color3.fromHex(color)
 	if production > 0 then
@@ -194,7 +186,7 @@ local function showMythlingInfo(): ()
 end
 
 --- Creates a visual card for a mythling and wires selection behavior.
-local function createMythlingCard(data: any): Instance
+local function createMythlingCard(data: any): ImageButton
 	local newCard = mythlingCardTemplate:Clone()
 	newCard.Name = data.id
 	newCard.Parent = mythlingScrollFrame
@@ -202,13 +194,14 @@ local function createMythlingCard(data: any): Instance
 	newCard.LayoutOrder = 1
 
 	newCard.NameLabel.Text = data.displayName
-	newCard:WaitForChild("2dPreview").Image =
-		MythlingConfig[data.typeId].variants[data.variantId].thumbnail
+	newCard:WaitForChild("2dPreview").Image = MythlingData[data.typeId].variants[data.variantId].thumbnail
 
 	-- If this mythling is already on this stand, mark it as active (gold).
 	if data.standId == standId then
 		activeCard = newCard
-		activeCard.BackgroundColor3 = COLOR_CARD_ACTIVE
+		if activeCard then
+			activeCard.BackgroundColor3 = COLOR_CARD_ACTIVE
+		end
 	end
 
 	newCard.Activated:Connect(function()
@@ -222,15 +215,19 @@ end
 
 --- Adds a single mythling card to the list (idempotent by id).
 local function addMythlingCard(data: any): ()
-	if mythlingCards[data.id] then return end
-	if data.standId > -1 and data.standId ~= standId then return end
+	if mythlingCards[data.id] then
+		return
+	end
+	if data.standId > -1 and data.standId ~= standId then
+		return
+	end
 	local card = createMythlingCard(data)
 	mythlingCards[data.id] = card
 	mythlingCardData[data.id] = data
 end
 
 --- Rebuilds the card list from a server-provided array.
-local function addMythlingCards(list: {any}): ()
+local function addMythlingCards(list: { any }): ()
 	clearCards()
 	for _, mythling in pairs(list) do
 		addMythlingCard(mythling)
@@ -251,6 +248,9 @@ standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 end)
 
 mythlingInfoFrame.CollectButton.Activated:Connect(function()
+	if not activeCard then
+		return
+	end
 	if productionValue.Value > 0 then
 		ProductionRequest:InvokeServer("CollectProduction", { mythlingId = activeCard.Name })
 		showMythlingInfo()
@@ -259,7 +259,9 @@ end)
 
 -- Add button: place selected on this stand
 mythlingInfoFrame.AddButton.Activated:Connect(function()
-	if not selectedCard then return end
+	if not selectedCard then
+		return
+	end
 	local mythlingId = selectedCard.Name
 	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = mythlingId })
 	activeCard = selectedCard
@@ -269,7 +271,9 @@ end)
 
 -- Switch button: remove current, then place selected
 mythlingInfoFrame.SwitchButton.Activated:Connect(function()
-	if not selectedCard then return end
+	if not selectedCard then
+		return
+	end
 	local mythlingId = selectedCard.Name
 	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = mythlingId })
 	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = mythlingId })
@@ -278,14 +282,18 @@ mythlingInfoFrame.SwitchButton.Activated:Connect(function()
 		activeCard.BackgroundColor3 = COLOR_CARD_DESELECT
 	end
 	activeCard = selectedCard
-	activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
+	if activeCard then
+		activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
+	end
 	updateInfoButtons()
 	showMythlingInfo()
 end)
 
 -- Remove button: remove the currently active mythling from this stand
 mythlingInfoFrame.RemoveButton.Activated:Connect(function()
-	if not activeCard then return end
+	if not activeCard then
+		return
+	end
 	local mythlingId = activeCard.Name
 	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = mythlingId })
 	activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
@@ -322,8 +330,8 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 
 	standId = grandparent:GetAttribute("Id")
 	standLabel.Text = "Stand #" .. tostring(standId)
-	local list = getMythlingsRemote:InvokeServer()
-	InputGuard.open(GUARD_OPTS)
+	local list = InventoryRequest:InvokeServer("getMythlings")
+	InputGuard.open()
 	addMythlingCards(list)
 	showMythlingInfo()
 	standGui.Enabled = true
