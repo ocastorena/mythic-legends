@@ -30,10 +30,24 @@
       "$className": "StarterPlayer",
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "$path": "src/client",
+        "$path": "src/client/StarterPlayerScripts",
         "CombatUtils": {
-          "$path": "src/client/CombatUtils"
+          "$path": "src/client/StarterPlayerScripts/CombatUtils"
         }
+      }
+    },
+    "StarterGui": {
+      "$className": "StarterGui",
+      "$ignoreUnknownInstances": true,
+      "InventoryGui": {
+        "$className": "ScreenGui",
+        "$ignoreUnknownInstances": true,
+        "$path": "src/client/StarterGui/InventoryGui"
+      },
+      "StandGui": {
+        "$className": "ScreenGui",
+        "$ignoreUnknownInstances": true,
+        "$path": "src/client/StarterGui/StandGui"
       }
     }
   }

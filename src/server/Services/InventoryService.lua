@@ -1,18 +1,6 @@
 -- ServerScriptService/Systems/InventoryService.lua
 -- Server-only service that manages a player's Mythling inventory.
 -- Persistence is delegated to DataService (authoritative read/write).
---
--- Public API:
---   InventoryService.Init([dataService]) -> ()
---   InventoryService.SaveWonMythling(player, params) -> string mythlingId
---   InventoryService.SetStandIndex(player, mythlingId, standIndex:number) -> boolean
---   InventoryService.RemoveMythling(player, mythlingId) -> boolean
---   InventoryService.ListMythlings(player) -> { {id, typeName, standIndex, claimedAt, thumbnailId?}, ... }
---   InventoryService.GetMythling(player, mythlingId) -> entry? (full server entry)
---
--- Notes:
--- - This module never trusts the client. Call it from server scripts (ClaimService, BaseService, etc.).
--- - Data layout lives under doc.inventory.mythlings (array of entries).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
