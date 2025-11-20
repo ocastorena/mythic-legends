@@ -1,0 +1,4 @@
+# selene.toml
+std = "roblox+analyze"          # teaches Selene about Roblox globals/constructors
+include = ["src/**/*.lua"]      # or whatever folders you lint
+exclude = ["**/_Index/**"]      # optional filters for packages/tests
