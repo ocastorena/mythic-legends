@@ -7,7 +7,7 @@ local Players = game:GetService("Players")
 -- Context passed from Bootstrap (holds Config, Instances, Remotes, etc.)
 local DataService = nil
 
-local MythlingConfig = nil
+local MythlingsData = nil
 
 local ProductionEvent = nil
 
@@ -27,9 +27,9 @@ local function computeAccrual(player: Player, mythlingId: string)
 	local currentAmount = 0
 	
 	-- get rate (per minute) for mythling
-	local rate = MythlingConfig[mythlingType].production.baseRate
+	local rate = MythlingsData[mythlingType].production.baseRate
 	-- get capacity for mythling
-	local capacity = MythlingConfig[mythlingType].production.baseCapacity
+	local capacity = MythlingsData[mythlingType].production.baseCapacity
 	-- get time elapsed from last collection
 	local lastCollection = playerCache[player][mythlingId].lastCollection
 	if not lastCollection then return end
@@ -46,7 +46,7 @@ local function computeAccrual(player: Player, mythlingId: string)
 	-- round to the lower whole number
 	currentAmount = math.floor(currentAmount)
 	
-	--print(`Mythling {mythlingId} generated {currentAmount} {MythlingConfig[mythlingType].production.resource}`)
+	--print(`Mythling {mythlingId} generated {currentAmount} {MythlingsData[mythlingType].production.resource}`)
 	return currentAmount, capacity, rate
 end
 
@@ -85,7 +85,7 @@ local function handleProductionRequest(player: Player, action: string, payload: 
 	end
 	if action == "CollectProduction" then
 		local typeId = playerCache[player][payload.mythlingId].typeId
-		local resource = MythlingConfig[typeId].production.resource
+		local resource = MythlingsData[typeId].production.resource
 		local production, capacity, rate = computeAccrual(player, payload.mythlingId)
 		local resources = DataService.GetSection(player, "resources")
 		if not resources[resource] then
@@ -127,7 +127,7 @@ end
 function ProductionService.Init(context)
 	DataService = context.Services.DataService
 	
-	MythlingConfig = context.Config.MythlingConfig
+	MythlingsData = context.Metadata.MythlingsData
 	
 	ProductionEvent   = context.Remotes.ProductionEvent
 	ProductionRequest = context.Remotes.ProductionRequest

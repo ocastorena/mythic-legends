@@ -5,7 +5,7 @@ local StarterGui = game:GetService("StarterGui")
 
 -- Modules
 local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
-local MythlingData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
+local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 
 -- Remotes
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -123,7 +123,7 @@ local function showMythlingInfo()
 	end
 	mythlingInfo.NameLabel.Text = mythlingCardsData[selectedMythlingCard.Name].displayName
 	mythlingInfo.VariantLabel.Text = mythlingCardsData[selectedMythlingCard.Name].rarity
-	mythlingInfo.DescriptionLabel.Text = MythlingData[mythlingCardsData[selectedMythlingCard.Name].typeId].description
+	mythlingInfo.DescriptionLabel.Text = MythlingsData[mythlingCardsData[selectedMythlingCard.Name].typeId].description
 end
 
 local function createMythlingCard(mythlingData)
@@ -133,7 +133,7 @@ local function createMythlingCard(mythlingData)
 	newCard.Visible = true
 	newCard.LayoutOrder = 1
 	newCard:WaitForChild("2dPreview").Image =
-		MythlingData[mythlingData.typeId].variants[mythlingData.variantId].thumbnail
+		MythlingsData[mythlingData.typeId].variants[mythlingData.variantId].thumbnail
 	newCard.Activated:Connect(function()
 		selectCard(newCard)
 		showMythlingInfo()

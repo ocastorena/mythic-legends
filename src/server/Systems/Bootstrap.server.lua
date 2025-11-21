@@ -1,28 +1,28 @@
 -- Services
-local ServerStorage     = game:GetService("ServerStorage")
+local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RemotesFolder     = ReplicatedStorage:WaitForChild("Remotes")
-local ServicesFolder    = script.Parent.Parent:WaitForChild("Services")
+local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
+local ServicesFolder = script.Parent.Parent:WaitForChild("Services")
 
--- Context table for all services + configs & remotes + constants 
+-- Context table for all services + configs & remotes + constants
 local Context = {
 	Instances = {
-		Arena          = workspace:WaitForChild("Arena"),
-		ArenaPlate     = workspace:WaitForChild("ArenaPlate"),
-		Mythlings      = workspace:WaitForChild("Mythlings"),
-		Bases          = workspace:WaitForChild("Bases"),
+		Arena = workspace:WaitForChild("Arena"),
+		ArenaPlate = workspace:WaitForChild("ArenaPlate"),
+		Mythlings = workspace:WaitForChild("Mythlings"),
+		Bases = workspace:WaitForChild("Bases"),
 		MythlingAssets = ServerStorage:WaitForChild("MythlingAssets"),
-		BaseAssets     = ServerStorage:WaitForChild("BaseAssets"),
-		Templates      = ReplicatedStorage:WaitForChild("Templates"),
+		BaseAssets = ServerStorage:WaitForChild("BaseAssets"),
+		Templates = ReplicatedStorage:WaitForChild("Templates"),
 	},
-	Config = {
-		Spawn             = require(ReplicatedStorage.Config:WaitForChild("Spawn")),
-		MythlingConfig    = require(ReplicatedStorage.Config:WaitForChild("MythlingConfig")),
-		MythlingMutations = require(ReplicatedStorage.Config:WaitForChild("MythlingMutations")),
-		Weapons           = require(ReplicatedStorage.Config:WaitForChild("Weapons")),
+	Metadata = {
+		MythlingsData = require(ReplicatedStorage.Metadata:WaitForChild("Mythlings")),
+		ResourcesData = require(ReplicatedStorage.Metadata:WaitForChild("Resources")),
+		SpawnsData = require(ReplicatedStorage.Metadata:WaitForChild("Spawns")),
+		WeaponsData = require(ReplicatedStorage.Metadata:WaitForChild("Weapons")),
 	},
-	Remotes 			  = {},
-	Services              = {},
+	Remotes = {},
+	Services = {},
 }
 
 -- Load remotes
@@ -69,7 +69,9 @@ end
 
 -- Hook existing + future players
 for _, plr in ipairs(Players:GetPlayers()) do
-	if plr.Character then onCharacter(plr.Character) end
+	if plr.Character then
+		onCharacter(plr.Character)
+	end
 	plr.CharacterAdded:Connect(onCharacter)
 end
 Players.PlayerAdded:Connect(function(plr)
@@ -80,9 +82,11 @@ end)
 -- Initialize & start services
 local ordered = {}
 for name, mod in pairs(services) do
-	table.insert(ordered, {name = name, mod = mod})
+	table.insert(ordered, { name = name, mod = mod })
 end
-table.sort(ordered, function(a, b) return a.name < b.name end)
+table.sort(ordered, function(a, b)
+	return a.name < b.name
+end)
 
 for _, s in ipairs(ordered) do
 	if type(s.mod.Init) == "function" then

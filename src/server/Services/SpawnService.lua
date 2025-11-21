@@ -2,9 +2,9 @@
 local SpawnService = {}
 
 -- Services
-local HttpService       = game:GetService("HttpService")
-local TweenService      = game:GetService("TweenService")
-local RunService        = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 
 --// Module State --------------------------------------------------------------
@@ -15,32 +15,32 @@ local Context = nil
 -- Service run flag and background threads
 local running = false
 local threads = {
-	spawn  = nil,
+	spawn = nil,
 	expire = nil,
 }
 
 -- Active mythlings by id
 -- entry = {
---   id: string, 
---   model: Model, 
+--   id: string,
+--   model: Model,
 --   zone: BasePart?,
 --   typeId: string,
 --   variantId: string,
---   rarity: string, 
+--   rarity: string,
 --   radius: number,
---   fillRate: number, 
+--   fillRate: number,
 --   drainRate: number,
 --   expireAt: number,
 --   state: "SPAWNED" | "CONTEST" | "CLAIMED" | "ESCORT" | "DESPAWNED",
 --   ownerUserId: number?,
 -- }
-local Active: {[string]: any} = {}
+local Active: { [string]: any } = {}
 
 -- Next spawn attempt time (randomized window)
 local nextSpawnAt = 0
 
--- rarity -> {typeId, ...} (built in Init from MythlingConfig + Spawn.RarityWeights)
-local TypesByRarity: {[string]: {string}} = {}
+-- rarity -> {typeId, ...} (built in Init from MythlingsData + Spawn.RarityWeights)
+local TypesByRarity: { [string]: { string } } = {}
 
 --// Small Utils ---------------------------------------------------------------
 
@@ -56,7 +56,7 @@ end
 
 --- Picks a key from a weighted table at random.
 --- Example: { common = 100, rare = 25, epic = 5 }
-local function pickWeighted(weights: {[string]: number}): string?
+local function pickWeighted(weights: { [string]: number }): string?
 	-- Calculate total weight
 	local total = 0
 	for _, weight in pairs(weights) do
@@ -114,7 +114,7 @@ local function randomPointInArena(arena: BasePart, usableR: number): Vector3?
 	for _ = 1, 64 do
 		local dx = (math.random() * 2 - 1) * usableR
 		local dz = (math.random() * 2 - 1) * usableR
-		if dx*dx + dz*dz <= r2 then
+		if dx * dx + dz * dz <= r2 then
 			return Vector3.new(center.X + dx, center.Y, center.Z + dz)
 		end
 	end
@@ -123,15 +123,15 @@ end
 
 --// Zone ---------------------------------------------------------------
 -- Radius is preserved; pivot still controls placement/orientation.
-local SPIN_DPS    = 45                 -- degrees/sec
+local SPIN_DPS = 45 -- degrees/sec
 
 local function makeZone(radius: number, pivot: CFrame): BasePart
-	-- Invisible host part: its bounding box drives the Disc radius. 
+	-- Invisible host part: its bounding box drives the Disc radius.
 	local zoneTemplate = Context.Instances.MythlingAssets:WaitForChild("Zone")
 	local zone = zoneTemplate:Clone()
 	zone.Size = Vector3.new(radius * 2, 0.001, radius * 2)
 	zone.CFrame = pivot + Vector3.new(0, 0, 0)
-	
+
 	-- tagging for client side
 	CollectionService:AddTag(zone, "MythlingZone")
 
@@ -140,26 +140,38 @@ local function makeZone(radius: number, pivot: CFrame): BasePart
 	local angle = 0
 	local hb
 	hb = RunService.Heartbeat:Connect(function(dt)
-		if not zone.Parent then if hb then hb:Disconnect() end; return end
+		if not zone.Parent then
+			if hb then
+				hb:Disconnect()
+			end
+			return
+		end
 		angle += math.rad(SPIN_DPS) * dt
 		zone.CFrame = baseCFrame * CFrame.Angles(0, angle, 0)
 	end)
-	zone.Destroying:Connect(function() if hb then hb:Disconnect() end end)
+	zone.Destroying:Connect(function()
+		if hb then
+			hb:Disconnect()
+		end
+	end)
 
 	return zone
 end
 
 --// Remote dispatch (centralized) ---------------------------------------------
-local function sendAll(action: string, payload: table)
+local function sendAll(action: string, payload: any)
 	local evt = Context.Remotes and Context.Remotes.SpawnEvent
-	if evt then evt:FireAllClients(action, payload) end
+	if evt then
+		evt:FireAllClients(action, payload)
+	end
 end
 
-local function sendTo(player: Player, action: string, payload: table)
+local function sendTo(player: Player, action: string, payload: any)
 	local evt = Context.Remotes and Context.Remotes.SpawnEvent
-	if evt then evt:FireClient(player, action, payload) end
+	if evt then
+		evt:FireClient(player, action, payload)
+	end
 end
-
 
 --// Mythling Creation / Destruction ------------------------------------------
 
@@ -198,7 +210,9 @@ end
 
 --- Destroys a mythling entry and its model safely.
 local function destroyEntry(e)
-	if not e then return end
+	if not e then
+		return
+	end
 	e.state = "DESPAWNED"
 	if e.model and e.model.Parent then
 		e.model:Destroy()
@@ -207,13 +221,17 @@ end
 
 --- Applies a visual variant by swapping SurfaceAppearance maps if present.
 local function applyVariant(model: Model, typeId: string, variantId: string)
-	local vtab = Context.Config.MythlingConfig[typeId].variants
+	local vtab = Context.Metadata.MythlingsData[typeId].variants
 	local def = vtab and vtab[variantId]
-	if not def then return end
+	if not def then
+		return
+	end
 
 	local variantsFolder = model:FindFirstChild("Variants")
 	local surface = variantsFolder and variantsFolder:FindFirstChild("regular")
-	if not surface then return end
+	if not surface then
+		return
+	end
 	local surf = surface:Clone()
 	surf.Parent = model:FindFirstChildWhichIsA("MeshPart")
 end
@@ -226,7 +244,9 @@ end
 local function chooseSpawnDef(cfg)
 	-- 1) roll rarity
 	local rarity = pickWeighted(cfg.RarityWeights)
-	if not rarity then return nil end
+	if not rarity then
+		return nil
+	end
 
 	-- 2) pick a typeId within that rarity
 	local list = TypesByRarity[rarity]
@@ -237,17 +257,19 @@ local function chooseSpawnDef(cfg)
 	local typeId = list[math.random(1, #list)]
 
 	-- 3) read stats for that type
-	local stats = Context.Config.MythlingConfig[typeId]
-	if not stats then return nil end
+	local stats = Context.Metadata.MythlingsData[typeId]
+	if not stats then
+		return nil
+	end
 
 	-- 4) compute expire seconds for this rarity
 	local expireSec = (cfg.ExpireSeconds and cfg.ExpireSeconds[rarity]) or cfg.DefaultExpireSeconds
 
 	return {
-		rarity    = rarity,
-		typeId    = typeId,
-		zoneRadius= stats.zoneRadius,
-		fillRate  = stats.fillRate,
+		rarity = rarity,
+		typeId = typeId,
+		zoneRadius = stats.zoneRadius,
+		fillRate = stats.fillRate,
 		drainRate = stats.drainRate,
 		displayName = stats.displayName,
 		expireSec = expireSec,
@@ -274,19 +296,19 @@ end
 local function registerMythling(model: Model, zone: BasePart, def, expireAt: number)
 	local id = guid()
 	local entry = {
-		id          = id,
+		id = id,
 		displayName = def.displayName,
-		model       = model,
-		zone        = zone,
-		typeId      = def.typeId,
-		rarity      = def.rarity,
-		radius      = def.zoneRadius,
-		fillRate    = def.fillRate,
-		drainRate   = def.drainRate,
-		expireAt    = expireAt,
-		state       = "SPAWNED",
+		model = model,
+		zone = zone,
+		typeId = def.typeId,
+		rarity = def.rarity,
+		radius = def.zoneRadius,
+		fillRate = def.fillRate,
+		drainRate = def.drainRate,
+		expireAt = expireAt,
+		state = "SPAWNED",
 		ownerUserId = nil,
-		variantId   = "regular",
+		variantId = "regular",
 	}
 	Active[id] = entry
 
@@ -301,30 +323,35 @@ end
 local function announceSpawn(id: string, def, model: Model, expireAt: number)
 	sendAll("Spawned", {
 		mythlingId = id,
-		typeId     = def.typeId,
-		rarity     = def.rarity,
-		variantId  = "regular",
-		expireAt   = expireAt,
+		typeId = def.typeId,
+		rarity = def.rarity,
+		variantId = "regular",
+		expireAt = expireAt,
 		zoneRadius = def.zoneRadius,
-		position   = model:GetPivot().Position,
+		position = model:GetPivot().Position,
 	})
 end
 
-
 local function spawnOne(): boolean
-	local cfg = Context.Config.Spawn
+	local cfg = Context.Metadata.SpawnsData
 
 	-- Step 1) choose rarity/type and stats
 	local def = chooseSpawnDef(cfg)
-	if not def then return false end
+	if not def then
+		return false
+	end
 
 	-- Step 2) find a valid position
 	local pos = findSpawnPosition(def.zoneRadius, cfg.ZonePadding, cfg.MaxPlacementTries)
-	if not pos then return false end
+	if not pos then
+		return false
+	end
 
 	-- Step 3) create model + zone
 	local model, zone = createMythlingModel(def.typeId, pos, def.zoneRadius)
-	if not (model and zone) then return false end
+	if not (model and zone) then
+		return false
+	end
 
 	-- Step 4) apply variant (regular for now)
 	applyVariant(model, def.typeId, "regular")
@@ -345,11 +372,17 @@ local function despawnExpired(t: number)
 		if e.state ~= "DESPAWNED" and (e.state == "SPAWNED" or e.state == "CONTEST") then
 			if t >= e.expireAt then
 				-- send event to clients for expired mythlings
-				sendAll("Expired", {mythling = id})
-				if Context.Services and Context.Services.ClaimService and Context.Services.ClaimService.OnMythlingRemoved then
+				sendAll("Expired", { mythling = id })
+				if
+					Context.Services
+					and Context.Services.ClaimService
+					and Context.Services.ClaimService.OnMythlingRemoved
+				then
 					Context.Services.ClaimService.OnMythlingRemoved(id)
 				end
-				if e.model and e.model.Parent then e.model:Destroy() end
+				if e.model and e.model.Parent then
+					e.model:Destroy()
+				end
 				Active[id] = nil
 			end
 		end
@@ -377,7 +410,9 @@ end
 --- Find the winner's base anchor (by UserId) or return nil.
 local function findBaseAnchor(winner: Player): BasePart?
 	local bases = Context.Instances.Bases
-	if not bases then return nil end
+	if not bases then
+		return nil
+	end
 
 	local baseModel = bases:FindFirstChild(tostring(winner.UserId))
 	if not (baseModel and baseModel:IsA("Model")) then
@@ -435,18 +470,24 @@ function SpawnService.Init(context)
 	Context = context
 	math.randomseed(tick() % 1 * 1e7)
 
-	local weights = Context.Config.Spawn.RarityWeights or {}
+	local weights = Context.Metadata.SpawnsData.RarityWeights or {}
 
-	for typeId, def in pairs(Context.Config.MythlingConfig) do
+	for typeId, def in pairs(Context.Metadata.MythlingsData) do
 		local rarity = def.rarity
 		if rarity and weights[rarity] ~= nil then
 			TypesByRarity[rarity] = TypesByRarity[rarity] or {}
 			table.insert(TypesByRarity[rarity], typeId)
 		else
 			if rarity == nil then
-				warn("[SpawnService] MythlingConfig.", typeId, " is missing a string rarity")
+				warn("[SpawnService] MythlingsData.", typeId, " is missing a string rarity")
 			elseif weights[def.rarity] == nil then
-				warn("[SpawnService] Rarity '", def.rarity, "' on typeId '", typeId, "' has no weight in Spawn.RarityWeights")
+				warn(
+					"[SpawnService] Rarity '",
+					def.rarity,
+					"' on typeId '",
+					typeId,
+					"' has no weight in Spawn.RarityWeights"
+				)
 			end
 		end
 	end
@@ -455,10 +496,12 @@ end
 
 --- Starts the spawn/expire pumps. Spawns at most one mythling per tick (no prefill).
 function SpawnService.Start()
-	if running then return end
+	if running then
+		return
+	end
 	running = true
 
-	local cfg = Context.Config.Spawn
+	local cfg = Context.Metadata.SpawnsData
 	nextSpawnAt = math.random(cfg.SpawnIntervalMin, cfg.SpawnIntervalMax)
 
 	-- Spawn pump
@@ -472,7 +515,9 @@ function SpawnService.Start()
 			-- Count current live
 			local live = 0
 			for _, e in pairs(Active) do
-				if e.state ~= "DESPAWNED" then live += 1 end
+				if e.state ~= "DESPAWNED" then
+					live += 1
+				end
 			end
 
 			if live < target and currTime >= nextSpawnAt then
@@ -507,17 +552,19 @@ end
 --- Called after a mythling is claimed and saved (winner decided).
 function SpawnService.OnClaimed(mythlingId: string, winner: Player, instanceId: string)
 	local e = Active[mythlingId]
-	if not e or e.state == "DESPAWNED" then return end
+	if not e or e.state == "DESPAWNED" then
+		return
+	end
 
 	-- 1) mark state/owner, remove zone
 	markClaimed(e, winner)
 	removeZoneIfAny(e)
 	-- 2) notify all clients about the claim
-	sendAll("Claimed", { 
-		mythlingId   = mythlingId,
+	sendAll("Claimed", {
+		mythlingId = mythlingId,
 		winnerUserId = winner.UserId,
-		instanceId   = instanceId,
-		displayName  = e.displayName,
+		instanceId = instanceId,
+		displayName = e.displayName,
 	})
 
 	-- 3) escort to base if possible, otherwise cleanup shortly
