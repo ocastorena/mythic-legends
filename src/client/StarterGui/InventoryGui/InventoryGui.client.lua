@@ -9,9 +9,9 @@ local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitFor
 
 -- Remotes
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local InventoryEvent = Remotes.InventoryEvent
+local MythlingsEvent = Remotes.MythlingsEvent
 local baseEvent = Remotes.BaseEvent
-local InventoryRequest = Remotes.InventoryRequest
+local MythlingsRequest = Remotes.MythlingsRequest
 
 -- Inventory GUI Components
 local player = Players.LocalPlayer
@@ -95,7 +95,7 @@ local function setMythlingButtons()
 			return
 		end
 		local id = selectedMythlingCard.Name
-		InventoryEvent:FireServer("Delete", id)
+		MythlingsEvent:FireServer("Delete", id)
 		clearMythlingInfo()
 
 		-- get next mythling card in mythlingCards
@@ -121,19 +121,20 @@ local function showMythlingInfo()
 	if not selectedMythlingCard then
 		return
 	end
-	mythlingInfo.NameLabel.Text = mythlingCardsData[selectedMythlingCard.Name].displayName
-	mythlingInfo.VariantLabel.Text = mythlingCardsData[selectedMythlingCard.Name].rarity
-	mythlingInfo.DescriptionLabel.Text = MythlingsData[mythlingCardsData[selectedMythlingCard.Name].typeId].description
+	local mythlingMetadata = MythlingsData[mythlingCardsData[selectedMythlingCard.Name].typeId]
+	mythlingInfo.NameLabel.Text = mythlingMetadata.displayName
+	mythlingInfo.VariantLabel.Text = mythlingMetadata.rarity
+	mythlingInfo.DescriptionLabel.Text = mythlingMetadata.description
 end
 
-local function createMythlingCard(mythlingData)
+local function createMythlingCard(mythlingId, mythlingEntry)
 	local newCard = mythlingCardTemplate:Clone()
-	newCard.Name = mythlingData.id
+	newCard.Name = mythlingId
 	newCard.Parent = mythlingsFrame
 	newCard.Visible = true
 	newCard.LayoutOrder = 1
 	newCard:WaitForChild("2dPreview").Image =
-		MythlingsData[mythlingData.typeId].variants[mythlingData.variantId].thumbnail
+		MythlingsData[mythlingEntry.typeId].variants[mythlingEntry.variantId].thumbnail
 	newCard.Activated:Connect(function()
 		selectCard(newCard)
 		showMythlingInfo()
@@ -141,13 +142,13 @@ local function createMythlingCard(mythlingData)
 	return newCard
 end
 
-local function addMythlingCard(mythlingData)
-	if mythlingCards[mythlingData.id] then
+local function addMythlingCard(mythlingId, mythlingEntry)
+	if mythlingCards[mythlingId] then
 		return
 	end
-	local newCard = createMythlingCard(mythlingData)
-	mythlingCards[mythlingData.id] = newCard
-	mythlingCardsData[mythlingData.id] = mythlingData
+	local newCard = createMythlingCard(mythlingId, mythlingEntry)
+	mythlingCards[mythlingId] = newCard
+	mythlingCardsData[mythlingId] = mythlingEntry
 	if not selectedMythlingCard then
 		selectCard(newCard)
 		showMythlingInfo()
@@ -156,8 +157,8 @@ end
 
 local function addMythlingsCards(list)
 	clearCards()
-	for _, mythling in pairs(list) do
-		addMythlingCard(mythling)
+	for mythlingId, mythlingEntry in pairs(list) do
+		addMythlingCard(mythlingId, mythlingEntry)
 	end
 end
 
@@ -191,7 +192,7 @@ local function selectTab(tab)
 	end
 end
 
-InventoryEvent.OnClientEvent:Connect(function(event, list)
+MythlingsEvent.OnClientEvent:Connect(function(event, list)
 	if event == "Update" then
 		addMythlingsCards(list)
 	end
@@ -208,7 +209,7 @@ end)
 inventoryBtn.Activated:Connect(function()
 	if not inventoryGui.Enabled then
 		backgroundGui.Enabled = true
-		addMythlingsCards(InventoryRequest:InvokeServer("getMythlings"))
+		addMythlingsCards(MythlingsRequest:InvokeServer("getMythlings"))
 		selectTab(mythlingsTab)
 		inventoryGui.Enabled = true
 	else

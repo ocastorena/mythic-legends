@@ -1,50 +1,76 @@
--- ServerScriptService/Systems/DataService
--- Minimal, robust DataService for per-player persistent data.
--- API:
---   DataService.Init()
---   DataService.LoadPlayerDoc(player) -> doc table (cached)
---   DataService.GetSection(player, sectionName: string) -> table (auto-creates)
---   DataService.SetSection(player, sectionName: string, value: table) -> ()
---   DataService.SaveNow(player) -> ()
---   DataService.WipeAsync(player) -> ()   -- Dev utility: clears persistent + cache
+-- ServerScriptService/Services/DataService
 --
 -- Notes:
 -- - Uses UpdateAsync behind a small retry helper (pcall + backoff) per Roblox guidance.
--- - Saves on PlayerRemoving and BindToClose. (Don’t yield long in those hooks.) 
+-- - Saves on PlayerRemoving and BindToClose. (Don’t yield long in those hooks.)
 -- - No autosave loop by design.
 
-local Players            = game:GetService("Players")
-local DataStoreService   = game:GetService("DataStoreService")
+-- schema example
+-- {
+--     version = 1.4, -- instead of "_v"
+--     profile = {
+--         userId = 123,
+--         createdAt = 1710000000,
+--         lastLoginAt = 1711000000,
+--     },
+--     currency = {
+--         coins = 0,
+--         gems = 0,
+--         // add more as needed
+--     },
+--     resources = {
+--         crystal = { total = 90 },       -- resourceId matches Resources metadata key
+--         essence = { total = 0 },
+--     },
+--     items = {
+--         -- keyed by item instance id if they’re unique; otherwise by itemId with counts
+--         -- ["itm_abc123"] = { itemId = "potion_small", quantity = 2 }
+--     },
+--     mythlings = {
+--         ["myth_1763253150c04d"] = {
+--             typeId = "dragon",  -- matches Mythlings metadata key
+--             variantId = "regular",
+--             standId = 1,
+--             claimedAt = 1763253150,
+--             lastCollectionAt = 1763234322.350362,
+--         },
+--         -- more...
+--     },
+--     stands = {
+--         -- if you track stand/base state; otherwise drop this
+--         -- [1] = { mythlingInstanceId = "myth_1763253150c04d", slotState = "occupied" }
+--     },
+--     flags = {
+--         tutorialCompleted = true,
+--     },
+-- }
 
-local KEYSPACE           = "Mythica_PlayerDoc_v1" -- bump when schema changes
-local STORE              = DataStoreService:GetDataStore(KEYSPACE)
-local MAX_RETRIES        = 3           -- light retry for transient DS errors
-local BACKOFF_BASE_SEC   = 0.15        -- 0.15, 0.30, 0.60...
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+
+local KEYSPACE = "Mythic_Legends_PlayerDoc_v1"
+local STORE = DataStoreService:GetDataStore(KEYSPACE)
+local MAX_RETRIES = 3 -- light retry for transient DS errors
+local BACKOFF_BASE_SEC = 0.15 -- 0.15, 0.30, 0.60...
 -- Top-level document schema (add sections as you grow your game)
 local DEFAULT_DOC = {
-	_v = 1.4,
-	base = {          -- base-related persistent data
-		stands = {
-			[1] = "",
-			[2] = "",
-			[3] = "",
-			[4] = "",
-			[5] = "",
-			[6] = "",
-		},
-	},
-	mythlings = {},        -- array of saved mythlings
+	version = 1.0,
+	profile = {},
+	mythlings = {}, -- array of saved mythlings
 	resources = {},
-	items     = {},
-	currency  = {},
+	items = {},
+	currency = {},
 }
 
 -- In-memory cache: uid -> doc table
-local _docs: {[number]: any} = {}
+local _docs: { [number]: any } = {}
+local _loading = {}
 
 -- ====== Utilities ======
 local function deepClone(t)
-	if type(t) ~= "table" then return t end
+	if type(t) ~= "table" then
+		return t
+	end
 	local c = {}
 	for k, v in pairs(t) do
 		c[k] = (type(v) == "table") and deepClone(v) or v
@@ -60,7 +86,9 @@ local function withRetry(fn)
 	local ok, res
 	for i = 1, MAX_RETRIES do
 		ok, res = pcall(fn)
-		if ok then return true, res end
+		if ok then
+			return true, res
+		end
 		backoff(i)
 	end
 	return false, res
@@ -73,7 +101,7 @@ local function loadPlayerDoc(userId: number)
 	end)
 
 	local doc = ok and result or nil
-	if doc and doc._v < DEFAULT_DOC._v then
+	if doc and doc.version ~= DEFAULT_DOC.version then
 		doc = deepClone(DEFAULT_DOC)
 	else
 		doc = doc or deepClone(DEFAULT_DOC)
@@ -82,15 +110,25 @@ local function loadPlayerDoc(userId: number)
 	_docs[userId] = doc
 end
 
-local function getPlayerDoc(userId: number): any
+local function getPlayerDoc(userId)
 	if _docs[userId] then
 		print("[DataService] From cache:", _docs[userId])
-		return _docs[userId] 
-	else 
-		loadPlayerDoc(userId)
-		print("[DataService] From dataStore:", _docs[userId])
-		return _docs[userId] 
+		return _docs[userId]
 	end
+
+	if _loading[userId] then
+		repeat
+			task.wait()
+		until not _loading[userId]
+		return _docs[userId]
+	end
+
+	_loading[userId] = true
+	loadPlayerDoc(userId) -- sets _docs[userId]
+	_loading[userId] = nil
+
+	print("[DataService] From dataStore:", _docs[userId])
+	return _docs[userId]
 end
 
 -- ====== Module ======
@@ -109,19 +147,14 @@ function DataService.GetSection(player: Player, sectionName: string)
 	return section
 end
 
--- Set a named top-level section table.
-function DataService.SetSection(player: Player, sectionName: string, value)
-	assert(type(sectionName) == "string" and sectionName ~= "", "sectionName must be a non-empty string")
-	assert(type(value) == "table", "SetSection expects a table value")
-	local doc = getPlayerDoc(player.UserId)
-	doc[sectionName] = value
-end
-
 -- Save the current cached snapshot immediately
 function DataService.SaveNow(player: Player)
 	local userId = player.UserId
 	local doc = _docs[userId]
-	if not doc then return end
+	print("doc:", doc)
+	if not doc then
+		return
+	end
 	local snapshot = deepClone(doc)
 
 	withRetry(function()
@@ -142,7 +175,7 @@ end
 
 -- Initialize hooks once; call from a server bootstrapper.
 function DataService.Init()
-	-- Save on leave (recommended hook for per-player saves). 
+	-- Save on leave (recommended hook for per-player saves).
 	Players.PlayerRemoving:Connect(function(player)
 		DataService.SaveNow(player)
 		_docs[player.UserId] = nil
@@ -154,6 +187,8 @@ function DataService.Init()
 			DataService.SaveNow(player)
 		end
 	end)
+
+	print("[DataService] Initialized")
 end
 
 return DataService

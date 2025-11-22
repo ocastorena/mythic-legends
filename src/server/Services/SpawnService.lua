@@ -12,6 +12,8 @@ local CollectionService = game:GetService("CollectionService")
 -- Context passed from Bootstrap (holds Config, Instances, Remotes, etc.)
 local Context = nil
 
+local MythlingsData = nil
+
 -- Service run flag and background threads
 local running = false
 local threads = {
@@ -179,7 +181,7 @@ end
 --- Returns (model, zone) or (nil, nil) on failure.
 local function createMythlingModel(typeId: string, position: Vector3, zoneRadius: number): (Model?, BasePart?)
 	local mythlings = Context.Instances.MythlingAssets
-	local template = mythlings and mythlings:FindFirstChild(typeId)
+	local template = mythlings and mythlings:FindFirstChild(MythlingsData[typeId].variants["regular"].model)
 	if not (template and template:IsA("Model")) then
 		warn("[SpawnService] Missing base model for typeId:", typeId)
 		return nil, nil
@@ -468,6 +470,8 @@ end
 --- Builds rarity->typeId lookup from Config and seeds RNG.
 function SpawnService.Init(context)
 	Context = context
+	MythlingsData = context.Metadata.MythlingsData
+
 	math.randomseed(tick() % 1 * 1e7)
 
 	local weights = Context.Metadata.SpawnsData.RarityWeights or {}

@@ -1,8 +1,8 @@
 return {
-	Bat = {
-		HitType = "Knockback",
-		HitDuration = 2, -- seconds
-		HoriForce = 60,
-		VertForce = 60,
+	bat = {
+		hitType = "Knockback",
+		hitDuration = 2, -- seconds
+		horiForce = 60,
+		vertForce = 60,
 	},
 }

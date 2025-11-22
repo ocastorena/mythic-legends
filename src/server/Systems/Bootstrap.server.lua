@@ -47,6 +47,8 @@ Context.Services = services
 
 -- === Disable climbing globally (server-side) ===
 local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
+local DataService = require(ServerScriptService.Services.DataService)
 
 local function guardHumanoid(hum: Humanoid)
 	-- Do not allow entering the Climbing state at all
@@ -67,16 +69,14 @@ local function onCharacter(char: Model)
 	end
 end
 
--- Hook existing + future players
+-- Hook existing
 for _, plr in ipairs(Players:GetPlayers()) do
 	if plr.Character then
 		onCharacter(plr.Character)
 	end
 	plr.CharacterAdded:Connect(onCharacter)
 end
-Players.PlayerAdded:Connect(function(plr)
-	plr.CharacterAdded:Connect(onCharacter)
-end)
+
 -- === end disable climbing ===
 
 -- Initialize & start services
@@ -99,6 +99,19 @@ for _, s in ipairs(ordered) do
 		s.mod.Start()
 	end
 end
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(onCharacter)
+	local profile = DataService.GetSection(player, "profile")
+	if not profile.userId then
+		profile.userId = player.UserId
+	end
+	if not profile.createdAt then
+		profile.createdAt = os.time()
+	end
+
+	profile.lastLoginAt = os.time()
+end)
 
 -- Cleanup on shutdown
 game:BindToClose(function()

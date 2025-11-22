@@ -10,7 +10,7 @@ local TweenService = game:GetService("TweenService")
 
 --// Modules
 local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
-local MythlingData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
+local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 
 --// Player/UI roots
 local localPlayer = Players.LocalPlayer
@@ -29,11 +29,10 @@ local mythlingCardTemplate = mythlingScrollFrame:WaitForChild("CardTemplate") ::
 local mythlingInfoFrame = mythlingsFolder:WaitForChild("Info")
 
 --// Remotes
-local InventoryRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("InventoryRequest")
-local inventoryEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("InventoryEvent")
+local MythlingsRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsRequest")
+local MythlingsEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsEvent")
 local baseEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BaseEvent")
-local ProductionEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ProductionEvent")
-local ProductionRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ProductionRequest")
+local MythlingsRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsRequest")
 
 --// UI palette (unchanged colors, standardized names)
 local COLOR_CARD_DESELECT = Color3.fromRGB(29, 31, 37)
@@ -44,7 +43,7 @@ local COLOR_CARD_ACTIVE = Color3.fromRGB(255, 212, 121)
 local standId: any = nil
 -- Map: mythlingId -> card Instance
 local mythlingCards: { [string]: Instance } = {}
--- Map: mythlingId -> mythlingData table
+-- Map: mythlingId -> MythlingsData table
 local mythlingCardData: { [string]: any } = {}
 -- Selection state
 local selectedCard: ImageButton? = nil
@@ -168,15 +167,15 @@ local function showMythlingInfo(): ()
 
 	mythlingInfoFrame.NameLabel.Text = data.displayName
 	mythlingInfoFrame.VariantLabel.Text = data.rarity
-	mythlingInfoFrame.DescriptionLabel.Text = MythlingData[data.typeId].description
+	mythlingInfoFrame.DescriptionLabel.Text = MythlingsData[data.typeId].description
 
-	local response = ProductionRequest:InvokeServer("GetProduction", { mythlingId = id })
+	local response = MythlingsRequest:InvokeServer("GetProduction", { mythlingId = id })
 
-	local resource = MythlingData[data.typeId].production.resource
+	local resource = MythlingsData[data.typeId].production.resource
 	local production = response.production or 0
 	local rate = response.rate or 0
 	local capacity = response.capacity or 0
-	local color = MythlingData[data.typeId].production.guiColor
+	local color = MythlingsData[data.typeId].production.guiColor
 	mythlingInfoFrame.ResourceLabel.Text = resource
 	mythlingInfoFrame.ResourceLabel.TextColor3 = Color3.fromHex(color)
 	if production > 0 then
@@ -194,7 +193,7 @@ local function createMythlingCard(data: any): ImageButton
 	newCard.LayoutOrder = 1
 
 	newCard.NameLabel.Text = data.displayName
-	newCard:WaitForChild("2dPreview").Image = MythlingData[data.typeId].variants[data.variantId].thumbnail
+	newCard:WaitForChild("2dPreview").Image = MythlingsData[data.typeId].variants[data.variantId].thumbnail
 
 	-- If this mythling is already on this stand, mark it as active (gold).
 	if data.standId == standId then
@@ -252,7 +251,7 @@ mythlingInfoFrame.CollectButton.Activated:Connect(function()
 		return
 	end
 	if productionValue.Value > 0 then
-		ProductionRequest:InvokeServer("CollectProduction", { mythlingId = activeCard.Name })
+		MythlingsRequest:InvokeServer("CollectProduction", { mythlingId = activeCard.Name })
 		showMythlingInfo()
 	end
 end)
@@ -303,7 +302,7 @@ mythlingInfoFrame.RemoveButton.Activated:Connect(function()
 end)
 
 -- Inventory updates from server
-inventoryEvent.OnClientEvent:Connect(function(ev, list)
+MythlingsEvent.OnClientEvent:Connect(function(ev, list)
 	if ev == "Update" then
 		addMythlingCards(list)
 	end
@@ -330,7 +329,7 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 
 	standId = grandparent:GetAttribute("Id")
 	standLabel.Text = "Stand #" .. tostring(standId)
-	local list = InventoryRequest:InvokeServer("getMythlings")
+	local list = MythlingsRequest:InvokeServer("getMythlings")
 	InputGuard.open()
 	addMythlingCards(list)
 	showMythlingInfo()

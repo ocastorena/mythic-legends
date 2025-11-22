@@ -40,8 +40,8 @@ local function handleCombatEvent(player: Player, action: string?, payload: any?)
 			-- Tell the target client to impulse (mass*Δv) + ragdoll
 			CombatEvent:FireClient(targetPlayer, "HitResponse", {
 				deltaV = deltaV,
-				hitType = WeaponsData[weaponName].HitType,
-				hitDuration = WeaponsData[weaponName].HitDuration,
+				hitType = WeaponsData[weaponName].hitType,
+				hitDuration = WeaponsData[weaponName].hitDuration,
 			})
 		end
 	end
