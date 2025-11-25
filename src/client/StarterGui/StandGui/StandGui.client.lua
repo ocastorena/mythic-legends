@@ -1,12 +1,11 @@
 -- StarterGui/StandGui/StandGui.lua
--- Refactor: readability, consistent naming, comments, Luau-friendly layout.
--- NOTE: Behavior intentionally unchanged.
 
 --// Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
 
 --// Modules
 local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
@@ -16,18 +15,18 @@ local ResourcesMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitFor
 --// Player/UI roots
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
+local backgroundGui = playerGui.Background
 
 -- ScreenGui + major frames
 local standGui = playerGui:WaitForChild("StandGui")
 local mainFrame = standGui:WaitForChild("Main")
-local standLabel = mainFrame:WaitForChild("StandLabel")
-local closeButton = mainFrame:WaitForChild("CloseButton")
-local mythlingsFolder = mainFrame:WaitForChild("Mythlings")
+local standLabel = mainFrame.Tabs.StandLabel
+-- local closeButton = mainFrame:WaitForChild("CloseButton")
 
 -- Mythling list + template + info panel
-local mythlingScrollFrame = mythlingsFolder:WaitForChild("ScrollingFrame")
+local mythlingScrollFrame = mainFrame.MythlingsFrame
 local mythlingCardTemplate = mythlingScrollFrame:WaitForChild("CardTemplate") :: ImageButton
-local mythlingInfoFrame = mythlingsFolder:WaitForChild("Info")
+local mythlingInfoFrame = mainFrame:WaitForChild("MythlingInfo")
 
 --// Remotes
 local MythlingsRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsRequest")
@@ -99,8 +98,8 @@ end
 --- Resets info panel and active selection visuals.
 local function clearInfo(): ()
 	mythlingInfoFrame.NameLabel.Text = "None"
-	mythlingInfoFrame.VariantLabel.Text = ""
-	mythlingInfoFrame.DescriptionLabel.Text = ""
+	mythlingInfoFrame.ResourceLabel.Text = ""
+	mythlingInfoFrame.ProductionLabel.Text = ""
 	activeCard = nil
 end
 
@@ -167,8 +166,6 @@ local function showMythlingInfo(): ()
 
 	local metadata = MythlingsMeta[data.typeId]
 	mythlingInfoFrame.NameLabel.Text = metadata.displayName
-	mythlingInfoFrame.VariantLabel.Text = metadata.rarity
-	mythlingInfoFrame.DescriptionLabel.Text = metadata.description
 
 	local response = MythlingsRequest:InvokeServer("GetProduction", { mythlingId = id })
 
@@ -194,7 +191,6 @@ local function createMythlingCard(mythlingId, data: any): ImageButton
 	newCard.LayoutOrder = 1
 
 	local metadata = MythlingsMeta[data.typeId]
-	newCard.NameLabel.Text = metadata.displayName
 	newCard:WaitForChild("2dPreview").Image = metadata.variants[data.variantId].thumbnail
 
 	-- If this mythling is already on this stand, mark it as active (gold).
@@ -248,61 +244,61 @@ standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	end
 end)
 
-mythlingInfoFrame.CollectButton.Activated:Connect(function()
-	if not activeCard then
-		return
-	end
-	if productionValue.Value > 0 then
-		MythlingsRequest:InvokeServer("CollectProduction", { mythlingId = activeCard.Name })
-		showMythlingInfo()
-	end
-end)
+-- mythlingInfoFrame.CollectButton.Activated:Connect(function()
+-- 	if not activeCard then
+-- 		return
+-- 	end
+-- 	if productionValue.Value > 0 then
+-- 		MythlingsRequest:InvokeServer("CollectProduction", { mythlingId = activeCard.Name })
+-- 		showMythlingInfo()
+-- 	end
+-- end)
 
 -- Add button: place selected on this stand
-mythlingInfoFrame.AddButton.Activated:Connect(function()
-	if not selectedCard then
-		return
-	end
-	local mythlingId = selectedCard.Name
-	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = mythlingId })
-	activeCard = selectedCard
-	updateInfoButtons()
-	showMythlingInfo()
-end)
+-- mythlingInfoFrame.AddButton.Activated:Connect(function()
+-- 	if not selectedCard then
+-- 		return
+-- 	end
+-- 	local mythlingId = selectedCard.Name
+-- 	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = mythlingId })
+-- 	activeCard = selectedCard
+-- 	updateInfoButtons()
+-- 	showMythlingInfo()
+-- end)
 
 -- Switch button: remove current, then place selected
-mythlingInfoFrame.SwitchButton.Activated:Connect(function()
-	if not selectedCard then
-		return
-	end
-	local placeMythlingId = selectedCard.Name
-	local removeMythlingId = activeCard and activeCard.Name
-	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = removeMythlingId })
-	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = placeMythlingId })
+-- mythlingInfoFrame.SwitchButton.Activated:Connect(function()
+-- 	if not selectedCard then
+-- 		return
+-- 	end
+-- 	local placeMythlingId = selectedCard.Name
+-- 	local removeMythlingId = activeCard and activeCard.Name
+-- 	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = removeMythlingId })
+-- 	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = placeMythlingId })
 
-	if activeCard then
-		activeCard.BackgroundColor3 = COLOR_CARD_DESELECT
-	end
-	activeCard = selectedCard
-	if activeCard then
-		activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
-	end
-	updateInfoButtons()
-	showMythlingInfo()
-end)
+-- 	if activeCard then
+-- 		activeCard.BackgroundColor3 = COLOR_CARD_DESELECT
+-- 	end
+-- 	activeCard = selectedCard
+-- 	if activeCard then
+-- 		activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
+-- 	end
+-- 	updateInfoButtons()
+-- 	showMythlingInfo()
+-- end)
 
 -- Remove button: remove the currently active mythling from this stand
-mythlingInfoFrame.RemoveButton.Activated:Connect(function()
-	if not activeCard then
-		return
-	end
-	local mythlingId = activeCard.Name
-	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = mythlingId })
-	activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
-	activeCard = nil
-	updateInfoButtons()
-	showMythlingInfo()
-end)
+-- mythlingInfoFrame.RemoveButton.Activated:Connect(function()
+-- 	if not activeCard then
+-- 		return
+-- 	end
+-- 	local mythlingId = activeCard.Name
+-- 	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = mythlingId })
+-- 	activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
+-- 	activeCard = nil
+-- 	updateInfoButtons()
+-- 	showMythlingInfo()
+-- end)
 
 -- Inventory updates from server
 MythlingsEvent.OnClientEvent:Connect(function(ev, list)
@@ -312,11 +308,11 @@ MythlingsEvent.OnClientEvent:Connect(function(ev, list)
 end)
 
 -- Close button
-closeButton.Activated:Connect(function()
-	clearCards()
-	clearInfo()
-	standGui.Enabled = false
-end)
+-- closeButton.Activated:Connect(function()
+-- 	clearCards()
+-- 	clearInfo()
+-- 	standGui.Enabled = false
+-- end)
 
 --//////////////////////////////////////////////////////////////////////////////////////////////////
 -- Proximity prompt -> open Stand GUI
@@ -333,8 +329,22 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 	standId = grandparent:GetAttribute("Id")
 	standLabel.Text = "Stand #" .. tostring(standId)
 	local list = MythlingsRequest:InvokeServer("getMythlings")
-	InputGuard.open()
+
 	addMythlingCards(list)
 	showMythlingInfo()
+
+	backgroundGui.Enabled = true
 	standGui.Enabled = true
+end)
+
+backgroundGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+	if backgroundGui.Enabled then
+		-- ScreenGui just got enabled → block inputs
+		InputGuard.open()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+	else
+		-- ScreenGui just got disabled → allow inputs
+		InputGuard.close()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
+	end
 end)
