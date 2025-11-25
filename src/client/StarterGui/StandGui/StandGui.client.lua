@@ -10,7 +10,8 @@ local TweenService = game:GetService("TweenService")
 
 --// Modules
 local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
-local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
+local MythlingsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
+local ResourcesMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Resources"))
 
 --// Player/UI roots
 local localPlayer = Players.LocalPlayer
@@ -32,7 +33,6 @@ local mythlingInfoFrame = mythlingsFolder:WaitForChild("Info")
 local MythlingsRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsRequest")
 local MythlingsEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsEvent")
 local baseEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BaseEvent")
-local MythlingsRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsRequest")
 
 --// UI palette (unchanged colors, standardized names)
 local COLOR_CARD_DESELECT = Color3.fromRGB(29, 31, 37)
@@ -43,7 +43,7 @@ local COLOR_CARD_ACTIVE = Color3.fromRGB(255, 212, 121)
 local standId: any = nil
 -- Map: mythlingId -> card Instance
 local mythlingCards: { [string]: Instance } = {}
--- Map: mythlingId -> MythlingsData table
+-- Map: mythlingId -> MythlingsMeta table
 local mythlingCardData: { [string]: any } = {}
 -- Selection state
 local selectedCard: ImageButton? = nil
@@ -165,19 +165,20 @@ local function showMythlingInfo(): ()
 		return
 	end
 
-	mythlingInfoFrame.NameLabel.Text = data.displayName
-	mythlingInfoFrame.VariantLabel.Text = data.rarity
-	mythlingInfoFrame.DescriptionLabel.Text = MythlingsData[data.typeId].description
+	local metadata = MythlingsMeta[data.typeId]
+	mythlingInfoFrame.NameLabel.Text = metadata.displayName
+	mythlingInfoFrame.VariantLabel.Text = metadata.rarity
+	mythlingInfoFrame.DescriptionLabel.Text = metadata.description
 
 	local response = MythlingsRequest:InvokeServer("GetProduction", { mythlingId = id })
 
-	local resource = MythlingsData[data.typeId].production.resource
+	local resourceId = metadata.production.resourceId
+	local resourceMeta = ResourcesMeta[resourceId]
 	local production = response.production or 0
 	local rate = response.rate or 0
 	local capacity = response.capacity or 0
-	local color = MythlingsData[data.typeId].production.guiColor
-	mythlingInfoFrame.ResourceLabel.Text = resource
-	mythlingInfoFrame.ResourceLabel.TextColor3 = Color3.fromHex(color)
+	mythlingInfoFrame.ResourceLabel.Text = resourceMeta.displayName
+	mythlingInfoFrame.ResourceLabel.TextColor3 = Color3.fromHex(resourceMeta.guiColor)
 	if production > 0 then
 		mythlingInfoFrame.CollectButton.Visible = true
 	end
@@ -185,15 +186,16 @@ local function showMythlingInfo(): ()
 end
 
 --- Creates a visual card for a mythling and wires selection behavior.
-local function createMythlingCard(data: any): ImageButton
+local function createMythlingCard(mythlingId, data: any): ImageButton
 	local newCard = mythlingCardTemplate:Clone()
-	newCard.Name = data.id
+	newCard.Name = mythlingId
 	newCard.Parent = mythlingScrollFrame
 	newCard.Visible = true
 	newCard.LayoutOrder = 1
 
-	newCard.NameLabel.Text = data.displayName
-	newCard:WaitForChild("2dPreview").Image = MythlingsData[data.typeId].variants[data.variantId].thumbnail
+	local metadata = MythlingsMeta[data.typeId]
+	newCard.NameLabel.Text = metadata.displayName
+	newCard:WaitForChild("2dPreview").Image = metadata.variants[data.variantId].thumbnail
 
 	-- If this mythling is already on this stand, mark it as active (gold).
 	if data.standId == standId then
@@ -213,23 +215,23 @@ local function createMythlingCard(data: any): ImageButton
 end
 
 --- Adds a single mythling card to the list (idempotent by id).
-local function addMythlingCard(data: any): ()
-	if mythlingCards[data.id] then
+local function addMythlingCard(mythlingId, data: any): ()
+	if mythlingCards[mythlingId] then
 		return
 	end
-	if data.standId > -1 and data.standId ~= standId then
+	if data.standId and data.standId ~= standId then
 		return
 	end
-	local card = createMythlingCard(data)
-	mythlingCards[data.id] = card
-	mythlingCardData[data.id] = data
+	local card = createMythlingCard(mythlingId, data)
+	mythlingCards[mythlingId] = card
+	mythlingCardData[mythlingId] = data
 end
 
 --- Rebuilds the card list from a server-provided array.
 local function addMythlingCards(list: { any }): ()
 	clearCards()
-	for _, mythling in pairs(list) do
-		addMythlingCard(mythling)
+	for mythlingId, entry in pairs(list) do
+		addMythlingCard(mythlingId, entry)
 	end
 end
 
@@ -273,9 +275,10 @@ mythlingInfoFrame.SwitchButton.Activated:Connect(function()
 	if not selectedCard then
 		return
 	end
-	local mythlingId = selectedCard.Name
-	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = mythlingId })
-	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = mythlingId })
+	local placeMythlingId = selectedCard.Name
+	local removeMythlingId = activeCard and activeCard.Name
+	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = removeMythlingId })
+	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = placeMythlingId })
 
 	if activeCard then
 		activeCard.BackgroundColor3 = COLOR_CARD_DESELECT

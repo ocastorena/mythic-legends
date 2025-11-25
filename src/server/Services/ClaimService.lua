@@ -237,7 +237,7 @@ function ClaimService.Init(context)
 	ClaimEvent = context.Remotes.ClaimEvent
 	SpawnService = context.Services.SpawnService
 	MythlingsService = context.Services.MythlingsService
-	MythlingsData = context.Metadata.MythlingsData
+	MythlingsData = context.Metadata.Mythlings
 
 	Players.PlayerAdded:Connect(function(player)
 		ensurePlayerState(player)

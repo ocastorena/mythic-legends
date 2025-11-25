@@ -4,8 +4,19 @@ local StandsUtil = {}
 ---------- helper functions ----------
 
 -- gets the model for a mythling type/variant
-local function getMythlingModel(typeId: string, variantId: string, mythlingAssets: Folder)
-	local mythlingModel = mythlingAssets:FindFirstChild(typeId):Clone()
+local function getMythlingModel(variantId: string, mythlingAssets: Folder, mythlingMeta: any)
+	local variantModel = mythlingMeta.variants[variantId].model
+	if not variantModel then
+		warn(`[StandsUtil] Missing variant model in metadata for variantId {variantId}`)
+		return nil
+	end
+
+	local mythlingAsset = mythlingAssets:FindFirstChild(variantModel)
+	if not mythlingAsset then
+		warn(`[StandsUtil] Missing variant model in mythlingAssests for variantId {variantId}`)
+	end
+
+	local mythlingModel = mythlingAsset:Clone()
 	local variant = mythlingModel:FindFirstChild("Variants"):FindFirstChild(variantId):Clone()
 	variant.Parent = mythlingModel:FindFirstChildWhichIsA("MeshPart")
 	return mythlingModel
@@ -41,7 +52,12 @@ end
 ---------- Public Functions ----------
 
 -- loads mythling models onto stands in the base
-function StandsUtil.LoadMythlingsOnStands(mythlingSection: any, baseModel: any, mythlingAssets: Folder)
+function StandsUtil.LoadMythlingsOnStands(
+	mythlingSection: any,
+	baseModel: any,
+	mythlingAssets: Folder,
+	MythlingsMeta: any
+)
 	-- standId -> stand instance
 	local standLookup = {}
 	for _, stand in ipairs(baseModel.Stands:GetChildren()) do
@@ -56,7 +72,8 @@ function StandsUtil.LoadMythlingsOnStands(mythlingSection: any, baseModel: any, 
 		if standId and standId >= 0 then
 			local stand = standLookup[standId]
 			if stand then
-				local model = getMythlingModel(entry.typeId, entry.variantId, mythlingAssets)
+				local mythlingMeta = MythlingsMeta[entry.typeId]
+				local model = getMythlingModel(entry.variantId, mythlingAssets, mythlingMeta)
 				setMythlingModel(model, stand)
 			else
 				warn(("[StandsUtil] Stand %s missing for mythling %s"):format(tostring(standId), tostring(mythlingId)))
@@ -67,22 +84,17 @@ end
 
 -- sets a mythling on a stand, saving the Ids in the base and saving the placement on the stand
 function StandsUtil.SetMythlingOnStand(
-	baseSection: any,
-	mythlingSection: any,
-	baseModel: Model,
+	mythlingEntry: any,
+	baseModel: any,
 	standId: number,
-	mythlingId: number,
-	mythlingAssets: Folder
-): BoolValue
-	if baseSection.stands[standId] ~= "" then
-		return false, "Stand " .. standId .. " already has a mythlingId"
-	end
-	if mythlingSection[mythlingId].standId ~= -1 then
-		return false, "Mythling " .. mythlingId .. " already has a standId"
+	mythlingAssets: Folder,
+	mythlingMeta: any
+)
+	if mythlingEntry.standId then
+		return false, `[StandsUtil] Mythling already has stand`
 	end
 	-- save Ids
-	baseSection.stands[standId] = mythlingId
-	mythlingSection[mythlingId].standId = standId
+	mythlingEntry.standId = standId
 	-- place base
 	local standModel = nil
 	local stands = baseModel.Stands:GetChildren()
@@ -94,23 +106,18 @@ function StandsUtil.SetMythlingOnStand(
 	if not standModel then
 		return false, "Stand model not found"
 	end
-	local mythlingData = mythlingSection[mythlingId]
-	local mythlingModel = getMythlingModel(mythlingData.typeId, mythlingData.variantId, mythlingAssets)
+	local mythlingModel = getMythlingModel(mythlingEntry.variantId, mythlingAssets, mythlingMeta)
 	setMythlingModel(mythlingModel, standModel)
 	return true
 end
 
 -- removes a mythling from a stand, saving the Ids in the base and clearing the placement on the stand
-function StandsUtil.RemoveMythlingFromStand(baseSection: any, mythlingSection: any, baseModel: Model, standId: number)
-	local mythlingId = baseSection.stands[standId]
-	if mythlingId == "" then
-		return false
-	end
+function StandsUtil.RemoveMythlingFromStand(mythlingEntry: any, baseModel: any)
 	-- clear stand
 	local standModel = nil
 	local stands = baseModel.Stands:GetChildren()
 	for _, stand in pairs(stands) do
-		if stand:GetAttribute("Id") == standId then
+		if stand:GetAttribute("Id") == mythlingEntry.standId then
 			standModel = stand
 		end
 	end
@@ -120,8 +127,9 @@ function StandsUtil.RemoveMythlingFromStand(baseSection: any, mythlingSection: a
 	local child = standModel:FindFirstChildWhichIsA("Model")
 	child:Destroy()
 	-- clear saved data
-	baseSection.stands[standId] = ""
-	mythlingSection[mythlingId].standId = -1
+	print("mythlingEntry:", mythlingEntry)
+	mythlingEntry.standId = nil
+	print("mythlingEntry:", mythlingEntry)
 	return true
 end
 

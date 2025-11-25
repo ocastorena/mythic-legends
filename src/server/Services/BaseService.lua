@@ -26,8 +26,9 @@ local MythlingAssets: Folder
 local GetStandsRemote: RemoteFunction
 local BaseEventRemote: RemoteEvent
 local MythlingsEvent: RemoteEvent
+local MythlingsMeta: ModuleScript
 local DataService: any
-local ProductionService: any
+local MythlingsService: any
 
 -- ===== Utilities =====
 
@@ -36,11 +37,12 @@ local function resolveAssets()
 	ArenaPlate = Context.Instances.ArenaPlate
 	BasesFolder = Context.Instances.Bases
 	MythlingAssets = Context.Instances.MythlingAssets
+	MythlingsMeta = Context.Metadata.Mythlings
 	GetStandsRemote = Context.Remotes.GetStands
 	BaseEventRemote = Context.Remotes.BaseEvent
 	MythlingsEvent = Context.Remotes.MythlingsEvent
 	DataService = Context.Services.DataService
-	ProductionService = Context.Services.ProductionService
+	MythlingsService = Context.Services.MythlingsService
 
 	local root = Context.Instances.BaseAssets
 	BaseModel = root:FindFirstChild("BaseLevel1")
@@ -70,9 +72,9 @@ local function handlePlayerAdded(player: Player)
 		BasesUtil.TeleportToBaseSpawn(player, char, base)
 	end)
 
-	local mythlingSection = DataService.GetSection(player, "mythlings")
+	local mythlingsSection = DataService.GetSection(player, "mythlings")
 
-	StandsUtil.LoadMythlingsOnStands(mythlingSection, base, MythlingAssets)
+	StandsUtil.LoadMythlingsOnStands(mythlingsSection, base, MythlingAssets, MythlingsMeta)
 end
 
 local function handleBaseEvent(player: Player, eventType: string, payload: any)
@@ -80,41 +82,31 @@ local function handleBaseEvent(player: Player, eventType: string, payload: any)
 		local standId = payload.standId
 		local mythlingId = payload.mythlingId
 		local base = getPlayerBase(player)
-		local baseSection = DataService.GetSection(player, "base")
 		local mythlingSection = DataService.GetSection(player, "mythlings")
+		local mythlingEntry = mythlingSection[mythlingId]
+		local mythlingMeta = MythlingsMeta[mythlingEntry.typeId]
 		local result, message =
-			StandsUtil.SetMythlingOnStand(baseSection, mythlingSection, base, standId, mythlingId, MythlingAssets)
+			StandsUtil.SetMythlingOnStand(mythlingEntry, base, standId, MythlingAssets, mythlingMeta)
 		if not result then
 			warn("[BaseService] " .. message)
 		end
-		ProductionService.StartProduction(player, mythlingId)
+		MythlingsService.StartProduction(player, mythlingId)
 	elseif eventType == "RemoveMythling" then
-		local standId = payload.standId
 		local mythlingId = payload.mythlingId
 		local base = getPlayerBase(player)
-		local baseSection = DataService.GetSection(player, "base")
 		local mythlingSection = DataService.GetSection(player, "mythlings")
-		StandsUtil.RemoveMythlingFromStand(baseSection, mythlingSection, base, standId)
-		ProductionService.StopProduction(player, mythlingId)
+		local mythlingEntry = mythlingSection[mythlingId]
+		StandsUtil.RemoveMythlingFromStand(mythlingEntry, base)
+		MythlingsService.StopProduction(player, mythlingId)
 	end
 end
 
 local function handleInventoryEvent(player: Player, eventType: string, mythlingId: number)
 	if eventType == "Delete" then
-		local baseModel = getPlayerBase(player)
-		local baseSection = DataService.GetSection(player, "base")
-		local standId = nil
-		for i, id in baseSection.stands do
-			if id == mythlingId then
-				standId = i
-				break
-			end
-		end
-		if standId == nil then
-			return
-		end
+		local base = getPlayerBase(player)
 		local mythlingSection = DataService.GetSection(player, "mythlings")
-		StandsUtil.RemoveMythlingFromStand(baseSection, mythlingSection, baseModel, standId)
+		local mythlingEntry = mythlingSection[mythlingId]
+		StandsUtil.RemoveMythlingFromStand(mythlingEntry, base)
 	end
 end
 

@@ -65,7 +65,7 @@ local function handleMythlingsRequest(player: Player, action: string, payload: a
 	end
 	if action == "CollectProduction" then
 		local typeId = CacheByPlayer[player.UserId].mythlings[payload.mythlingId].typeId
-		local resource = MythlingsData[typeId].production.resource
+		local resource = MythlingsData[typeId].production.resourceId
 		local production, capacity, rate = computeAccrual(player, payload.mythlingId)
 		local resources = DataService.GetSection(player, "resources")
 		if not resources[resource] then
@@ -175,9 +175,7 @@ end
 function MythlingsService.Start()
 	Players.PlayerAdded:Connect(function(player: Player)
 		local mythlings = DataService.GetSection(player, "mythlings")
-		print("mythlings:", mythlings)
 		CacheByPlayer[player.UserId] = { mythlings = mythlings }
-		print("mythlings:", CacheByPlayer[player.UserId].mythlings)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player: Player)

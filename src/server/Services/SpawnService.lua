@@ -223,7 +223,7 @@ end
 
 --- Applies a visual variant by swapping SurfaceAppearance maps if present.
 local function applyVariant(model: Model, typeId: string, variantId: string)
-	local vtab = Context.Metadata.MythlingsData[typeId].variants
+	local vtab = Context.Metadata.Mythlings[typeId].variants
 	local def = vtab and vtab[variantId]
 	if not def then
 		return
@@ -259,7 +259,7 @@ local function chooseSpawnDef(cfg)
 	local typeId = list[math.random(1, #list)]
 
 	-- 3) read stats for that type
-	local stats = Context.Metadata.MythlingsData[typeId]
+	local stats = Context.Metadata.Mythlings[typeId]
 	if not stats then
 		return nil
 	end
@@ -335,7 +335,7 @@ local function announceSpawn(id: string, def, model: Model, expireAt: number)
 end
 
 local function spawnOne(): boolean
-	local cfg = Context.Metadata.SpawnsData
+	local cfg = Context.Metadata.Spawns
 
 	-- Step 1) choose rarity/type and stats
 	local def = chooseSpawnDef(cfg)
@@ -470,13 +470,13 @@ end
 --- Builds rarity->typeId lookup from Config and seeds RNG.
 function SpawnService.Init(context)
 	Context = context
-	MythlingsData = context.Metadata.MythlingsData
+	MythlingsData = context.Metadata.Mythlings
 
 	math.randomseed(tick() % 1 * 1e7)
 
-	local weights = Context.Metadata.SpawnsData.RarityWeights or {}
+	local weights = Context.Metadata.Spawns.RarityWeights or {}
 
-	for typeId, def in pairs(Context.Metadata.MythlingsData) do
+	for typeId, def in pairs(Context.Metadata.Mythlings) do
 		local rarity = def.rarity
 		if rarity and weights[rarity] ~= nil then
 			TypesByRarity[rarity] = TypesByRarity[rarity] or {}
@@ -505,7 +505,7 @@ function SpawnService.Start()
 	end
 	running = true
 
-	local cfg = Context.Metadata.SpawnsData
+	local cfg = Context.Metadata.Spawns
 	nextSpawnAt = math.random(cfg.SpawnIntervalMin, cfg.SpawnIntervalMax)
 
 	-- Spawn pump

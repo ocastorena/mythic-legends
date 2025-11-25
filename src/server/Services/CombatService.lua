@@ -48,7 +48,7 @@ local function handleCombatEvent(player: Player, action: string?, payload: any?)
 end
 
 function CombatService.Init(context: any)
-	WeaponsData = context.Metadata.WeaponsData
+	WeaponsData = context.Metadata.Weapons
 	CombatEvent = context.Remotes.CombatEvent
 
 	CombatEvent.OnServerEvent:Connect(handleCombatEvent)
