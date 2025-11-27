@@ -28,10 +28,17 @@ local mythlingScrollFrame = mainFrame.MythlingsFrame
 local mythlingCardTemplate = mythlingScrollFrame:WaitForChild("CardTemplate") :: ImageButton
 local mythlingInfoFrame = mainFrame:WaitForChild("MythlingInfo")
 
+-- Buttons
+local bottomFrame = standGui.Bottom
+local removeButton = bottomFrame.FirstButton
+local switchButton = bottomFrame.SecondButton
+local addButton = bottomFrame.ThirdButton
+local collectButton = bottomFrame.FourthButton
+
 --// Remotes
 local MythlingsRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsRequest")
 local MythlingsEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("MythlingsEvent")
-local baseEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BaseEvent")
+local BaseEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BaseEvent")
 
 --// UI palette (unchanged colors, standardized names)
 local COLOR_CARD_DESELECT = Color3.fromRGB(29, 31, 37)
@@ -117,27 +124,15 @@ end
 
 --- Updates button visibility on the info panel based on selection/active states.
 local function updateInfoButtons(): ()
-	local addBtn = mythlingInfoFrame.AddButton
-	local removeBtn = mythlingInfoFrame.RemoveButton
-	local switchBtn = mythlingInfoFrame.SwitchButton
-
 	if selectedCard == activeCard then
-		removeBtn.Visible = true
-		addBtn.Visible = false
-		switchBtn.Visible = false
+		addButton.Active = false
+		switchButton.Active = false
 	elseif activeCard and selectedCard ~= activeCard then
-		removeBtn.Visible = false
-		addBtn.Visible = false
-		switchBtn.Visible = true
+		addButton.Active = false
+		switchButton.Active = true
 	elseif selectedCard and not activeCard then
-		removeBtn.Visible = false
-		addBtn.Visible = true
-		switchBtn.Visible = false
-	else
-		-- No selection: hide all (not strictly needed, but explicit)
-		removeBtn.Visible = false
-		addBtn.Visible = false
-		switchBtn.Visible = false
+		addButton.Active = true
+		switchButton.Active = false
 	end
 end
 
@@ -177,7 +172,7 @@ local function showMythlingInfo(): ()
 	mythlingInfoFrame.ResourceLabel.Text = resourceMeta.displayName
 	mythlingInfoFrame.ResourceLabel.TextColor3 = Color3.fromHex(resourceMeta.guiColor)
 	if production > 0 then
-		mythlingInfoFrame.CollectButton.Visible = true
+		-- mythlingInfoFrame.CollectButton.Visible = true
 	end
 	startProductionTween(production, capacity, rate)
 end
@@ -203,7 +198,7 @@ local function createMythlingCard(mythlingId, data: any): ImageButton
 
 	newCard.Activated:Connect(function()
 		selectCard(newCard)
-		updateInfoButtons()
+		--updateInfoButtons()
 		-- (No behavior changes)
 	end)
 
@@ -244,61 +239,61 @@ standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	end
 end)
 
--- mythlingInfoFrame.CollectButton.Activated:Connect(function()
--- 	if not activeCard then
--- 		return
--- 	end
--- 	if productionValue.Value > 0 then
--- 		MythlingsRequest:InvokeServer("CollectProduction", { mythlingId = activeCard.Name })
--- 		showMythlingInfo()
--- 	end
--- end)
+collectButton.Activated:Connect(function()
+	if not activeCard then
+		return
+	end
+	if productionValue.Value > 0 then
+		MythlingsRequest:InvokeServer("CollectProduction", { mythlingId = activeCard.Name })
+		showMythlingInfo()
+	end
+end)
 
 -- Add button: place selected on this stand
--- mythlingInfoFrame.AddButton.Activated:Connect(function()
--- 	if not selectedCard then
--- 		return
--- 	end
--- 	local mythlingId = selectedCard.Name
--- 	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = mythlingId })
--- 	activeCard = selectedCard
--- 	updateInfoButtons()
--- 	showMythlingInfo()
--- end)
+addButton.Activated:Connect(function()
+	if not selectedCard then
+		return
+	end
+	local mythlingId = selectedCard.Name
+	BaseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = mythlingId })
+	activeCard = selectedCard
+	updateInfoButtons()
+	showMythlingInfo()
+end)
 
 -- Switch button: remove current, then place selected
--- mythlingInfoFrame.SwitchButton.Activated:Connect(function()
--- 	if not selectedCard then
--- 		return
--- 	end
--- 	local placeMythlingId = selectedCard.Name
--- 	local removeMythlingId = activeCard and activeCard.Name
--- 	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = removeMythlingId })
--- 	baseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = placeMythlingId })
+switchButton.Activated:Connect(function()
+	if not selectedCard then
+		return
+	end
+	local placeMythlingId = selectedCard.Name
+	local removeMythlingId = activeCard and activeCard.Name
+	BaseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = removeMythlingId })
+	BaseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = placeMythlingId })
 
--- 	if activeCard then
--- 		activeCard.BackgroundColor3 = COLOR_CARD_DESELECT
--- 	end
--- 	activeCard = selectedCard
--- 	if activeCard then
--- 		activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
--- 	end
--- 	updateInfoButtons()
--- 	showMythlingInfo()
--- end)
+	if activeCard then
+		activeCard.BackgroundColor3 = COLOR_CARD_DESELECT
+	end
+	activeCard = selectedCard
+	if activeCard then
+		activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
+	end
+	-- updateInfoButtons()
+	showMythlingInfo()
+end)
 
 -- Remove button: remove the currently active mythling from this stand
--- mythlingInfoFrame.RemoveButton.Activated:Connect(function()
--- 	if not activeCard then
--- 		return
--- 	end
--- 	local mythlingId = activeCard.Name
--- 	baseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = mythlingId })
--- 	activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
--- 	activeCard = nil
--- 	updateInfoButtons()
--- 	showMythlingInfo()
--- end)
+removeButton.Activated:Connect(function()
+	if not activeCard then
+		return
+	end
+	local mythlingId = activeCard.Name
+	BaseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = mythlingId })
+	activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
+	activeCard = nil
+	-- updateInfoButtons()
+	showMythlingInfo()
+end)
 
 -- Inventory updates from server
 MythlingsEvent.OnClientEvent:Connect(function(ev, list)

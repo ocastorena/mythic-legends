@@ -10,7 +10,6 @@ local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitFor
 -- Remotes
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local MythlingsEvent = Remotes.MythlingsEvent
-local baseEvent = Remotes.BaseEvent
 local MythlingsRequest = Remotes.MythlingsRequest
 
 -- Inventory GUI Components
@@ -21,6 +20,13 @@ local inventoryGui = playerGui.InventoryGui
 local inventoryBtn = playerGui.MainGui.Frame.OpenButton
 local mainFrame = inventoryGui.Main
 local bottomFrame = inventoryGui.Bottom
+local closeButton = inventoryGui.Main.CloseButton
+
+-- Confirm Delete Modal Components
+local confirmModal = inventoryGui.ConfirmDeleteModal
+local confirmTitle = confirmModal.Frame.TitleLabel
+local confirmButton = confirmModal.Frame.ConfirmButton
+local cancelButton = confirmModal.Frame.CancelButton
 
 -- Mythlings Components
 local mythlingsFrame = mainFrame.MythlingsFrame
@@ -54,6 +60,15 @@ local resourceCardsData = {}
 local selectedResourceCard = nil
 
 -- helper functions
+local function closeConfirmDeleteModal()
+	confirmModal.Visible = false
+end
+
+local function openConfirmDeleteModal(displayName)
+	confirmTitle.Text = `Delete {displayName}?`
+	confirmModal.Visible = true
+end
+
 local function clearCards()
 	for _, card in pairs(mythlingCards) do
 		card:Destroy()
@@ -89,21 +104,26 @@ local function setMythlingButtons()
 	bottomFrame.FirstButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
 	bottomFrame.FirstButton.Visible = true
 
-	print("mythlingCards:", mythlingCards)
 	bottomFrame.FirstButton.Activated:Connect(function()
 		if not selectedMythlingCard then
 			return
 		end
 		local id = selectedMythlingCard.Name
-		MythlingsEvent:FireServer("Delete", id)
-		clearMythlingInfo()
+		openConfirmDeleteModal(mythlingInfo.NameLabel.Text)
 
-		-- get next mythling card in mythlingCards
-
-		-- remove card from UI
-		mythlingCards[id]:Destroy()
-		mythlingCards[id] = nil
-		mythlingCardsData[id] = nil
+		confirmButton.Activated:Once(function()
+			-- remove mythling from UI
+			clearMythlingInfo()
+			mythlingCards[id]:Destroy()
+			mythlingCards[id] = nil
+			mythlingCardsData[id] = nil
+			selectedMythlingCard = nil
+			-- send event to delete mythling
+			MythlingsEvent:FireServer("Delete", id)
+			-- close modal
+			closeConfirmDeleteModal()
+		end)
+		cancelButton.Activated:Once(closeConfirmDeleteModal)
 	end)
 end
 
@@ -209,12 +229,21 @@ end)
 inventoryBtn.Activated:Connect(function()
 	if not inventoryGui.Enabled then
 		backgroundGui.Enabled = true
+		selectedMythlingCard = nil
+		selectedResourceCard = nil
 		addMythlingsCards(MythlingsRequest:InvokeServer("getMythlings"))
 		selectTab(mythlingsTab)
 		inventoryGui.Enabled = true
 	else
 		inventoryGui.Enabled = false
 		backgroundGui.Enabled = false
+	end
+end)
+
+closeButton.Activated:Connect(function()
+	if inventoryGui.Enabled then
+		backgroundGui.Enabled = false
+		inventoryGui.Enabled = false
 	end
 end)
 
