@@ -21,7 +21,7 @@ local backgroundGui = playerGui.Background
 local standGui = playerGui:WaitForChild("StandGui")
 local mainFrame = standGui:WaitForChild("Main")
 local standLabel = mainFrame.Tabs.StandLabel
--- local closeButton = mainFrame:WaitForChild("CloseButton")
+local closeButton = mainFrame.CloseButton
 
 -- Mythling list + template + info panel
 local mythlingScrollFrame = mainFrame.MythlingsFrame
@@ -104,7 +104,7 @@ end
 
 --- Resets info panel and active selection visuals.
 local function clearInfo(): ()
-	mythlingInfoFrame.NameLabel.Text = "None"
+	mythlingInfoFrame.NameLabel.Text = "Empty"
 	mythlingInfoFrame.ResourceLabel.Text = ""
 	mythlingInfoFrame.ProductionLabel.Text = ""
 	activeCard = nil
@@ -216,6 +216,10 @@ local function addMythlingCard(mythlingId, data: any): ()
 	local card = createMythlingCard(mythlingId, data)
 	mythlingCards[mythlingId] = card
 	mythlingCardData[mythlingId] = data
+
+	if not activeCard then
+		selectCard(card)
+	end
 end
 
 --- Rebuilds the card list from a server-provided array.
@@ -303,11 +307,12 @@ MythlingsEvent.OnClientEvent:Connect(function(ev, list)
 end)
 
 -- Close button
--- closeButton.Activated:Connect(function()
--- 	clearCards()
--- 	clearInfo()
--- 	standGui.Enabled = false
--- end)
+closeButton.Activated:Connect(function()
+	clearCards()
+	clearInfo()
+	backgroundGui.Enabled = false
+	standGui.Enabled = false
+end)
 
 --//////////////////////////////////////////////////////////////////////////////////////////////////
 -- Proximity prompt -> open Stand GUI

@@ -35,7 +35,7 @@ return {
 		variants = {
 			regular = {
 				model = "Dragon",
-				thumbnail = "rbxassetid://<DRAGONET_THUMB>",
+				thumbnail = "rbxassetid://93367789665855",
 			},
 		},
 	},
