@@ -9,6 +9,7 @@ local StarterGui = game:GetService("StarterGui")
 
 --// Modules
 local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
+local ButtonSetup = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("ButtonSetup"))
 local MythlingsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Resources"))
 
@@ -196,7 +197,7 @@ local function createMythlingCard(mythlingId, data: any): ImageButton
 		end
 	end
 
-	newCard.Activated:Connect(function()
+	ButtonSetup.hookClick(newCard, function()
 		selectCard(newCard)
 		--updateInfoButtons()
 		-- (No behavior changes)
@@ -243,7 +244,7 @@ standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	end
 end)
 
-collectButton.Activated:Connect(function()
+ButtonSetup.hookClick(collectButton, function()
 	if not activeCard then
 		return
 	end
@@ -254,7 +255,7 @@ collectButton.Activated:Connect(function()
 end)
 
 -- Add button: place selected on this stand
-addButton.Activated:Connect(function()
+ButtonSetup.hookClick(addButton, function()
 	if not selectedCard then
 		return
 	end
@@ -266,7 +267,7 @@ addButton.Activated:Connect(function()
 end)
 
 -- Switch button: remove current, then place selected
-switchButton.Activated:Connect(function()
+ButtonSetup.hookClick(switchButton, function()
 	if not selectedCard then
 		return
 	end
@@ -287,7 +288,7 @@ switchButton.Activated:Connect(function()
 end)
 
 -- Remove button: remove the currently active mythling from this stand
-removeButton.Activated:Connect(function()
+ButtonSetup.hookClick(removeButton, function()
 	if not activeCard then
 		return
 	end
@@ -307,7 +308,7 @@ MythlingsEvent.OnClientEvent:Connect(function(ev, list)
 end)
 
 -- Close button
-closeButton.Activated:Connect(function()
+ButtonSetup.hookClick(closeButton, function()
 	clearCards()
 	clearInfo()
 	backgroundGui.Enabled = false

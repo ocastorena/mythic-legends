@@ -5,6 +5,7 @@ local StarterGui = game:GetService("StarterGui")
 
 -- Modules
 local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
+local ButtonSetup = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("ButtonSetup"))
 local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 
 -- Remotes
@@ -54,6 +55,9 @@ local selectedInfo = nil
 local mythlingCards = {}
 local mythlingCardsData = {}
 local selectedMythlingCard = nil
+local pendingDeleteId = nil
+local pendingDeleteCard = nil
+local mythlingButtonsConnected = false
 
 local resourceCards = {}
 local resourceCardsData = {}
@@ -104,26 +108,48 @@ local function setMythlingButtons()
 	bottomFrame.FirstButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
 	bottomFrame.FirstButton.Visible = true
 
-	bottomFrame.FirstButton.Activated:Connect(function()
+	if mythlingButtonsConnected then
+		return
+	end
+	mythlingButtonsConnected = true
+
+	ButtonSetup.hookClick(bottomFrame.FirstButton, function()
 		if not selectedMythlingCard then
 			return
 		end
-		local id = selectedMythlingCard.Name
+		pendingDeleteId = selectedMythlingCard.Name
+		pendingDeleteCard = selectedMythlingCard
 		openConfirmDeleteModal(mythlingInfo.NameLabel.Text)
+	end)
 
-		confirmButton.Activated:Once(function()
-			-- remove mythling from UI
-			clearMythlingInfo()
-			mythlingCards[id]:Destroy()
-			mythlingCards[id] = nil
-			mythlingCardsData[id] = nil
-			selectedMythlingCard = nil
-			-- send event to delete mythling
-			MythlingsEvent:FireServer("Delete", id)
-			-- close modal
+	ButtonSetup.hookClick(confirmButton, function()
+		if not pendingDeleteId then
 			closeConfirmDeleteModal()
-		end)
-		cancelButton.Activated:Once(closeConfirmDeleteModal)
+			return
+		end
+
+		clearMythlingInfo()
+		clearSelectedMythlingCard()
+
+		local card = pendingDeleteCard or mythlingCards[pendingDeleteId]
+		if card then
+			card:Destroy()
+		end
+		mythlingCards[pendingDeleteId] = nil
+		mythlingCardsData[pendingDeleteId] = nil
+		selectedMythlingCard = nil
+
+		MythlingsEvent:FireServer("Delete", pendingDeleteId)
+
+		pendingDeleteId = nil
+		pendingDeleteCard = nil
+		closeConfirmDeleteModal()
+	end)
+
+	ButtonSetup.hookClick(cancelButton, function()
+		pendingDeleteId = nil
+		pendingDeleteCard = nil
+		closeConfirmDeleteModal()
 	end)
 end
 
@@ -155,7 +181,7 @@ local function createMythlingCard(mythlingId, mythlingEntry)
 	newCard.LayoutOrder = 1
 	newCard:WaitForChild("2dPreview").Image =
 		MythlingsData[mythlingEntry.typeId].variants[mythlingEntry.variantId].thumbnail
-	newCard.Activated:Connect(function()
+	ButtonSetup.hookClick(newCard, function()
 		selectCard(newCard)
 		showMythlingInfo()
 	end)
@@ -218,15 +244,15 @@ MythlingsEvent.OnClientEvent:Connect(function(event, list)
 	end
 end)
 
-mythlingsTab.Activated:Connect(function()
+ButtonSetup.hookClick(mythlingsTab, function()
 	selectTab(mythlingsTab)
 end)
 
-resourcesTab.Activated:Connect(function()
+ButtonSetup.hookClick(resourcesTab, function()
 	selectTab(resourcesTab)
 end)
 
-inventoryBtn.Activated:Connect(function()
+ButtonSetup.hookClick(inventoryBtn, function()
 	if not inventoryGui.Enabled then
 		backgroundGui.Enabled = true
 		selectedMythlingCard = nil
@@ -240,7 +266,7 @@ inventoryBtn.Activated:Connect(function()
 	end
 end)
 
-closeButton.Activated:Connect(function()
+ButtonSetup.hookClick(closeButton, function()
 	if inventoryGui.Enabled then
 		backgroundGui.Enabled = false
 		inventoryGui.Enabled = false
