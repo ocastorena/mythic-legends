@@ -45,8 +45,6 @@ local resourceInfo = mainFrame.ResourceInfo
 local resourcesTab = mainFrame.Tabs.Resources
 
 -- Colors
-local selectTabColor = Color3.fromRGB(0, 0, 0)
-local deselectTabColor = Color3.fromRGB(156, 154, 151)
 local selectCardColor = Color3.fromRGB(255, 251, 0)
 local deselectCardColor = Color3.fromRGB(119, 121, 128)
 
@@ -259,7 +257,7 @@ local function clearResourceCards()
 	for _, card in pairs(resourceCards) do
 		card:Destroy()
 	end
-	table.clear(mythlingCards)
+	table.clear(resourceCards)
 end
 
 local function clearSelectedResourceCard()
@@ -329,14 +327,14 @@ local function selectTab(tab)
 		return
 	end
 	if selectedTab then
-		selectedTab.ImageColor3 = deselectTabColor
+		selectedTab.ImageTransparency = 0.6
 		selectedFrame.Visible = false
 		selectedInfo.Visible = false
 	end
 
 	if tab == mythlingsTab then
 		setMythlingButtons()
-		tab.ImageColor3 = selectTabColor
+		tab.ImageTransparency = 0
 		mythlingsFrame.Visible = true
 		mythlingInfo.Visible = true
 		selectedTab = tab
@@ -346,7 +344,7 @@ local function selectTab(tab)
 
 	if tab == resourcesTab then
 		setResourceButtons()
-		tab.ImageColor3 = selectTabColor
+		tab.ImageTransparency = 0
 		resourcesFrame.Visible = true
 		resourceInfo.Visible = true
 		selectedTab = tab
