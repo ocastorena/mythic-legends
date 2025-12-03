@@ -373,7 +373,7 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 
 	standId = grandparent:GetAttribute("Id")
 	standLabel.Text = "Stand #" .. tostring(standId)
-	local list = MythlingsRequest:InvokeServer("getMythlings")
+	local list = MythlingsRequest:InvokeServer("GetMythlings")
 
 	addMythlingCards(list)
 	showMythlingInfo()

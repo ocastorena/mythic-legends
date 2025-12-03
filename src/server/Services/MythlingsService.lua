@@ -9,7 +9,7 @@ local MythlingsEvent = nil
 local MythlingsRequest = nil
 local MythlingsData = nil
 
--- cache CacheByPlayer[userId] = {mythlings, mythlingsOnStands}
+-- cache CacheByPlayer[userId] = {mythlings}
 local CacheByPlayer = {}
 -- ===================== helpers =====================
 
@@ -61,7 +61,7 @@ local function computeAccrual(player: Player, mythlingId: string)
 end
 
 local function handleMythlingsRequest(player: Player, action: string, payload: any)
-	if action == "getMythlings" then
+	if action == "GetMythlings" then
 		return CacheByPlayer[player.UserId].mythlings
 	end
 	if action == "GetProduction" then
