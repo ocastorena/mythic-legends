@@ -60,6 +60,41 @@ local productionTween: Tween = nil
 local productionValue: NumberValue = Instance.new("NumberValue")
 productionValue.Value = 0
 
+-- Preserve original button styling for toggling enabled/disabled visuals.
+local buttonDefaults: { [Instance]: { bg: Color3, text: Color3?, auto: boolean? } } = {}
+
+local function setButtonEnabled(button: TextButton, enabled: boolean)
+	if not buttonDefaults[button] then
+		buttonDefaults[button] = {
+			bg = button.BackgroundColor3,
+			text = (button :: any).TextColor3,
+			auto = (button :: any).AutoButtonColor,
+		}
+	end
+
+	local defaults = buttonDefaults[button]
+	button.Active = enabled
+	button.Selectable = enabled
+	button.AutoButtonColor = enabled and defaults.auto or false
+
+	if enabled then
+		button.BackgroundColor3 = defaults.bg
+		if defaults.text then
+			button.TextColor3 = defaults.text
+			button.TextTransparency = 0
+		end
+		button.BackgroundTransparency = 0
+	else
+		-- Dim colors to look disabled
+		button.BackgroundColor3 = defaults.bg:Lerp(Color3.new(0.5, 0.5, 0.5), 0.5)
+		if defaults.text then
+			button.TextColor3 = defaults.text:Lerp(Color3.new(0.7, 0.7, 0.7), 0.5)
+			button.TextTransparency = 0.2
+		end
+		button.BackgroundTransparency = 0
+	end
+end
+
 --//////////////////////////////////////////////////////////////////////////////////////////////////
 -- Helpers
 --//////////////////////////////////////////////////////////////////////////////////////////////////
@@ -79,15 +114,17 @@ local function startProductionTween(production: number, capacity: number, rate: 
 	local remaining = math.max(capacity - production, 0)
 	local duration = remaining / ratePerSec
 
-	-- Don’t tween if full or rate is zero
-	if duration <= 0 or ratePerSec <= 0 then
-		productionLabel.Text = `{capacity}/{capacity} (+{rate}/min)`
-		return
-	end
+	print("production:", productionValue.Value)
+	productionLabel.Text = `{math.floor(productionValue.Value)}/{capacity} (+{rate}/min)`
 
 	-- Update text as the tween runs
 	productionValue:GetPropertyChangedSignal("Value"):Connect(function()
 		productionLabel.Text = `{math.floor(productionValue.Value)}/{capacity} (+{rate}/min)`
+		if productionValue.Value < 1 then
+			setButtonEnabled(collectButton, false)
+		else
+			setButtonEnabled(collectButton, true)
+		end
 	end)
 
 	local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
@@ -124,16 +161,26 @@ local function clearSelectedCard(): ()
 end
 
 --- Updates button visibility on the info panel based on selection/active states.
-local function updateInfoButtons(): ()
+local function updateButtons(): ()
+	-- for add and switch buttons since they overlap
 	if selectedCard == activeCard then
-		addButton.Active = false
-		switchButton.Active = false
+		setButtonEnabled(addButton, false)
+		addButton.Visible = true
+		setButtonEnabled(switchButton, false)
+		switchButton.Visible = false
+		setButtonEnabled(removeButton, true)
 	elseif activeCard and selectedCard ~= activeCard then
-		addButton.Active = false
-		switchButton.Active = true
+		setButtonEnabled(addButton, false)
+		addButton.Visible = false
+		setButtonEnabled(switchButton, true)
+		switchButton.Visible = true
+		setButtonEnabled(removeButton, false)
 	elseif selectedCard and not activeCard then
-		addButton.Active = true
-		switchButton.Active = false
+		setButtonEnabled(addButton, true)
+		addButton.Visible = true
+		setButtonEnabled(switchButton, false)
+		switchButton.Visible = false
+		setButtonEnabled(removeButton, false)
 	end
 end
 
@@ -168,13 +215,11 @@ local function showMythlingInfo(): ()
 	local resourceId = metadata.production.resourceId
 	local resourceMeta = ResourcesMeta[resourceId]
 	local production = response.production or 0
-	local rate = response.rate or 0
+	local rate = response.rate
 	local capacity = response.capacity or 0
 	mythlingInfoFrame.ResourceLabel.Text = resourceMeta.displayName
 	mythlingInfoFrame.ResourceLabel.TextColor3 = Color3.fromHex(resourceMeta.guiColor)
-	if production > 0 then
-		-- mythlingInfoFrame.CollectButton.Visible = true
-	end
+
 	startProductionTween(production, capacity, rate)
 end
 
@@ -199,8 +244,7 @@ local function createMythlingCard(mythlingId, data: any): ImageButton
 
 	ButtonSetup.hookClick(newCard, function()
 		selectCard(newCard)
-		--updateInfoButtons()
-		-- (No behavior changes)
+		updateButtons()
 	end)
 
 	return newCard
@@ -262,7 +306,7 @@ ButtonSetup.hookClick(addButton, function()
 	local mythlingId = selectedCard.Name
 	BaseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = mythlingId })
 	activeCard = selectedCard
-	updateInfoButtons()
+	updateButtons()
 	showMythlingInfo()
 end)
 
@@ -283,7 +327,7 @@ ButtonSetup.hookClick(switchButton, function()
 	if activeCard then
 		activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
 	end
-	-- updateInfoButtons()
+	updateButtons()
 	showMythlingInfo()
 end)
 
@@ -296,7 +340,7 @@ ButtonSetup.hookClick(removeButton, function()
 	BaseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = mythlingId })
 	activeCard.BackgroundColor3 = COLOR_CARD_SELECTED
 	activeCard = nil
-	-- updateInfoButtons()
+	updateButtons()
 	showMythlingInfo()
 end)
 
@@ -333,6 +377,7 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 
 	addMythlingCards(list)
 	showMythlingInfo()
+	updateButtons()
 
 	backgroundGui.Enabled = true
 	standGui.Enabled = true

@@ -19,12 +19,14 @@ end
 
 local function computeAccrual(player: Player, mythlingId: string)
 	if not CacheByPlayer[player.UserId].mythlings[mythlingId] then
-		return
+		print(`[MythlingsService] mythlingId {mythlingId} not found in cache for userId {player.UserId}`)
+		return 0, 0, 0
 	end
 
 	local mythlingType = CacheByPlayer[player.UserId].mythlings[mythlingId].typeId
 	if not mythlingType then
-		return
+		print(`[MythlingsService] typeId {mythlingType} not found for mythlingId {mythlingId}`)
+		return 0, 0, 0
 	end
 
 	local currentAmount = 0
@@ -36,7 +38,10 @@ local function computeAccrual(player: Player, mythlingId: string)
 	-- get time elapsed from last collection
 	local lastCollection = CacheByPlayer[player.UserId].mythlings[mythlingId].lastCollectionAt
 	if not lastCollection then
-		return
+		-- If production hasn't been started yet, initialize it now and report zero accrued at base rate/capacity.
+		local now = os.time()
+		CacheByPlayer[player.UserId].mythlings[mythlingId].lastCollectionAt = now
+		return 0, capacity, rate
 	end
 
 	local timeElapsed = os.time() - lastCollection
