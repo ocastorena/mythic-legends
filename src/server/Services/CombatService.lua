@@ -14,7 +14,7 @@ local function handleCombatEvent(player: Player, action: string?, payload: any?)
 	end
 
 	local targetId = payload.targetId
-	local weaponName = payload.weaponName
+	local weaponName = payload.weaponName:lower()
 
 	if targetId then
 		local targetPlayer = Players:GetPlayerByUserId(targetId)
@@ -36,7 +36,7 @@ local function handleCombatEvent(player: Player, action: string?, payload: any?)
 
 			local dir = (tgtHRP.Position - aHRP.Position).Unit
 			--local deltaV = dir * (push.horizSpeed or 80) + Vector3.yAxis * (push.upSpeed or 36)
-			local deltaV = dir * WeaponsData[weaponName].HoriForce + Vector3.yAxis * WeaponsData[weaponName].VertForce
+			local deltaV = dir * WeaponsData[weaponName].horiForce + Vector3.yAxis * WeaponsData[weaponName].vertForce
 			-- Tell the target client to impulse (mass*Δv) + ragdoll
 			CombatEvent:FireClient(targetPlayer, "HitResponse", {
 				deltaV = deltaV,
