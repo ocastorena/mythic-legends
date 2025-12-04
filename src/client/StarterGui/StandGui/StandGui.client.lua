@@ -43,8 +43,8 @@ local BaseEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BaseEv
 
 --// UI palette (unchanged colors, standardized names)
 local COLOR_CARD_DESELECT = Color3.fromRGB(29, 31, 37)
-local COLOR_CARD_SELECTED = Color3.fromRGB(0, 255, 127)
-local COLOR_CARD_ACTIVE = Color3.fromRGB(255, 212, 121)
+local COLOR_CARD_SELECTED = Color3.fromRGB(255, 251, 0)
+local COLOR_CARD_ACTIVE = Color3.fromRGB(0, 255, 127)
 
 --// State
 local standId: any = nil
@@ -262,7 +262,7 @@ local function addMythlingCard(mythlingId, data: any): ()
 	mythlingCards[mythlingId] = card
 	mythlingCardData[mythlingId] = data
 
-	if not activeCard then
+	if not selectedCard then
 		selectCard(card)
 	end
 end
