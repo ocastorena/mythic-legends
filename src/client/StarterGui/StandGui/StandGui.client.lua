@@ -114,7 +114,6 @@ local function startProductionTween(production: number, capacity: number, rate: 
 	local remaining = math.max(capacity - production, 0)
 	local duration = remaining / ratePerSec
 
-	print("production:", productionValue.Value)
 	productionLabel.Text = `{math.floor(productionValue.Value)}/{capacity} (+{rate}/min)`
 
 	-- Update text as the tween runs
