@@ -294,6 +294,7 @@ local function createResourceCard(resourceId, resourceEntry)
 	newCard.Visible = true
 	newCard.LayoutOrder = 1
 	newCard:WaitForChild("2dPreview").Image = ResourcesMeta[resourceId].thumbnail
+	newCard.QuantityLabel.Text = `x{resourceEntry.total}`
 	ButtonSetup.hookClick(newCard, function()
 		selectResourceCard(newCard)
 		showResourceInfo()
