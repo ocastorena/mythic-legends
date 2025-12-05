@@ -284,7 +284,7 @@ local function showResourceInfo()
 	end
 
 	resourceInfo.NameLabel.Text = ResourcesMeta[selectedResourceCard.Name].displayName
-	resourceInfo.DescriptionLabel.Text = ResourcesMeta[selectedResourceCard.Name].description
+	resourceInfo.ScrollingFrame.DescriptionLabel.Text = ResourcesMeta[selectedResourceCard.Name].description
 end
 
 local function createResourceCard(resourceId, resourceEntry)
