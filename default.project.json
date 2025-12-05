@@ -27,10 +27,7 @@
       "$className": "StarterPlayer",
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "$path": "src/client/StarterPlayerScripts",
-        "CombatUtils": {
-          "$path": "src/client/StarterPlayerScripts/CombatUtils"
-        }
+        "$path": "src/client/StarterPlayerScripts"
       }
     },
     "StarterGui": {
@@ -45,6 +42,11 @@
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
         "$path": "src/client/StarterGui/StandGui"
+      },
+      "MainGui": {
+        "$className": "ScreenGui",
+        "$ignoreUnknownInstances": true,
+        "$path": "src/client/StarterGui/MainGui"
       }
     }
   }
