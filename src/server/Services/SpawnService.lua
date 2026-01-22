@@ -409,6 +409,92 @@ local function removeZoneIfAny(e)
 	end
 end
 
+-- Tries to create or find an Animator on the model (Humanoid or AnimationController).
+local function getAnimator(model: Model): Animator?
+	if not model then
+		return nil
+	end
+
+	-- Prefer an existing Humanoid
+	local humanoid = model:FindFirstChildWhichIsA("Humanoid")
+	if humanoid then
+		local animator = humanoid:FindFirstChildWhichIsA("Animator")
+		if animator then
+			return animator
+		end
+		local newAnimator = Instance.new("Animator")
+		newAnimator.Parent = humanoid
+		return newAnimator
+	end
+
+	-- Fallback to an AnimationController
+	local controller = model:FindFirstChildWhichIsA("AnimationController")
+	if not controller then
+		controller = Instance.new("AnimationController")
+		controller.Name = "AnimationController"
+		controller.Parent = model
+	end
+	local animator = controller:FindFirstChildWhichIsA("Animator")
+	if animator then
+		return animator
+	end
+	local newAnimator = Instance.new("Animator")
+	newAnimator.Parent = controller
+	return newAnimator
+end
+
+-- Plays a looping Walking animation if present; returns a cleanup callback.
+local function playWalkingAnimation(model: Model): (() -> ())?
+	local animationsFolder = model:FindFirstChild("Animations") or model:FindFirstChild("Animation")
+	if not animationsFolder then
+		return nil
+	end
+
+	local walking = animationsFolder:FindFirstChild("Walking")
+	if not (walking and walking:IsA("Animation")) then
+		return nil
+	end
+
+	local animator = getAnimator(model)
+	if not animator then
+		return nil
+	end
+
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(walking)
+	end)
+	if not ok or not track then
+		return nil
+	end
+
+	track.Looped = true
+	track:Play()
+
+	local destroyingConn
+	destroyingConn = model.Destroying:Connect(function()
+		if destroyingConn then
+			destroyingConn:Disconnect()
+		end
+		if track then
+			pcall(function()
+				track:Stop()
+			end)
+		end
+	end)
+
+	return function()
+		if destroyingConn then
+			destroyingConn:Disconnect()
+			destroyingConn = nil
+		end
+		if track then
+			pcall(function()
+				track:Stop()
+			end)
+		end
+	end
+end
+
 --- Find the winner's base anchor (by UserId) or return nil.
 local function findBaseAnchor(winner: Player): BasePart?
 	local bases = Context.Instances.Bases
@@ -439,6 +525,7 @@ local function escortThenCleanup(e, winner: Player, mythlingId: string, baseAnch
 		baseCFrame = baseAnchor.CFrame,
 	})
 
+	local stopWalk = playWalkingAnimation(e.model)
 	local root = e.model.PrimaryPart
 	local tween = TweenService:Create(
 		root,
@@ -447,7 +534,16 @@ local function escortThenCleanup(e, winner: Player, mythlingId: string, baseAnch
 	)
 	tween:Play()
 
+	tween.Completed:Connect(function()
+		if stopWalk then
+			stopWalk()
+		end
+	end)
+
 	task.delay(10.1, function()
+		if stopWalk then
+			stopWalk()
+		end
 		sendTo(winner, "EscortArrived", { mythlingId = mythlingId })
 		destroyEntry(e)
 		Active[mythlingId] = nil

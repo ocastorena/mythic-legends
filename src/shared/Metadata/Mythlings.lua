@@ -20,7 +20,7 @@ return {
 		},
 	},
 	dragon = {
-		displayName = "Crystal Dragon",
+		displayName = "Ember Fang",
 		rarity = "Common",
 		sizeClass = "M",
 		zoneRadius = 20,
@@ -34,7 +34,7 @@ return {
 		},
 		variants = {
 			regular = {
-				model = "Dragon",
+				model = "EmberFang",
 				thumbnail = "rbxassetid://93367789665855",
 			},
 		},
