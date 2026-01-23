@@ -6,6 +6,7 @@ local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
+local PathfindingService = game:GetService("PathfindingService")
 
 --// Module State --------------------------------------------------------------
 
@@ -525,32 +526,68 @@ local function escortThenCleanup(e, winner: Player, mythlingId: string, baseAnch
 		baseCFrame = baseAnchor.CFrame,
 	})
 
-	local stopWalk = playWalkingAnimation(e.model)
 	local root = e.model.PrimaryPart
-	local tween = TweenService:Create(
-		root,
-		TweenInfo.new(10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, 2),
-		{ CFrame = CFrame.new(baseAnchor.Position + Vector3.new(0, 2, 0)) }
-	)
-	tween:Play()
 
-	tween.Completed:Connect(function()
-		if stopWalk then
-			stopWalk()
-		end
+	local path =
+		PathfindingService:CreatePath({ AgentRadius = 4, AgentHeight = 6, AgentCanJump = false, WaypointSpacing = 4 })
+
+	local success, errorMessage = pcall(function()
+		local dest = Vector3.new(baseAnchor.Position.X, root.Position.Y, baseAnchor.Position.Z)
+		path:ComputeAsync(root.Position, dest)
 	end)
 
-	task.delay(10.1, function()
-		if stopWalk then
-			stopWalk()
+	if success then
+		local stopWalk = playWalkingAnimation(e.model)
+		for _, waypoint in pairs(path:GetWaypoints()) do
+			-------------------
+			-- local part = Instance.new("Part")
+			-- part.Material = "Neon"
+			-- part.Anchored = true
+			-- part.CanCollide = false
+			-- part.Shape = "Ball"
+			-- part.Position = waypoint.Position
+			-- part.Parent = game.Workspace
+			-------------------
+			local target = Vector3.new(waypoint.Position.X, root.Position.Y, waypoint.Position.Z)
+			local lookAt = Vector3.new(target.X, root.Position.Y, target.Z)
+			local faceCF = CFrame.lookAt(root.Position, lookAt)
+			local moveCF = CFrame.new(target) * (faceCF - faceCF.Position) -- apply orientation at destination
+			local dist = (target - root.Position).Magnitude
+			local t = math.max(dist / 4, 0.05)
+			local tween = TweenService:Create(root, TweenInfo.new(t, Enum.EasingStyle.Linear), { CFrame = moveCF })
+			tween:Play()
+			tween.Completed:Wait()
 		end
-		sendTo(winner, "EscortArrived", { mythlingId = mythlingId })
+		stopWalk()
 		destroyEntry(e)
-		Active[mythlingId] = nil
-		if Context.Services and Context.Services.ClaimService and Context.Services.ClaimService.OnMythlingRemoved then
-			Context.Services.ClaimService.OnMythlingRemoved(mythlingId)
-		end
-	end)
+	else
+		warn(errorMessage)
+	end
+
+	-- local tween = TweenService:Create(
+	-- 	root,
+	-- 	TweenInfo.new(10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, 2),
+	-- 	{ CFrame = CFrame.new(baseAnchor.Position + Vector3.new(0, 2, 0)) }
+	-- )
+	-- tween:Play()
+
+	-- tween.Completed:Connect(function()
+	-- 	if stopWalk then
+	-- 		stopWalk()
+	-- 	end
+	-- end)
+
+	-- task.delay(10.1, function()
+	-- 	if stopWalk then
+	-- 		stopWalk()
+	-- 	end
+	-- 	sendTo(winner, "EscortArrived", { mythlingId = mythlingId })
+	-- 	destroyEntry(e)
+	-- 	Active[mythlingId] = nil
+	-- 	if Context.Services and Context.Services.ClaimService and Context.Services.ClaimService.OnMythlingRemoved then
+	-- 		Context.Services.ClaimService.OnMythlingRemoved(mythlingId)
+	-- 	end
+	-- end)
 end
 
 --- Cleanup path when there's no base anchor available.
