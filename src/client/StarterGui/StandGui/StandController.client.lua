@@ -37,6 +37,7 @@ local PANEL_NAME = "Stand"
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 local standGui = playerGui:WaitForChild("StandGui")
+standGui.DisplayOrder = ThemeUtil.Layer.panel
 
 --------------------------------------------------------------------------------
 -- Shell

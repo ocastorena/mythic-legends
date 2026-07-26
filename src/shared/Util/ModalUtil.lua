@@ -36,8 +36,10 @@ local function getBackdrop(): ScreenGui?
 	end
 
 	-- This is the design system's modal scrim (§01), and it is authored in the place file
-	-- rather than built here, so its colour is applied on the way past instead of being
-	-- left to drift from the token.
+	-- rather than built here, so its colour and layer are applied on the way past instead
+	-- of being left to drift from the tokens.
+	backdrop.DisplayOrder = ThemeUtil.Layer.scrim
+
 	local frame = backdrop:FindFirstChild("Background")
 	if frame and frame:IsA("GuiObject") then
 		ThemeUtil.paint(frame, ThemeUtil.Surface.scrim)

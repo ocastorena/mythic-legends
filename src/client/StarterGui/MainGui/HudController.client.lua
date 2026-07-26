@@ -25,12 +25,29 @@ local CurrencyUtil = require(Util:WaitForChild("CurrencyUtil"))
 local INVENTORY_ICON = "rbxassetid://135273755533681"
 local RUNIES_ICON = "rbxassetid://112895221053745"
 
+-- Awaiting an image asset. Creator Store icons are all published as *Decal* assets, which
+-- ImageLabel.Image will not render -- ten free shopping-bag decals were tried and every one
+-- came back blank while this place's own uploaded icons load fine. A GUI needs an Image
+-- asset, which in practice means uploading the art to this account.
+--
+-- Whatever goes here must be a flat white glyph, since ImageColor3 multiplies and a black
+-- or multi-tone icon would ignore SHOP_TINT.
+local SHOP_ICON = ""
+
+-- Fill colour for the shop glyph, from the HUD design's shop button. Change this one line
+-- to recolour the icon; nothing else reads it.
+local SHOP_TINT = Color3.fromHex("00ff69")
+
 -- Gap between cluster discs. Their diameter is not a constant: it is measured off
 -- Roblox's own top bar so the HUD reads as part of the same strip on every device.
 local BUTTON_GAP = 8
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local screenGui = script.Parent
+
+-- Above the modal scrim, so the inventory, shop and coin pill stay fully lit and clickable
+-- whenever a menu is open. The HUD lives in the top bar strip, which no panel reaches.
+screenGui.DisplayOrder = ThemeUtil.Layer.hud
 
 local camera = workspace.CurrentCamera
 
@@ -82,8 +99,11 @@ clusterLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 clusterLayout.SortOrder = Enum.SortOrder.LayoutOrder
 clusterLayout.Parent = cluster
 
---- One disc in the cluster: `rgba(20,20,22,0.6)`, fully round, tinted glyph inside.
-local function clusterButton(name: string, icon: string, tint: Color3, order: number): ImageButton
+--- One disc in the cluster: platform fill, fully round, glyph inside.
+---
+--- `tint` recolours a single-colour glyph. Pass nil for artwork that already carries its
+--- own colours, like the design's two-tone shop bag, which a tint would flatten.
+local function clusterButton(name: string, icon: string, tint: Color3?, order: number): ImageButton
 	local button = Instance.new("ImageButton")
 	button.Name = name
 	button.Size = UDim2.fromOffset(buttonSize, buttonSize)
@@ -94,7 +114,7 @@ local function clusterButton(name: string, icon: string, tint: Color3, order: nu
 	button.BackgroundColor3 = ThemeUtil.Platform.topbarButtonFill
 	button.BackgroundTransparency = ThemeUtil.Platform.topbarButtonTransparency
 	button.Image = icon
-	button.ImageColor3 = tint
+	button.ImageColor3 = tint or Color3.fromRGB(255, 255, 255)
 	button.ScaleType = Enum.ScaleType.Fit
 	button.LayoutOrder = order
 	button.Parent = cluster
@@ -114,9 +134,10 @@ local function clusterButton(name: string, icon: string, tint: Color3, order: nu
 	return button
 end
 
--- Only the inventory disc is wired. The design's Settings and Shop discs have no feature
--- behind them in this game yet, and a button that does nothing is worse than no button.
+-- Cluster order follows the design: Settings · Inventory · Shop. Settings is left out
+-- because nothing in this game answers it yet.
 local openButton = clusterButton("OpenButton", INVENTORY_ICON, ThemeUtil.Accent.gold, 1)
+local shopButton = clusterButton("ShopButton", SHOP_ICON, SHOP_TINT, 2)
 
 --------------------------------------------------------------------------------
 -- Coin pill (§08)
@@ -224,9 +245,22 @@ CurrencyUtil.OnRuniesChanged(function(amount)
 	runiesTotalLabel.Text = CurrencyUtil.format(amount)
 end)
 
-ButtonUtil.hookClick(openButton, function()
-	local inventoryGui = playerGui:FindFirstChild("InventoryGui")
-	if inventoryGui and inventoryGui:IsA("ScreenGui") then
-		inventoryGui.Enabled = not inventoryGui.Enabled
+--- Panels are opened by toggling their ScreenGui's Enabled flag; that is the contract
+--- every panel controller already listens on, so the HUD never reaches inside another GUI.
+local function togglePanel(guiName: string)
+	local gui = playerGui:FindFirstChild(guiName)
+	if gui and gui:IsA("ScreenGui") then
+		gui.Enabled = not gui.Enabled
 	end
+end
+
+ButtonUtil.hookClick(openButton, function()
+	togglePanel("InventoryGui")
+end)
+
+-- There is no ShopGui in the game yet, so this is inert until one exists. It is wired to
+-- the same contract as the inventory rather than left unhooked, so adding a ShopGui is the
+-- only step needed to bring it to life -- no change here.
+ButtonUtil.hookClick(shopButton, function()
+	togglePanel("ShopGui")
 end)

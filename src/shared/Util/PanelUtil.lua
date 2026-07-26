@@ -358,9 +358,18 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
 	local root = ThemeUtil.root(viewport)
 
+	-- A phone panel owns the whole screen so its card can reach the physical edges; anything
+	-- larger keeps the safe-area canvas and floats as the doc's centred card.
+	local screenGui = config.parent:IsA("ScreenGui") and config.parent
+		or config.parent:FindFirstAncestorWhichIsA("ScreenGui")
+	if screenGui then
+		ThemeUtil.useFullScreenCanvas(screenGui, ThemeUtil.isPhone(viewport))
+	end
+
 	local card = newFrame("Card", config.parent)
-	card.AnchorPoint = Vector2.new(0.5, 0.5)
-	card.Position = UDim2.fromScale(0.5, 0.5)
+	local anchor, position = ThemeUtil.panelPlacement(viewport)
+	card.AnchorPoint = anchor
+	card.Position = position
 	card.Size = ThemeUtil.panelSize(viewport)
 	card.ClipsDescendants = true
 	ThemeUtil.paint(card, Surface.panel)
@@ -369,6 +378,12 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	local cardLayout = newList(card, Enum.FillDirection.Vertical, 0)
 	cardLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	cardLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+
+	-- No safe-area padding along the bottom: the grid and details deliberately extend into the
+	-- strip the phone reserves for its home indicator, so the space the card gained is space
+	-- the content actually uses. Padding it back left the content exactly where it had been
+	-- and only the background grew. The body's own 16px padding keeps the last row and the
+	-- footer button off the physical edge.
 
 	-- Header: three groups, so the tab set stays centered in the card rather than
 	-- drifting with the width of the identity and action groups.
@@ -482,7 +497,11 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	if camera then
 		camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 			local size = camera.ViewportSize
+			if screenGui then
+				ThemeUtil.useFullScreenCanvas(screenGui, ThemeUtil.isPhone(size))
+			end
 			card.Size = ThemeUtil.panelSize(size)
+			card.AnchorPoint, card.Position = ThemeUtil.panelPlacement(size)
 			details.Size = UDim2.new(0, ThemeUtil.detailWidth(size), 1, 0)
 			PanelUtil.rescaleText(card, ThemeUtil.root(size))
 		end)
@@ -509,14 +528,19 @@ end
 -- 05 · Grid cell
 --------------------------------------------------------------------------------
 
+-- A selected cell's ring is 3px of border-mode stroke drawn outside the cell. One extra
+-- pixel keeps it clear of the scroll frame's edge.
+local RING_BLEED = 4
+
 --- Width the grid column ends up with, derived from the shell's own metrics rather than
 --- measured: AbsoluteSize is still zero when a panel is built, one frame before layout.
 local function gridColumnWidth(viewport: Vector2): number
-	local panelWidth = ThemeUtil.panelSize(viewport).X.Offset
-	if panelWidth == 0 then
-		-- Phone panels are sized in scale, so resolve against the viewport.
-		panelWidth = math.min(760, math.floor(viewport.X * 0.94))
-	end
+	-- A phone panel is sized in scale against the full-screen canvas, so its offset is a
+	-- negative inset correction rather than a width. Its pixel width is the safe band, which
+	-- is what the camera viewport measures.
+	local panelWidth = if ThemeUtil.isPhone(viewport)
+		then viewport.X
+		else ThemeUtil.panelSize(viewport).X.Offset
 	return panelWidth - 2 * Metric.bodyPad - Metric.bodyGap - ThemeUtil.detailWidth(viewport)
 end
 
@@ -539,10 +563,14 @@ function PanelUtil.grid(parent: Instance): ScrollingFrame
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 	scroll.Parent = parent
 
-	-- The scroll bar is drawn inside the frame, so cells laid out across the full width run
-	-- underneath it and the right-hand column gets clipped. Reserving its width here keeps
-	-- the columns clear of it at every size.
-	ThemeUtil.padding(scroll, 0, scroll.ScrollBarThickness, 0, 0)
+	-- Two separate reservations, both inside the scroll frame:
+	--
+	--   * the scroll bar is drawn inside the frame, so cells laid out across the full width
+	--     run underneath it and the right-hand column gets clipped;
+	--   * a cell's rarity ring is a border-mode UIStroke, which draws *outside* the cell's
+	--     bounds. Without room for it the top row's ring is sliced off by the scroll frame,
+	--     which reads as the cards themselves being cut off along the top edge.
+	ThemeUtil.padding(scroll, RING_BLEED, scroll.ScrollBarThickness + RING_BLEED, RING_BLEED, RING_BLEED)
 
 	local layout = Instance.new("UIGridLayout")
 	layout.CellPadding = UDim2.fromOffset(Metric.cellGap, Metric.cellGap)
@@ -553,7 +581,7 @@ function PanelUtil.grid(parent: Instance): ScrollingFrame
 	--- Phones get four equal columns; everything else gets the fixed 112px cell.
 	local function applyCellSize(size: Vector2)
 		if size.Y < 500 then
-			local usable = gridColumnWidth(size) - scroll.ScrollBarThickness
+			local usable = gridColumnWidth(size) - scroll.ScrollBarThickness - 2 * RING_BLEED
 			local cell = math.max(48, math.floor((usable - 3 * Metric.cellGap) / 4))
 			layout.CellSize = UDim2.fromOffset(cell, cell)
 		else
@@ -582,9 +610,15 @@ export type CellConfig = {
 	root: number,
 }
 
---- The cell template CardListUtil clones: a square, faint fill, centered icon at 52%,
---- and a rarity ring. Overlays are created up front and left invisible so a clone only
+--- The cell template CardListUtil clones: a square, faint fill, the artwork inset inside
+--- the rarity ring, and overlay badges created up front and left invisible so a clone only
 --- has to toggle them.
+---
+--- The doc floats a transparent glyph at 52% of the cell. This game's thumbnails carry an
+--- opaque background, and at 52% each one read as a hard-edged square stranded inside a
+--- rounded cell -- worse still, the backing colour differs per creature, so a grid of them
+--- looked like mismatched stickers. Filling the cell and matching the corner radius turns
+--- that backing into the tile itself.
 function PanelUtil.cellTemplate(config: CellConfig): ImageButton
 	local cell = Instance.new("ImageButton")
 	cell.Name = "CardTemplate"
@@ -605,11 +639,14 @@ function PanelUtil.cellTemplate(config: CellConfig): ImageButton
 	preview.Name = "2dPreview"
 	preview.AnchorPoint = Vector2.new(0.5, 0.5)
 	preview.Position = UDim2.fromScale(0.5, 0.5)
-	preview.Size = UDim2.fromScale(0.52, 0.52)
+	-- Inset by the ring's own thickness so the rarity ring still reads as a ring around the
+	-- art rather than a border drawn on top of it.
+	preview.Size = UDim2.new(1, -6, 1, -6)
 	preview.BackgroundTransparency = 1
 	preview.BorderSizePixel = 0
 	preview.ScaleType = Enum.ScaleType.Fit
 	preview.Parent = cell
+	ThemeUtil.corner(preview, Radius.cell - 3)
 
 	if config.level then
 		local badge = newLabel("LevelBadge", cell)
@@ -763,6 +800,14 @@ function PanelUtil.details(config: DetailsConfig): Details
 	local hero = newFrame("Hero", column)
 	hero.Size = UDim2.new(1, 0, 0, math.min(math.floor(ThemeUtil.detailWidth(viewport) * 9 / 16), ThemeUtil.artMaxHeight(viewport)))
 	hero.ClipsDescendants = true
+
+	-- On a short screen the column cannot fit hero + stats + progress + footer at their
+	-- natural heights, and without this the surplus spills past the card, which clips it --
+	-- taking the footer button with it. The hero is the only part with slack, so it is the
+	-- one allowed to give ground; everything below it stays at its designed size.
+	local heroFlex = Instance.new("UIFlexItem")
+	heroFlex.FlexMode = Enum.UIFlexMode.Shrink
+	heroFlex.Parent = hero
 	hero.LayoutOrder = 1
 	ThemeUtil.corner(hero, Radius.hero)
 	hero.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -777,29 +822,56 @@ function PanelUtil.details(config: DetailsConfig): Details
 	})
 	heroWash.Parent = hero
 
+	-- The doc's art is a transparent glyph floating at 42% width. This game's thumbnails are
+	-- photographs with an opaque background baked in, so at 42% they read as a small pasted
+	-- rectangle stranded in a wide dark frame. Filling the frame's height and rounding the
+	-- corners instead makes that backing look like a deliberate portrait tile.
+	--
+	-- The source art is square and the frame is roughly 2:1, so it can never fill the width
+	-- without cropping the creature's head and feet -- height is the honest axis to fill.
 	local art = Instance.new("ImageLabel")
 	art.Name = "Art"
 	art.AnchorPoint = Vector2.new(0.5, 0.5)
 	art.Position = UDim2.fromScale(0.5, 0.5)
-	art.Size = UDim2.fromScale(0.42, 0.9)
+	art.Size = UDim2.fromScale(1, 0.88)
 	art.BackgroundTransparency = 1
 	art.BorderSizePixel = 0
 	art.ScaleType = Enum.ScaleType.Fit
 	art.Parent = hero
+	-- The box is forced square so it matches the artwork's own aspect. Without this, Fit
+	-- letterboxes a square image inside a wider box and the rounded corners land on the
+	-- empty box edges instead of the image, leaving the picture's own corners sharp.
+	-- Non-square art still degrades gracefully: it just letterboxes inside the square.
+	local artRatio = Instance.new("UIAspectRatioConstraint")
+	artRatio.AspectRatio = 1
+	artRatio.DominantAxis = Enum.DominantAxis.Height
+	artRatio.Parent = art
+	ThemeUtil.corner(art, Radius.cell)
 
 	-- The top/bottom scrim that keeps the overlaid name and rarity legible over any art.
+	--
+	-- Darker and deeper than the doc's, which fades out by 32%. The doc can afford that
+	-- because its art is a glyph on a dark wash; over a bright photo background the name row
+	-- (7%-25% of the height) landed on almost undarkened cream. The dark band now covers the
+	-- name row before it fades.
 	local veil = newFrame("Veil", hero)
 	veil.Size = UDim2.fromScale(1, 1)
 	veil.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
 	veil.BackgroundTransparency = 0
 	veil.ZIndex = 2
+	-- Must be rounded to match the hero. ClipsDescendants on the hero clips to its
+	-- rectangle, not to its corner radius, so a square opaque child fills the rounded
+	-- corners back in -- and this child is at its most opaque exactly at the top and bottom
+	-- edges, which is where those corners are.
+	ThemeUtil.corner(veil, Radius.hero)
 	local veilGradient = Instance.new("UIGradient")
 	veilGradient.Rotation = 90
 	veilGradient.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.28),
-		NumberSequenceKeypoint.new(0.32, 1),
+		NumberSequenceKeypoint.new(0, 0.12),
+		NumberSequenceKeypoint.new(0.28, 0.42),
+		NumberSequenceKeypoint.new(0.46, 1),
 		NumberSequenceKeypoint.new(0.64, 1),
-		NumberSequenceKeypoint.new(1, 0.22),
+		NumberSequenceKeypoint.new(1, 0.18),
 	})
 	veilGradient.Parent = veil
 
@@ -832,8 +904,10 @@ function PanelUtil.details(config: DetailsConfig): Details
 	nameLabel.LayoutOrder = 2
 	local nameShadow = Instance.new("UIStroke")
 	nameShadow.Color = Color3.fromRGB(0, 0, 0)
+	-- Near-opaque: this text is overlaid on artwork whose brightness is unknown, so the
+	-- outline is what guarantees it stays readable rather than the veil behind it.
 	nameShadow.Thickness = 2
-	nameShadow.Transparency = 0.55
+	nameShadow.Transparency = 0.15
 	nameShadow.Parent = nameLabel
 
 	local infoButton: TextButton? = nil
@@ -871,7 +945,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 	local rarityShadow = Instance.new("UIStroke")
 	rarityShadow.Color = Color3.fromRGB(0, 0, 0)
 	rarityShadow.Thickness = 2
-	rarityShadow.Transparency = 0.45
+	rarityShadow.Transparency = 0.15
 	rarityShadow.Parent = rarityLabel
 
 	ThemeUtil.ring(hero, accent, 3)

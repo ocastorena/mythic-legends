@@ -22,7 +22,6 @@ local CardListUtil = require(Util:WaitForChild("CardListUtil"))
 local ModalUtil = require(Util:WaitForChild("ModalUtil"))
 local ThemeUtil = require(Util:WaitForChild("ThemeUtil"))
 local PanelUtil = require(Util:WaitForChild("PanelUtil"))
-local CurrencyUtil = require(Util:WaitForChild("CurrencyUtil"))
 local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
 
@@ -35,9 +34,9 @@ local ResourcesRequest = Remotes.ResourcesRequest
 
 -- Art already in the place file.
 local INVENTORY_ICON = "rbxassetid://135273755533681"
-local RUNIES_ICON = "rbxassetid://112895221053745"
 
 local inventoryGui = script.Parent
+inventoryGui.DisplayOrder = ThemeUtil.Layer.panel
 
 --- Resource categories are stored lowercase ("currency"), but every other label in the
 --- panel is title case, so they are capitalised for display rather than in the metadata.
@@ -63,19 +62,13 @@ local panel = PanelUtil.panel({
 	title = "Inventory",
 	titleIcon = INVENTORY_ICON,
 	tabs = { "Mythlings", "Resources" },
-	coins = true,
-	coinIcon = RUNIES_ICON,
+	-- No coin pill here. §08 puts one in every panel header, but the HUD's pill stays lit
+	-- and on top while a panel is open, so a second one would just repeat itself.
 	accent = ThemeUtil.Accent.gold,
 	onClose = function()
 		inventoryGui.Enabled = false
 	end,
 })
-
-CurrencyUtil.OnRuniesChanged(function(amount)
-	if panel.CoinLabel then
-		panel.CoinLabel.Text = CurrencyUtil.format(amount)
-	end
-end)
 
 local mythlingsTab = panel.Tabs.Mythlings
 local resourcesTab = panel.Tabs.Resources
