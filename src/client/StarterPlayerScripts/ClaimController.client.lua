@@ -1,36 +1,17 @@
 -- StarterPlayer/StarterPlayerScripts/ClaimController
 
 local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CollectionService = game:GetService("CollectionService")
 local TweenService      = game:GetService("TweenService")
 
 local ClaimEvent        = ReplicatedStorage.Remotes.ClaimEvent
 
 local Player = Players.LocalPlayer
-local Char   = Player.Character or Player.CharacterAdded:Wait()
-local Hum    = Char:WaitForChild("Humanoid")
-local Hrp    = Char:WaitForChild("HumanoidRootPart")
 
-local INTERVAL = 0.2
 
 local TEMPLATE    = ReplicatedStorage:WaitForChild("Templates")
 	:WaitForChild("GUI")
 	:WaitForChild("ProgressBar")
-
--- Cache all mythling zones
-local mythlingZones = CollectionService:GetTagged("MythlingZone")
-CollectionService:GetInstanceAddedSignal("MythlingZone"):Connect(function(part)
-	table.insert(mythlingZones, part)
-end)
-CollectionService:GetInstanceRemovedSignal("MythlingZone"):Connect(function(part)
-	local i = table.find(mythlingZones, part)
-	if i then table.remove(mythlingZones, i) end
-end)
-
-
-local ClaimState = { state = "OutZone", zone = nil }
 
 -- Overhead UI cache: OverheadBars[userId] = { gui = BillboardGui, fill = Frame, tween = Tween }
 local OverheadBars = {}
@@ -207,45 +188,5 @@ ClaimEvent.OnClientEvent:Connect(function(verb, payload)
 end)
 
 
--- Zone detection (unchanged except verbs payload shape)
-
-local acc = 0
-RunService.Heartbeat:Connect(function(dt)
-	acc += dt
-	if acc < INTERVAL then return end
-	acc -= INTERVAL
-
-	local pos = Hrp.Position
-	local inAny = false
-
-	for _, zone in ipairs(mythlingZones) do
-		local mythling = zone.Parent
-		local zoneCenter = zone.Position
-		local zoneRadius = zone.Size * 0.5
-
-		local inside = (pos - zoneCenter).Magnitude <= zoneRadius.X
-
-		if inside then
-			inAny = true
-			if ClaimState.state ~= "InZone" or ClaimState.zone ~= zone then
-				ClaimState.state = "InZone"
-				ClaimState.zone  = zone
-				-- Position is deliberately NOT sent: the server reads our character
-				-- position itself. This only tells it which zone to check.
-				ClaimEvent:FireServer("InZone", {
-					mythlingId = mythling:GetAttribute("Id"),
-				})
-			end
-			break
-		end
-	end
-
-	if not inAny and ClaimState.state ~= "OutZone" then
-		ClaimState.state = "OutZone"
-		local oldZone = ClaimState.zone
-		ClaimState.zone = nil
-		ClaimEvent:FireServer("OutZone", {
-			zone = oldZone,
-		})
-	end
-end)
+-- Zone detection lives entirely on the server now. It reads the character's position
+-- directly, so this controller only renders the progress bars the server broadcasts.

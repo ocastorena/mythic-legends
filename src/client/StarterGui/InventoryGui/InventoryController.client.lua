@@ -1,13 +1,15 @@
 -- StarterGui/InventoryGui/InventoryController
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local StarterGui = game:GetService("StarterGui")
+
+-- Identifies this panel to ModalUtil, which owns the backdrop and input guard.
+local PANEL_NAME = "Inventory"
 
 -- Modules
 local Util = ReplicatedStorage:WaitForChild("Util")
-local InputGuardUtil = require(Util:WaitForChild("InputGuardUtil"))
 local ButtonUtil = require(Util:WaitForChild("ButtonUtil"))
 local CardListUtil = require(Util:WaitForChild("CardListUtil"))
+local ModalUtil = require(Util:WaitForChild("ModalUtil"))
 local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
 
@@ -21,9 +23,7 @@ local ResourcesRequest = Remotes.ResourcesRequest
 -- Inventory GUI Components
 local player = Players.LocalPlayer
 local playerGui = player.PlayerGui
-local backgroundGui = playerGui.Background
 local inventoryGui = playerGui.InventoryGui
-local inventoryBtn = playerGui.MainGui.MainFrame.OpenButton
 local mainFrame = inventoryGui.Main
 local bottomFrame = inventoryGui.Bottom
 local closeButton = inventoryGui.Main.CloseButton
@@ -213,34 +213,20 @@ ButtonUtil.hookClick(resourcesTab, function()
 	selectTab(resourcesTab)
 end)
 
-ButtonUtil.hookClick(inventoryBtn, function()
-	if not inventoryGui.Enabled then
-		backgroundGui.Enabled = true
+ButtonUtil.hookClick(closeButton, function()
+	inventoryGui.Enabled = false
+end)
+
+-- This ScreenGui's own Enabled property is the open/close contract. HudController owns the
+-- button in MainGui that toggles it, so this controller no longer reaches across into
+-- another GUI, and anything else that wants the inventory open just sets this flag.
+inventoryGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+	if inventoryGui.Enabled then
 		mythlingList:Replace(MythlingsRequest:InvokeServer("GetMythlings"))
 		resourceList:Replace(ResourcesRequest:InvokeServer("GetResources"))
 		selectTab(mythlingsTab)
-		inventoryGui.Enabled = true
+		ModalUtil.Open(PANEL_NAME)
 	else
-		inventoryGui.Enabled = false
-		backgroundGui.Enabled = false
-	end
-end)
-
-ButtonUtil.hookClick(closeButton, function()
-	if inventoryGui.Enabled then
-		backgroundGui.Enabled = false
-		inventoryGui.Enabled = false
-	end
-end)
-
-backgroundGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-	if backgroundGui.Enabled then
-		-- ScreenGui just got enabled → block inputs
-		InputGuardUtil.open()
-		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
-	else
-		-- ScreenGui just got disabled → allow inputs
-		InputGuardUtil.close()
-		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
+		ModalUtil.Close(PANEL_NAME)
 	end
 end)
