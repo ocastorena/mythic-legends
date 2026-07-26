@@ -18,7 +18,7 @@ local SLOTS: { [number]: { userId: number, model: Model } } = {}
 
 -- Cached assets
 local Arena: BasePart
-local ArenaPlate: BasePart
+local BaseIslands: Folder
 local BasesFolder: Folder
 local BaseModel: Model
 local MythlingAssets: Folder
@@ -33,7 +33,7 @@ local MythlingService: any
 
 local function resolveAssets()
 	Arena = Context.Instances.Arena
-	ArenaPlate = Context.Instances.ArenaPlate
+	BaseIslands = Context.Instances.BaseIslands
 	BasesFolder = Context.Instances.Bases
 	MythlingAssets = Context.Instances.MythlingAssets
 	MythlingsMeta = Context.Metadata.Mythlings
@@ -60,7 +60,7 @@ local function getPlayerBase(player: Player)
 end
 
 local function handlePlayerAdded(player: Player)
-	local result, message = BaseUtil.SpawnBaseFor(player, SLOTS, MAX_SLOTS, BaseModel, Arena, ArenaPlate, BasesFolder)
+	local result, message = BaseUtil.SpawnBaseFor(player, SLOTS, MAX_SLOTS, BaseModel, Arena, BaseIslands, BasesFolder)
 	if not result then
 		warn("[BaseService] " .. message)
 	end

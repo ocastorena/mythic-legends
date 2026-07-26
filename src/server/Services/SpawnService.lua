@@ -128,12 +128,18 @@ end
 -- Radius is preserved; pivot still controls placement/orientation.
 local SPIN_DPS = 45 -- degrees/sec
 
+-- The zone's ring is a Decal on the host part's top face. The host is only 0.001 thick,
+-- so dropping it straight onto the spawn point leaves the decal ~0.0005 above the arena
+-- floor -- effectively coplanar, which z-fights and makes the ring flicker out up close.
+-- Hold it clear of the floor by a margin that's still invisible at a twentieth of a stud.
+local ZONE_SURFACE_LIFT = 0.05
+
 local function makeZone(radius: number, pivot: CFrame): BasePart
 	-- Invisible host part: its bounding box drives the Disc radius.
 	local zoneTemplate = Context.Instances.MythlingAssets:WaitForChild("Zone")
 	local zone = zoneTemplate:Clone()
 	zone.Size = Vector3.new(radius * 2, 0.001, radius * 2)
-	zone.CFrame = pivot + Vector3.new(0, 0, 0)
+	zone.CFrame = pivot + Vector3.new(0, ZONE_SURFACE_LIFT, 0)
 
 	-- tagging for client side
 	CollectionService:AddTag(zone, "MythlingZone")
@@ -281,15 +287,18 @@ end
 
 -- Helper: find a valid non-overlapping world position inside the arena disc
 local function findSpawnPosition(zoneRadius: number, padding: number, tries: number)
-	local _, arenaR = arenaInfo(Context.Instances.Arena)
+	local arena = Context.Instances.Arena
+	local _, arenaR = arenaInfo(arena)
 	local usableR = math.max(0, arenaR - zoneRadius - padding)
 
+	-- randomPointInArena returns points at the arena's centre height, so lift to its top
+	-- face. This is the arena's thickness (Size.Y) -- not Size.X, which is its width.
+	local surfaceLift = arena.Size.Y / 2
+
 	for _ = 1, tries do
-		local p = randomPointInArena(Context.Instances.Arena, usableR)
+		local p = randomPointInArena(arena, usableR)
 		if p and not overlapsExisting(p, zoneRadius, padding) then
-			-- keep existing height adjustment based on Arena thickness (Size.X)
-			local arena = Context.Instances.Arena
-			return p + Vector3.new(0, arena.Size.X / 2, 0)
+			return p + Vector3.new(0, surfaceLift, 0)
 		end
 	end
 	return nil

@@ -10,39 +10,47 @@ local function getFreeSlot(slots: any, maxSlots: number): number?
 	return nil
 end
 
-local function getArenaCenterAndRadius(Arena: BasePart): (Vector3, number)
-	local cf, size = Arena.CFrame, Arena.Size
-	local radius = math.max(size.X, size.Z) * 0.5
-	return cf.Position, radius
-end
-
--- World Y the model's pivot must sit at for the model to rest on top of the plate.
--- Derived from the plate's thickness and the model's own bounds so that resizing the
--- arena or swapping in a taller base model can't leave bases floating.
-local function getGroundedPivotY(model: Model, arenaPlate: BasePart): number
-	local plateTopY = arenaPlate.Position.Y + arenaPlate.Size.Y * 0.5
-
-	-- a model's pivot is rarely at its lowest point, so offset by that gap
+-- A model's pivot is rarely at its lowest point. This is the gap between the two, so a
+-- model can be seated on a surface instead of buried in it or floating above it.
+local function getPivotAboveBottom(model: Model): number
 	local boundsCF, boundsSize = model:GetBoundingBox()
 	local modelBottomY = boundsCF.Position.Y - boundsSize.Y * 0.5
-	local pivotAboveBottom = model:GetPivot().Position.Y - modelBottomY
-
-	return plateTopY + pivotAboveBottom
+	return model:GetPivot().Position.Y - modelBottomY
 end
 
-local function getSlotPosition(slotIndex: number, arena: BasePart, maxSlots: number, y: number): CFrame
-	local center, arenaR = getArenaCenterAndRadius(arena)
-	local ringOffset = 24
-	local ringR = arenaR + ringOffset
+-- The buildable surface of an island is its flat "Grass" cap. Its centre is the island's
+-- true centre, which the island model's own pivot is not (the pivots sit on a clean ring
+-- at radius 400 while the geometry is centred further out).
+local function getIslandSurface(island: Model): (Vector3, number)
+	local grass = island:FindFirstChild("Grass")
+	if grass and grass:IsA("BasePart") then
+		return grass.Position, grass.Position.Y + grass.Size.Y * 0.5
+	end
 
-	local angle = (2 * math.pi) * ((slotIndex - 1) / maxSlots)
-	local pos = center + Vector3.new(math.cos(angle) * ringR, 0, math.sin(angle) * ringR)
+	-- fall back to overall bounds if the cap is ever renamed
+	local cf, size = island:GetBoundingBox()
+	return cf.Position, cf.Position.Y + size.Y * 0.5
+end
 
-	return CFrame.lookAt(Vector3.new(pos.X, y, pos.Z), Vector3.new(center.X, y, center.Z))
+-- Bases sit on the authored BaseIsland models -- one island per slot -- facing the arena.
+-- Reading placement off the islands means moving one in Studio moves its base with it.
+local function getSlotPlacement(slotIndex: number, model: Model, baseIslands: Folder, arena: BasePart): (CFrame?, string?)
+	local islandName = "BaseIsland" .. (slotIndex - 1)
+	local island = baseIslands:FindFirstChild(islandName)
+	if not (island and island:IsA("Model")) then
+		return nil, `Missing island {islandName} for slot {slotIndex}`
+	end
+
+	local surfaceCenter, surfaceTopY = getIslandSurface(island)
+	local y = surfaceTopY + getPivotAboveBottom(model)
+
+	local pos = Vector3.new(surfaceCenter.X, y, surfaceCenter.Z)
+	local facing = Vector3.new(arena.Position.X, y, arena.Position.Z)
+	return CFrame.lookAt(pos, facing), nil
 end
 
 
-function BaseUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, baseModel: Model, arena: BasePart, arenaPlate: BasePart, basesFolder: Folder)
+function BaseUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, baseModel: Model, arena: BasePart, baseIslands: Folder, basesFolder: Folder)
 	-- check if player already has a base
 	local userId = player.UserId
 	for _, slot in pairs(slots) do
@@ -61,10 +69,10 @@ function BaseUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, bas
 		return false, "Base model not found"
 	end
 	-- base position
-	local groundedY = getGroundedPivotY(model, arenaPlate)
-	local position = getSlotPosition(slotIndex, arena, maxSlots, groundedY)
+	local position, placementError = getSlotPlacement(slotIndex, model, baseIslands, arena)
 	if not position then
-		return false, "Could not get position"
+		model:Destroy()
+		return false, placementError or "Could not get position"
 	end
 	
 	model.Name = tostring(userId)
