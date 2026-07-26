@@ -1,4 +1,4 @@
--- StarterPlayerScripts/StandPromptHandler
+-- StarterPlayer/StarterPlayerScripts/StandPromptController
 -- Enables local player's stand prompts only for local player
 
 local Players = game:GetService("Players")

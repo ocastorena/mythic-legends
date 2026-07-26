@@ -1,4 +1,4 @@
--- ServerScriptService/Services/CombatService/RagdollUtil
+-- StarterPlayer/StarterPlayerScripts/CombatController/RagdollUtil
 
 local RagdollUtil = {}
 

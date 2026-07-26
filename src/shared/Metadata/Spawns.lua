@@ -1,3 +1,4 @@
+-- ReplicatedStorage/Metadata/Spawns
 return {
 	TargetActive = 10,            -- how many Mythlings should be alive at once
 	SpawnIntervalMin = 10,        -- min seconds between spawns

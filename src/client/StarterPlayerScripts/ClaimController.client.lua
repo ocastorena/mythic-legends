@@ -1,4 +1,4 @@
--- StarterCharacterScripts/ClaimClient
+-- StarterPlayer/StarterPlayerScripts/ClaimController
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")

@@ -1,4 +1,4 @@
--- ServerScriptService/Services/MythlingsService.lua
+-- ServerScriptService/Services/MythlingService
 -- Server-only service that manages a player's Mythlings.
 -- Persistence is delegated to DataService (authoritative read/write).
 local Players = game:GetService("Players")
@@ -19,13 +19,13 @@ end
 
 local function computeAccrual(player: Player, mythlingId: string)
 	if not CacheByPlayer[player.UserId].mythlings[mythlingId] then
-		print(`[MythlingsService] mythlingId {mythlingId} not found in cache for userId {player.UserId}`)
+		print(`[MythlingService] mythlingId {mythlingId} not found in cache for userId {player.UserId}`)
 		return 0, 0, 0
 	end
 
 	local mythlingType = CacheByPlayer[player.UserId].mythlings[mythlingId].typeId
 	if not mythlingType then
-		print(`[MythlingsService] typeId {mythlingType} not found for mythlingId {mythlingId}`)
+		print(`[MythlingService] typeId {mythlingType} not found for mythlingId {mythlingId}`)
 		return 0, 0, 0
 	end
 
@@ -85,12 +85,12 @@ local function handleMythlingsRequest(player: Player, action: string, payload: a
 end
 
 -- ===================== public API =====================
-local MythlingsService = {}
+local MythlingService = {}
 
-function MythlingsService.SaveWonMythling(player: Player, params: any): string
-	print("[MythlingsService] SaveWonMythling")
-	assert(player and player.UserId, "[MythlingsService.SaveWonMythling] invalid player")
-	assert(params, "[MythlingsService.SaveWonMythling] params required")
+function MythlingService.SaveWonMythling(player: Player, params: any): string
+	print("[MythlingService] SaveWonMythling")
+	assert(player and player.UserId, "[MythlingService.SaveWonMythling] invalid player")
+	assert(params, "[MythlingService.SaveWonMythling] params required")
 
 	local list = CacheByPlayer[player.UserId].mythlings
 	local id = makeId()
@@ -107,9 +107,9 @@ function MythlingsService.SaveWonMythling(player: Player, params: any): string
 end
 
 -- Delete an inventory entry by id (used by your side-panel Delete).
-function MythlingsService.RemoveMythling(player: Player, mythlingId: string): boolean
-	assert(player and player.UserId, "[MythlingsService.RemoveMythling] invalid player")
-	assert(type(mythlingId) == "string", "[MythlingsService.RemoveMythling] mythlingId must be string")
+function MythlingService.RemoveMythling(player: Player, mythlingId: string): boolean
+	assert(player and player.UserId, "[MythlingService.RemoveMythling] invalid player")
+	assert(type(mythlingId) == "string", "[MythlingService.RemoveMythling] mythlingId must be string")
 
 	local list = CacheByPlayer[player.UserId].mythlings
 
@@ -120,23 +120,23 @@ end
 
 -- Lightweight list for UI grids (bandwidth-friendly).
 -- Each row: { id, typeName, standIndex, claimedAt, thumbnailId? }
-function MythlingsService.ListMythlings(player: Player): { any }
-	assert(player and player.UserId, "[MythlingsService.ListMythlings] invalid player")
+function MythlingService.ListMythlings(player: Player): { any }
+	assert(player and player.UserId, "[MythlingService.ListMythlings] invalid player")
 
 	local list = CacheByPlayer[player.UserId].mythlings
 	return list
 end
 
 -- Fetch the full server entry (for systems that need details).
-function MythlingsService.GetMythling(player: Player, mythlingId: string): any?
-	assert(player and player.UserId, "[MythlingsService.GetMythling] invalid player")
-	assert(type(mythlingId) == "string", "[MythlingsService.GetMythling] mythlingId must be string")
+function MythlingService.GetMythling(player: Player, mythlingId: string): any?
+	assert(player and player.UserId, "[MythlingService.GetMythling] invalid player")
+	assert(type(mythlingId) == "string", "[MythlingService.GetMythling] mythlingId must be string")
 
 	local list = CacheByPlayer[player.UserId].mythlings
 	return mythlingId and list[mythlingId] or nil
 end
 
-function MythlingsService.StartProduction(player: Player, mythlingId: string)
+function MythlingService.StartProduction(player: Player, mythlingId: string)
 	if not CacheByPlayer[player.UserId] then
 		return
 	end
@@ -147,7 +147,7 @@ function MythlingsService.StartProduction(player: Player, mythlingId: string)
 	CacheByPlayer[player.UserId].mythlings[mythlingId].lastCollectionAt = time
 end
 
-function MythlingsService.StopProduction(player: Player, mythlingId: string)
+function MythlingService.StopProduction(player: Player, mythlingId: string)
 	if not CacheByPlayer[player.UserId] then
 		return
 	end
@@ -157,7 +157,7 @@ function MythlingsService.StopProduction(player: Player, mythlingId: string)
 	CacheByPlayer[player.UserId].mythlings[mythlingId].lastCollectionAt = nil
 end
 
-function MythlingsService.Init(context)
+function MythlingService.Init(context)
 	DataService = context.Services.DataService
 
 	MythlingsEvent = context.Remotes.MythlingsEvent
@@ -166,18 +166,18 @@ function MythlingsService.Init(context)
 
 	MythlingsEvent.OnServerEvent:Connect(function(player, event, msg)
 		if event == "Delete" then
-			local result = MythlingsService.RemoveMythling(player, msg)
+			local result = MythlingService.RemoveMythling(player, msg)
 			if result then
-				local list = MythlingsService.ListMythlings(player)
+				local list = MythlingService.ListMythlings(player)
 				MythlingsEvent:FireClient(player, "Update", list)
 			end
 		end
 	end)
 
-	print("[MythlingsService] Initialized")
+	print("[MythlingService] Initialized")
 end
 
-function MythlingsService.Start()
+function MythlingService.Start()
 	Players.PlayerAdded:Connect(function(player: Player)
 		local mythlings = DataService.GetSection(player, "mythlings")
 		CacheByPlayer[player.UserId] = { mythlings = mythlings }
@@ -189,7 +189,7 @@ function MythlingsService.Start()
 
 	MythlingsRequest.OnServerInvoke = handleMythlingsRequest
 
-	print("[MythlingsService] Started")
+	print("[MythlingService] Started")
 end
 
-return MythlingsService
+return MythlingService

@@ -1,4 +1,4 @@
--- SpawnService - manages spawning, expiring, claiming, and escort cleanup of mythlings.
+-- ServerScriptService/Services/SpawnService
 local SpawnService = {}
 
 -- Services

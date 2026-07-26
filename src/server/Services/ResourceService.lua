@@ -1,3 +1,4 @@
+-- ServerScriptService/Services/ResourceService
 local Players = game:GetService("Players")
 
 local DataService = nil
@@ -16,19 +17,19 @@ local function handleResourcesRequest(player: Player, action: string, payload: a
 	return
 end
 
-local ResourcesService = {}
+local ResourceService = {}
 
-function ResourcesService.Init(context)
+function ResourceService.Init(context)
 	DataService = context.Services.DataService
 
 	ResourcesEvent = context.Remotes.ResourcesEvent
 	ResourcesRequest = context.Remotes.ResourcesRequest
 	ResourcesMeta = context.Metadata.Resources
 
-	print("[ResourcesService] Initialized")
+	print("[ResourceService] Initialized")
 end
 
-function ResourcesService.Start()
+function ResourceService.Start()
 	Players.PlayerAdded:Connect(function(player: Player)
 		local resources = DataService.GetSection(player, "resources")
 		CacheByPlayer[player.UserId] = { resources = resources }
@@ -40,7 +41,7 @@ function ResourcesService.Start()
 
 	ResourcesRequest.OnServerInvoke = handleResourcesRequest
 
-	print("[ResourcesService] Started")
+	print("[ResourceService] Started")
 end
 
-return ResourcesService
+return ResourceService

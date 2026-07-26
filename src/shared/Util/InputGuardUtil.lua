@@ -1,4 +1,4 @@
--- ReplicatedStorage/ClientModules/uiInputGuard.lua
+-- ReplicatedStorage/Util/InputGuardUtil
 -- Blocks movement/camera across KB/mouse/gamepad/touch while modal UIs are open.
 
 local Players = game:GetService("Players")

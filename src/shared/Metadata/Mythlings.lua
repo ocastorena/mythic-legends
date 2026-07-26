@@ -1,3 +1,4 @@
+-- ReplicatedStorage/Metadata/Mythlings
 return {
 	axolotl = {
 		displayName = "Stream Axolotl",

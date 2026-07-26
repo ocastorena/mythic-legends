@@ -1,4 +1,4 @@
--- ClaimService (Server)
+-- ServerScriptService/Services/ClaimService
 
 local ClaimService = {}
 
@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 
 local ClaimEvent: RemoteEvent
 local SpawnService
-local MythlingsService
+local MythlingService
 local MythlingsData
 
 -- PlayersState[userId] = {
@@ -96,7 +96,7 @@ local function handleClaimWin(player, mythlingId, mythlingData)
 	--   typeId / typeName      - identify the Mythling kind
 	--   rarity / variantId     - optional extra tags
 	--   model                  - optional live model instance (to read traits/seed)
-	MythlingsService.SaveWonMythling(player, {
+	MythlingService.SaveWonMythling(player, {
 		typeId = mythlingData.typeId,
 		variantId = "regular",
 	})
@@ -236,7 +236,7 @@ end
 function ClaimService.Init(context)
 	ClaimEvent = context.Remotes.ClaimEvent
 	SpawnService = context.Services.SpawnService
-	MythlingsService = context.Services.MythlingsService
+	MythlingService = context.Services.MythlingService
 	MythlingsData = context.Metadata.Mythlings
 
 	Players.PlayerAdded:Connect(function(player)

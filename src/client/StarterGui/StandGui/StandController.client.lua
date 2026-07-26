@@ -1,4 +1,4 @@
--- StarterGui/StandGui/StandGui.lua
+-- StarterGui/StandGui/StandController
 
 --// Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,8 +8,8 @@ local TweenService = game:GetService("TweenService")
 local StarterGui = game:GetService("StarterGui")
 
 --// Modules
-local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
-local ButtonSetup = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("ButtonSetup"))
+local InputGuardUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("InputGuardUtil"))
+local ButtonUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("ButtonUtil"))
 local MythlingsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Resources"))
 
@@ -241,7 +241,7 @@ local function createMythlingCard(mythlingId, data: any): ImageButton
 		end
 	end
 
-	ButtonSetup.hookClick(newCard, function()
+	ButtonUtil.hookClick(newCard, function()
 		selectCard(newCard)
 		updateButtons()
 	end)
@@ -283,11 +283,11 @@ standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if standGui.Enabled then
 		-- Do nothing
 	else
-		InputGuard.close()
+		InputGuardUtil.close()
 	end
 end)
 
-ButtonSetup.hookClick(collectButton, function()
+ButtonUtil.hookClick(collectButton, function()
 	if not activeCard then
 		return
 	end
@@ -298,7 +298,7 @@ ButtonSetup.hookClick(collectButton, function()
 end)
 
 -- Add button: place selected on this stand
-ButtonSetup.hookClick(addButton, function()
+ButtonUtil.hookClick(addButton, function()
 	if not selectedCard then
 		return
 	end
@@ -310,7 +310,7 @@ ButtonSetup.hookClick(addButton, function()
 end)
 
 -- Switch button: remove current, then place selected
-ButtonSetup.hookClick(switchButton, function()
+ButtonUtil.hookClick(switchButton, function()
 	if not selectedCard then
 		return
 	end
@@ -331,7 +331,7 @@ ButtonSetup.hookClick(switchButton, function()
 end)
 
 -- Remove button: remove the currently active mythling from this stand
-ButtonSetup.hookClick(removeButton, function()
+ButtonUtil.hookClick(removeButton, function()
 	if not activeCard then
 		return
 	end
@@ -351,7 +351,7 @@ MythlingsEvent.OnClientEvent:Connect(function(ev, list)
 end)
 
 -- Close button
-ButtonSetup.hookClick(closeButton, function()
+ButtonUtil.hookClick(closeButton, function()
 	clearCards()
 	clearInfo()
 	backgroundGui.Enabled = false
@@ -385,11 +385,11 @@ end)
 backgroundGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if backgroundGui.Enabled then
 		-- ScreenGui just got enabled → block inputs
-		InputGuard.open()
+		InputGuardUtil.open()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 	else
 		-- ScreenGui just got disabled → allow inputs
-		InputGuard.close()
+		InputGuardUtil.close()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
 	end
 end)

@@ -15,3 +15,44 @@ rojo serve
 ```
 
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
+
+## Project Structure
+
+```
+src/
+  server/
+    Services/          -> ServerScriptService.Services
+      BaseService/       init.lua + BaseUtil.lua + StandUtil.lua
+      ClaimService.lua
+      ...
+    Systems/           -> ServerScriptService.Systems
+      Bootstrap.server.lua
+  client/
+    StarterPlayerScripts/  -> StarterPlayer.StarterPlayerScripts
+      CombatController/      init.client.lua + KnockbackUtil.lua + RagdollUtil.lua
+      ClaimController.client.lua
+      ...
+    StarterGui/            -> StarterGui.<Name>Gui (ScreenGui)
+      InventoryGui/InventoryController.client.lua
+      ...
+  shared/
+    Metadata/          -> ReplicatedStorage.Metadata
+    Util/              -> ReplicatedStorage.Util
+```
+
+## Naming Conventions
+
+| Role | Server | Client |
+| --- | --- | --- |
+| Main entry module | `<Domain>Service.lua` | `<Domain>Controller.client.lua` |
+| Helper module | `<Thing>Util.lua` | `<Thing>Util.lua` |
+| Entry point with helpers | folder + `init.lua` | folder + `init.client.lua` |
+
+- **PascalCase** for every file and folder; the filename is the Roblox instance name.
+- **Singular domain** in module names (`MythlingService`, not `MythlingsService`). Metadata tables are the exception — they hold collections, so they stay plural (`Metadata/Mythlings.lua`).
+- **Helpers live under their owner.** A module that needs helpers becomes a folder with an `init` script; the helpers are its children, reached via `require(script.FooUtil)`. Helpers are never siblings of the services in `Services/`.
+- **The returned table matches the filename** (`local BaseUtil = {}` in `BaseUtil.lua`), and so do `print`/`warn` tags (`[BaseUtil]`).
+- **First line is the instance path**, e.g. `-- ServerScriptService/Services/BaseService/BaseUtil`.
+- **No redundant suffixes.** `.client.lua` already marks a LocalScript, so scripts don't repeat `Client`. GUI controllers are named for the feature, not the ScreenGui (`InventoryGui/InventoryController`, not `InventoryGui/InventoryGui`).
+
+`Systems/Bootstrap` loads every `ModuleScript` directly under `Services/` and calls `Init(context)` then `Start()` in alphabetical order, so a new service just needs to be dropped into that folder.

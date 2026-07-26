@@ -1,3 +1,4 @@
+-- ReplicatedStorage/Metadata/Weapons
 return {
 	bat = {
 		hitType = "Knockback",

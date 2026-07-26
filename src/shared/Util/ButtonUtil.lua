@@ -1,9 +1,10 @@
+-- ReplicatedStorage/Util/ButtonUtil
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local clickSound = ReplicatedStorage:WaitForChild("Audio"):WaitForChild("ButtonClick")
 
-local module = {}
+local ButtonUtil = {}
 
-function module.hookClick(button, handler)
+function ButtonUtil.hookClick(button, handler)
 	button.Activated:Connect(function(...)
 		local sound = clickSound:Clone()
 		sound.Parent = button
@@ -14,4 +15,4 @@ function module.hookClick(button, handler)
 	end)
 end
 
-return module
+return ButtonUtil

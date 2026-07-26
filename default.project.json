@@ -5,8 +5,8 @@
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "ClientModules": {
-        "$path": "src/shared/ClientModules"
+      "Util": {
+        "$path": "src/shared/Util"
       },
       "Metadata": {
         "$path": "src/shared/Metadata"

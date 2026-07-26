@@ -1,3 +1,4 @@
+-- ReplicatedStorage/Metadata/Items
 return {
 	Potion = {
 		Type = "Consumable",

@@ -1,4 +1,4 @@
--- StarterPlayerScripts/MythlingExpireTimers (LocalScript)
+-- StarterPlayer/StarterPlayerScripts/MythlingTimerController
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 

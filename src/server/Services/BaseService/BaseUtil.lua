@@ -1,5 +1,5 @@
--- ServerScriptService/Systems/BaseService/BasesUtil
-local BasesUtil = {}
+-- ServerScriptService/Services/BaseService/BaseUtil
+local BaseUtil = {}
 
 local function getFreeSlot(slots: any, maxSlots: number): number?
 	for i = 1, maxSlots do
@@ -16,7 +16,21 @@ local function getArenaCenterAndRadius(Arena: BasePart): (Vector3, number)
 	return cf.Position, radius
 end
 
-local function getSlotPosition(slotIndex: number, arena: BasePart, arenaPlate: BasePart, maxSlots: number): CFrame
+-- World Y the model's pivot must sit at for the model to rest on top of the plate.
+-- Derived from the plate's thickness and the model's own bounds so that resizing the
+-- arena or swapping in a taller base model can't leave bases floating.
+local function getGroundedPivotY(model: Model, arenaPlate: BasePart): number
+	local plateTopY = arenaPlate.Position.Y + arenaPlate.Size.Y * 0.5
+
+	-- a model's pivot is rarely at its lowest point, so offset by that gap
+	local boundsCF, boundsSize = model:GetBoundingBox()
+	local modelBottomY = boundsCF.Position.Y - boundsSize.Y * 0.5
+	local pivotAboveBottom = model:GetPivot().Position.Y - modelBottomY
+
+	return plateTopY + pivotAboveBottom
+end
+
+local function getSlotPosition(slotIndex: number, arena: BasePart, maxSlots: number, y: number): CFrame
 	local center, arenaR = getArenaCenterAndRadius(arena)
 	local ringOffset = 24
 	local ringR = arenaR + ringOffset
@@ -24,12 +38,11 @@ local function getSlotPosition(slotIndex: number, arena: BasePart, arenaPlate: B
 	local angle = (2 * math.pi) * ((slotIndex - 1) / maxSlots)
 	local pos = center + Vector3.new(math.cos(angle) * ringR, 0, math.sin(angle) * ringR)
 
-	local y = arenaPlate.Position.Y + (arenaPlate.Size.X) -- sits on plate
 	return CFrame.lookAt(Vector3.new(pos.X, y, pos.Z), Vector3.new(center.X, y, center.Z))
 end
 
 
-function BasesUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, baseModel: Model, arena: BasePart, arenaPlate: BasePart, basesFolder: Folder)
+function BaseUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, baseModel: Model, arena: BasePart, arenaPlate: BasePart, basesFolder: Folder)
 	-- check if player already has a base
 	local userId = player.UserId
 	for _, slot in pairs(slots) do
@@ -48,7 +61,8 @@ function BasesUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, ba
 		return false, "Base model not found"
 	end
 	-- base position
-	local position = getSlotPosition(slotIndex, arena, arenaPlate, maxSlots)
+	local groundedY = getGroundedPivotY(model, arenaPlate)
+	local position = getSlotPosition(slotIndex, arena, maxSlots, groundedY)
 	if not position then
 		return false, "Could not get position"
 	end
@@ -69,7 +83,7 @@ function BasesUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, ba
 	return true
 end
 
-function BasesUtil.TeleportToBaseSpawn(player: Player, char: Model, base: Model)
+function BaseUtil.TeleportToBaseSpawn(player: Player, char: Model, base: Model)
 	if not base then 
 		return false, "Base not found"
 	end
@@ -90,7 +104,7 @@ function BasesUtil.TeleportToBaseSpawn(player: Player, char: Model, base: Model)
 	return true
 end
 
-function BasesUtil.RemoveBaseFor(player: Player, slots: any)
+function BaseUtil.RemoveBaseFor(player: Player, slots: any)
 	local userId = player.UserId
 	for i, slot in pairs(slots) do
 		if slot.userId == userId then
@@ -102,4 +116,4 @@ function BasesUtil.RemoveBaseFor(player: Player, slots: any)
 	return false, "Base not found"
 end
 
-return BasesUtil
+return BaseUtil

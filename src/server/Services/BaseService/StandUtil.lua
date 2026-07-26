@@ -1,5 +1,5 @@
--- ServerScriptService/Systems/BaseService/StandUtil
-local StandsUtil = {}
+-- ServerScriptService/Services/BaseService/StandUtil
+local StandUtil = {}
 
 ---------- helper functions ----------
 
@@ -7,13 +7,13 @@ local StandsUtil = {}
 local function getMythlingModel(variantId: string, mythlingAssets: Folder, mythlingMeta: any)
 	local variantModel = mythlingMeta.variants[variantId].model
 	if not variantModel then
-		warn(`[StandsUtil] Missing variant model in metadata for variantId {variantId}`)
+		warn(`[StandUtil] Missing variant model in metadata for variantId {variantId}`)
 		return nil
 	end
 
 	local mythlingAsset = mythlingAssets:FindFirstChild(variantModel)
 	if not mythlingAsset then
-		warn(`[StandsUtil] Missing variant model in mythlingAssests for variantId {variantId}`)
+		warn(`[StandUtil] Missing variant model in mythlingAssests for variantId {variantId}`)
 	end
 
 	local mythlingModel = mythlingAsset:Clone()
@@ -52,7 +52,7 @@ end
 ---------- Public Functions ----------
 
 -- loads mythling models onto stands in the base
-function StandsUtil.LoadMythlingsOnStands(
+function StandUtil.LoadMythlingsOnStands(
 	mythlingSection: any,
 	baseModel: any,
 	mythlingAssets: Folder,
@@ -76,14 +76,14 @@ function StandsUtil.LoadMythlingsOnStands(
 				local model = getMythlingModel(entry.variantId, mythlingAssets, mythlingMeta)
 				setMythlingModel(model, stand)
 			else
-				warn(("[StandsUtil] Stand %s missing for mythling %s"):format(tostring(standId), tostring(mythlingId)))
+				warn(("[StandUtil] Stand %s missing for mythling %s"):format(tostring(standId), tostring(mythlingId)))
 			end
 		end
 	end
 end
 
 -- sets a mythling on a stand, saving the Ids in the base and saving the placement on the stand
-function StandsUtil.SetMythlingOnStand(
+function StandUtil.SetMythlingOnStand(
 	mythlingEntry: any,
 	baseModel: any,
 	standId: number,
@@ -91,7 +91,7 @@ function StandsUtil.SetMythlingOnStand(
 	mythlingMeta: any
 )
 	if mythlingEntry.standId then
-		return false, `[StandsUtil] Mythling already has stand`
+		return false, `[StandUtil] Mythling already has stand`
 	end
 	-- save Ids
 	mythlingEntry.standId = standId
@@ -112,7 +112,7 @@ function StandsUtil.SetMythlingOnStand(
 end
 
 -- removes a mythling from a stand, saving the Ids in the base and clearing the placement on the stand
-function StandsUtil.RemoveMythlingFromStand(mythlingEntry: any, baseModel: any)
+function StandUtil.RemoveMythlingFromStand(mythlingEntry: any, baseModel: any)
 	-- clear stand
 	local standModel = nil
 	local stands = baseModel.Stands:GetChildren()
@@ -133,4 +133,4 @@ function StandsUtil.RemoveMythlingFromStand(mythlingEntry: any, baseModel: any)
 	return true
 end
 
-return StandsUtil
+return StandUtil

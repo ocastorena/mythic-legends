@@ -1,11 +1,11 @@
--- StarterGui/InventoryGui/InventoryGui.lua
+-- StarterGui/InventoryGui/InventoryController
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 
 -- Modules
-local InputGuard = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("GuiInputGuard"))
-local ButtonSetup = require(ReplicatedStorage:WaitForChild("ClientModules"):WaitForChild("ButtonSetup"))
+local InputGuardUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("InputGuardUtil"))
+local ButtonUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("ButtonUtil"))
 local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
 
@@ -107,7 +107,7 @@ local function setMythlingButtons()
 	end
 	mythlingButtonsConnected = true
 
-	ButtonSetup.hookClick(bottomFrame.FirstButton, function()
+	ButtonUtil.hookClick(bottomFrame.FirstButton, function()
 		if not selectedMythlingCard then
 			return
 		end
@@ -116,7 +116,7 @@ local function setMythlingButtons()
 		openConfirmDeleteModal(mythlingInfo.NameLabel.Text)
 	end)
 
-	ButtonSetup.hookClick(confirmButton, function()
+	ButtonUtil.hookClick(confirmButton, function()
 		if not pendingDeleteId then
 			closeConfirmDeleteModal()
 			return
@@ -140,7 +140,7 @@ local function setMythlingButtons()
 		closeConfirmDeleteModal()
 	end)
 
-	ButtonSetup.hookClick(cancelButton, function()
+	ButtonUtil.hookClick(cancelButton, function()
 		pendingDeleteId = nil
 		pendingDeleteCard = nil
 		closeConfirmDeleteModal()
@@ -175,7 +175,7 @@ local function createMythlingCard(mythlingId, mythlingEntry)
 	newCard.LayoutOrder = 1
 	newCard:WaitForChild("2dPreview").Image =
 		MythlingsData[mythlingEntry.typeId].variants[mythlingEntry.variantId].thumbnail
-	ButtonSetup.hookClick(newCard, function()
+	ButtonUtil.hookClick(newCard, function()
 		selectMythlingCard(newCard)
 		showMythlingInfo()
 	end)
@@ -213,7 +213,7 @@ local function setResourceButtons()
 	end
 	resourceButtonsConnected = true
 
-	-- ButtonSetup.hookClick(bottomFrame.FirstButton, function()
+	-- ButtonUtil.hookClick(bottomFrame.FirstButton, function()
 	-- 	if not selectedResourceCard then
 	-- 		return
 	-- 	end
@@ -222,7 +222,7 @@ local function setResourceButtons()
 	-- 	openConfirmDeleteModal(mythlingInfo.NameLabel.Text)
 	-- end)
 
-	-- ButtonSetup.hookClick(confirmButton, function()
+	-- ButtonUtil.hookClick(confirmButton, function()
 	-- 	if not pendingDeleteId then
 	-- 		closeConfirmDeleteModal()
 	-- 		return
@@ -246,7 +246,7 @@ local function setResourceButtons()
 	-- 	closeConfirmDeleteModal()
 	-- end)
 
-	-- ButtonSetup.hookClick(cancelButton, function()
+	-- ButtonUtil.hookClick(cancelButton, function()
 	-- 	pendingDeleteId = nil
 	-- 	pendingDeleteCard = nil
 	-- 	closeConfirmDeleteModal()
@@ -295,7 +295,7 @@ local function createResourceCard(resourceId, resourceEntry)
 	newCard.LayoutOrder = 1
 	newCard:WaitForChild("2dPreview").Image = ResourcesMeta[resourceId].thumbnail
 	newCard.QuantityLabel.Text = `x{resourceEntry.total}`
-	ButtonSetup.hookClick(newCard, function()
+	ButtonUtil.hookClick(newCard, function()
 		selectResourceCard(newCard)
 		showResourceInfo()
 	end)
@@ -360,15 +360,15 @@ MythlingsEvent.OnClientEvent:Connect(function(event, list)
 	end
 end)
 
-ButtonSetup.hookClick(mythlingsTab, function()
+ButtonUtil.hookClick(mythlingsTab, function()
 	selectTab(mythlingsTab)
 end)
 
-ButtonSetup.hookClick(resourcesTab, function()
+ButtonUtil.hookClick(resourcesTab, function()
 	selectTab(resourcesTab)
 end)
 
-ButtonSetup.hookClick(inventoryBtn, function()
+ButtonUtil.hookClick(inventoryBtn, function()
 	if not inventoryGui.Enabled then
 		backgroundGui.Enabled = true
 		selectedMythlingCard = nil
@@ -383,7 +383,7 @@ ButtonSetup.hookClick(inventoryBtn, function()
 	end
 end)
 
-ButtonSetup.hookClick(closeButton, function()
+ButtonUtil.hookClick(closeButton, function()
 	if inventoryGui.Enabled then
 		backgroundGui.Enabled = false
 		inventoryGui.Enabled = false
@@ -393,11 +393,11 @@ end)
 backgroundGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if backgroundGui.Enabled then
 		-- ScreenGui just got enabled → block inputs
-		InputGuard.open()
+		InputGuardUtil.open()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 	else
 		-- ScreenGui just got disabled → allow inputs
-		InputGuard.close()
+		InputGuardUtil.close()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
 	end
 end)

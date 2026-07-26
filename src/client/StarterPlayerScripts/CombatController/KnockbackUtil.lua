@@ -1,9 +1,9 @@
--- /Knockback
+-- StarterPlayer/StarterPlayerScripts/CombatController/KnockbackUtil
 local RagdollUtil = require(script.Parent.RagdollUtil)
 
-local Knockback = {}
+local KnockbackUtil = {}
 
-function Knockback.Start(impulse: Vector3, char: Character, hitDuration: number)
+function KnockbackUtil.Start(impulse: Vector3, char: Character, hitDuration: number)
 	-- check if we already got hit
 	if char:GetAttribute("Hit") then return end
 	char:SetAttribute("Hit", true)
@@ -26,4 +26,4 @@ function Knockback.Start(impulse: Vector3, char: Character, hitDuration: number)
 	char:SetAttribute("Hit", false)
 end
 
-return Knockback
+return KnockbackUtil

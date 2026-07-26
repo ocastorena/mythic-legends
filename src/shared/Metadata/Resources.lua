@@ -1,3 +1,4 @@
+-- ReplicatedStorage/Metadata/Resources
 return {
 	essence = {
 		displayName = "Essence",

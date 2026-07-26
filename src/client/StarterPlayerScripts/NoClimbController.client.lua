@@ -1,3 +1,4 @@
+-- StarterPlayer/StarterPlayerScripts/NoClimbController
 -- Blocks "climbing other players" but still allows ladders/walls.
 local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")

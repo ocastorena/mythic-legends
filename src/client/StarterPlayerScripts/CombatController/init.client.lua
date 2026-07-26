@@ -1,4 +1,4 @@
--- StarterCharacterScripts/CombatClient
+-- StarterPlayer/StarterPlayerScripts/CombatController
 
 -- services
 local Players           = game:GetService("Players")
@@ -6,8 +6,7 @@ local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- modules
-local CombatUtils       = script.Parent:FindFirstChild("CombatUtils")
-local Knockback         = require(CombatUtils.Knockback)
+local KnockbackUtil     = require(script.KnockbackUtil)
 
 -- constants
 local player            = Players.LocalPlayer
@@ -69,7 +68,7 @@ end
 
 local function handleHitResponse(impulse: Vector3, hitType: string, hitDuration: number)
 	if hitType == "Knockback" then
-		Knockback.Start(impulse, char, hitDuration)
+		KnockbackUtil.Start(impulse, char, hitDuration)
 	end
 end
 
@@ -89,7 +88,7 @@ char.ChildAdded:Connect(function(tool)
 		tool:SetAttribute("CombatReady", true)
 
 		if not tool:FindFirstChild("Handle") then
-			error(string.format("[CombatClient] Tool %s does not have a Handle",tool.Name))
+			error(string.format("[CombatController] Tool %s does not have a Handle",tool.Name))
 			return
 		end
 		equippedWeapon = tool
