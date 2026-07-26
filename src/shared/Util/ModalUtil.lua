@@ -1,5 +1,5 @@
 -- ReplicatedStorage/Util/ModalUtil
--- Single owner of the modal backdrop, the input guard and the backpack toggle.
+-- Single owner of the modal backdrop, the input guard and the hotbar toggle.
 --
 -- InventoryController and StandController each used to hold their own reference to the
 -- shared Background ScreenGui and each connected its own handler to
@@ -15,7 +15,6 @@
 -- Panels now declare themselves open or closed by name and never touch the backdrop.
 
 local Players = game:GetService("Players")
-local StarterGui = game:GetService("StarterGui")
 
 local InputGuardUtil = require(script.Parent.InputGuardUtil)
 local ThemeUtil = require(script.Parent.ThemeUtil)
@@ -27,6 +26,12 @@ local localPlayer = Players.LocalPlayer
 -- Names of every panel currently open. The backdrop is up whenever this is non-empty.
 local openPanels: { [string]: true } = {}
 local backdropShown = false
+
+-- Anything that needs to get out of a panel's way. The backpack used to be toggled from
+-- here through SetCoreGuiEnabled, but HotbarController owns that CoreGui flag now -- it
+-- keeps the platform hotbar off for the whole session -- so re-enabling it here would put
+-- Roblox's unstyled hotbar back on screen every time a panel closed.
+local listeners: { (boolean) -> () } = {}
 
 local function getBackdrop(): ScreenGui?
 	local playerGui = localPlayer:FindFirstChildOfClass("PlayerGui")
@@ -68,10 +73,26 @@ local function sync()
 
 	if shouldShow then
 		InputGuardUtil.open()
-		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 	else
 		InputGuardUtil.close()
-		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
+	end
+
+	for _, listener in ipairs(listeners) do
+		task.spawn(listener, shouldShow)
+	end
+end
+
+--- Calls `listener(anyPanelOpen)` now and on every empty <-> non-empty transition after.
+--- Returns a function that unsubscribes.
+function ModalUtil.OnChanged(listener: (boolean) -> ()): () -> ()
+	table.insert(listeners, listener)
+	task.spawn(listener, anyOpen())
+
+	return function()
+		local index = table.find(listeners, listener)
+		if index then
+			table.remove(listeners, index)
+		end
 	end
 end
 

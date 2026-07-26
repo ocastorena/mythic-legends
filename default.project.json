@@ -47,6 +47,11 @@
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
         "$path": "src/client/StarterGui/MainGui"
+      },
+      "HotbarGui": {
+        "$className": "ScreenGui",
+        "$ignoreUnknownInstances": true,
+        "$path": "src/client/StarterGui/HotbarGui"
       }
     }
   }

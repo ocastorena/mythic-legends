@@ -209,6 +209,9 @@ ThemeUtil.Radius = {
 	tab = 10,
 	badge = 6,
 	pill = 999,
+	-- Hotbar slots are rounded squares rather than the discs the top bar uses, so item art
+	-- gets a square frame to sit in.
+	hotbarSlot = 12,
 }
 
 ThemeUtil.Metric = {
@@ -239,6 +242,13 @@ ThemeUtil.Metric = {
 	barHeightWide = 9,
 	-- Proximity buttons out in the world.
 	proximitySize = 56,
+	-- Hotbar: a unibar-style tray of round slots along the bottom edge. The slot diameter
+	-- matches Roblox's own top bar buttons so both strips read as the same chrome, and the
+	-- tray's padding matches the gap Roblox leaves around the buttons inside its unibar.
+	-- The hotbar is slots and nothing else -- no bar behind them -- so there is no tray
+	-- padding here, and its gap off the bottom edge lives with the controller that sets it.
+	hotbarSlot = 44,
+	hotbarGap = 6,
 }
 
 --------------------------------------------------------------------------------
@@ -264,6 +274,9 @@ ThemeUtil.Platform = {
 	topbarButtonTransparency = 0.08,
 	-- Slightly more opaque under the cursor, standing in for Roblox's own state overlay.
 	topbarButtonHoverTransparency = 0,
+	-- A hotbar slot standing empty. The same fill as a top bar button, thinned out so the
+	-- slot reads as a place for something rather than a thing in its own right.
+	topbarButtonEmptyTransparency = 0.5,
 }
 
 export type Topbar = {
@@ -473,7 +486,10 @@ end
 -- The HUD sits above both the scrim and the panels. It occupies the top bar strip, which
 -- no panel reaches, so being on top costs nothing and keeps the persistent chrome lit and
 -- clickable whenever a menu is open.
+-- The hotbar sits below the scrim: it is world chrome like the Roblox backpack it replaces,
+-- so an open panel is meant to dim it, and ModalUtil hides it outright anyway.
 ThemeUtil.Layer = {
+	hotbar = 0,
 	scrim = 1,
 	panel = 2,
 	hud = 5,
