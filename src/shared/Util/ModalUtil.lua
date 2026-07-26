@@ -18,6 +18,7 @@ local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 
 local InputGuardUtil = require(script.Parent.InputGuardUtil)
+local ThemeUtil = require(script.Parent.ThemeUtil)
 
 local ModalUtil = {}
 
@@ -30,7 +31,19 @@ local backdropShown = false
 local function getBackdrop(): ScreenGui?
 	local playerGui = localPlayer:FindFirstChildOfClass("PlayerGui")
 	local backdrop = playerGui and playerGui:FindFirstChild("Background")
-	return (backdrop and backdrop:IsA("ScreenGui")) and backdrop or nil
+	if not (backdrop and backdrop:IsA("ScreenGui")) then
+		return nil
+	end
+
+	-- This is the design system's modal scrim (§01), and it is authored in the place file
+	-- rather than built here, so its colour is applied on the way past instead of being
+	-- left to drift from the token.
+	local frame = backdrop:FindFirstChild("Background")
+	if frame and frame:IsA("GuiObject") then
+		ThemeUtil.paint(frame, ThemeUtil.Surface.scrim)
+	end
+
+	return backdrop
 end
 
 local function anyOpen(): boolean

@@ -177,22 +177,56 @@ function PanelUtil.squareButton(parent: Instance, icon: string, tint: Color3?): 
 	return button
 end
 
+--- The same square well, but carrying a glyph instead of an image. The design draws its
+--- secondary actions as inline SVG, including a bare `+` for "add to this slot"; a text
+--- glyph is the asset-free equivalent of that icon language.
+function PanelUtil.squareTextButton(parent: Instance, glyph: string, root: number, tint: Color3?): TextButton
+	local button = Instance.new("TextButton")
+	button.Name = "SquareButton"
+	button.Size = UDim2.fromOffset(Metric.squareButton, Metric.buttonHeight)
+	button.AutoButtonColor = false
+	button.BorderSizePixel = 0
+	button.BackgroundColor3 = tint or ThemeUtil.Accent.gold
+	button.BackgroundTransparency = 0.88
+	button.Text = glyph
+	button.FontFace = ThemeUtil.Font.heavy
+	button.TextSize = ThemeUtil.text(Em.panelTitle, root)
+	button.TextColor3 = tint or ThemeUtil.Accent.gold
+	button.Parent = parent
+	ThemeUtil.corner(button, Radius.buttonSmall)
+	return button
+end
+
 --- The round ✕ in a panel header.
+---
+--- The glyph is drawn from two rotated bars rather than set as text: Nunito has no ✕
+--- (U+2715), so a text button renders it as a fallback box or drops it entirely.
 function PanelUtil.closeButton(parent: Instance, root: number): TextButton
 	local button = Instance.new("TextButton")
 	button.Name = "CloseButton"
 	button.Size = UDim2.fromOffset(Metric.closeSize, Metric.closeSize)
 	button.AutoButtonColor = false
 	button.BorderSizePixel = 0
-	button.Text = "✕"
-	button.FontFace = ThemeUtil.Font.bold
-	button.TextSize = ThemeUtil.text(Em.body, root)
-	button.TextColor3 = ThemeUtil.Text.strong
-	button.TextTransparency = 0.15
+	button.Text = ""
 	button.Parent = parent
 	ThemeUtil.paint(button, Surface.chip)
 	button.BackgroundTransparency = 0.9
 	ThemeUtil.pill(button)
+
+	for _, angle in ipairs({ 45, -45 }) do
+		local bar = Instance.new("Frame")
+		bar.Name = "Bar"
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = UDim2.fromOffset(13, 2)
+		bar.Rotation = angle
+		bar.BorderSizePixel = 0
+		bar.BackgroundColor3 = ThemeUtil.Text.strong
+		bar.BackgroundTransparency = 0.15
+		bar.Parent = button
+		ThemeUtil.pill(bar)
+	end
+
 	return button
 end
 
@@ -331,7 +365,6 @@ function PanelUtil.panel(config: PanelConfig): Panel
 			icon.Size = UDim2.fromOffset(34, 34)
 			icon.BackgroundColor3 = config.iconColor
 			icon.BackgroundTransparency = 0
-			icon.ImageColor3 = Color3.fromRGB(18, 22, 30)
 			ThemeUtil.pill(icon)
 			ThemeUtil.padding(icon, 7, 7, 7, 7)
 		else
@@ -440,9 +473,20 @@ end
 -- 05 · Grid cell
 --------------------------------------------------------------------------------
 
+--- Width the grid column ends up with, derived from the shell's own metrics rather than
+--- measured: AbsoluteSize is still zero when a panel is built, one frame before layout.
+local function gridColumnWidth(viewport: Vector2): number
+	local panelWidth = ThemeUtil.panelSize(viewport).X.Offset
+	if panelWidth == 0 then
+		-- Phone panels are sized in scale, so resolve against the viewport.
+		panelWidth = math.min(760, math.floor(viewport.X * 0.94))
+	end
+	return panelWidth - 2 * Metric.bodyPad - Metric.bodyGap - ThemeUtil.detailWidth(viewport)
+end
+
 --- The scrolling grid that fills the panel's 2/3 column. Cells are the design's fixed
 --- 112px squares; phones fall back to four equal columns, as the canvas does.
-function PanelUtil.grid(parent: Instance, columnWidth: number?): ScrollingFrame
+function PanelUtil.grid(parent: Instance): ScrollingFrame
 	local camera = workspace.CurrentCamera
 	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
 
@@ -465,15 +509,22 @@ function PanelUtil.grid(parent: Instance, columnWidth: number?): ScrollingFrame
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = scroll
 
-	local function applyCellSize()
-		if viewport.Y < 500 and columnWidth then
-			local size = math.floor((columnWidth - 3 * Metric.cellGap) / 4)
-			layout.CellSize = UDim2.fromOffset(size, size)
+	--- Phones get four equal columns; everything else gets the fixed 112px cell.
+	local function applyCellSize(size: Vector2)
+		if size.Y < 500 then
+			local cell = math.max(48, math.floor((gridColumnWidth(size) - 3 * Metric.cellGap) / 4))
+			layout.CellSize = UDim2.fromOffset(cell, cell)
 		else
 			layout.CellSize = UDim2.fromOffset(Metric.cellSize, Metric.cellSize)
 		end
 	end
-	applyCellSize()
+	applyCellSize(viewport)
+
+	if camera then
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			applyCellSize(camera.ViewportSize)
+		end)
+	end
 
 	return scroll
 end
@@ -570,8 +621,12 @@ end
 --- Applies §05's ring rules to a cell: rarity colour always, 3px when selected and 2px
 --- (dimmed) when not. Primordial's ring cycles, so its tween is owned here and stopped
 --- as soon as the cell stops being prismatic.
-function PanelUtil.setCellRing(cell: GuiObject, rarity: string?, selected: boolean)
-	local stroke = ThemeUtil.ring(cell, ThemeUtil.rarityColor(rarity), selected and 3 or 2)
+---
+--- `colorOverride` is for entries that have no rarity at all — resources carry their own
+--- identity colour instead, and without this the selection ring would repaint them with
+--- the default tier's white.
+function PanelUtil.setCellRing(cell: GuiObject, rarity: string?, selected: boolean, colorOverride: Color3?)
+	local stroke = ThemeUtil.ring(cell, colorOverride or ThemeUtil.rarityColor(rarity), selected and 3 or 2)
 	stroke.Transparency = selected and 0 or 0.53
 
 	local existing = cell:FindFirstChild("RingCycle")
@@ -718,7 +773,9 @@ function PanelUtil.details(config: DetailsConfig): Details
 	elementIcon.BackgroundColor3 = accent
 	elementIcon.BackgroundTransparency = 0
 	elementIcon.BorderSizePixel = 0
-	elementIcon.ImageColor3 = Color3.fromRGB(18, 22, 30)
+	-- The design draws a dark glyph on a bright disc. This game's icons are full-colour
+	-- artwork rather than glyphs, so they are left untinted; the disc behind still carries
+	-- the identity colour the design asks the element mark to communicate.
 	elementIcon.ScaleType = Enum.ScaleType.Fit
 	elementIcon.LayoutOrder = 1
 	elementIcon.Parent = nameRow
@@ -919,7 +976,8 @@ end
 function PanelUtil.setHeroRarity(details: Details, rarity: string?)
 	local color = ThemeUtil.rarityColor(rarity)
 	local stroke = ThemeUtil.ring(details.Hero, color, 3)
-	details.RarityLabel.Text = rarity or ""
+	-- The caption always shows the design's tier name, whatever vocabulary the caller has.
+	details.RarityLabel.Text = rarity and ThemeUtil.tier(rarity) or ""
 	details.RarityLabel.TextColor3 = color
 
 	local existing = details.Hero:FindFirstChild("RingCycle")
@@ -976,6 +1034,9 @@ end
 export type ModalConfig = {
 	parent: Instance,
 	root: number,
+	-- Instance name. Worth setting when a panel owns more than one modal, so the tree
+	-- reads as LoreModal/ConfirmModal rather than two children both called "Modal".
+	name: string?,
 	title: string?,
 	-- Adds the rarity · source subtitle row.
 	subtitle: boolean?,
@@ -1009,7 +1070,7 @@ function PanelUtil.modal(config: ModalConfig): Modal
 	local root = config.root
 	local accent = config.accent or ThemeUtil.Accent.gold
 
-	local scrim = newFrame("Modal", config.parent)
+	local scrim = newFrame(config.name or "Modal", config.parent)
 	scrim.Size = UDim2.fromScale(1, 1)
 	scrim.Visible = false
 	scrim.ZIndex = 10
@@ -1051,7 +1112,7 @@ function PanelUtil.modal(config: ModalConfig): Modal
 	disc.BackgroundColor3 = accent
 	disc.BackgroundTransparency = 0
 	disc.BorderSizePixel = 0
-	disc.ImageColor3 = Color3.fromRGB(18, 22, 30)
+	-- Untinted for the same reason as the details pane's element disc.
 	disc.ScaleType = Enum.ScaleType.Fit
 	disc.LayoutOrder = 1
 	disc.Parent = identity

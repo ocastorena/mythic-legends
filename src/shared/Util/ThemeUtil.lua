@@ -95,6 +95,32 @@ ThemeUtil.Rarity = {
 	Primordial = hex("ff3b4e"), -- mythical · prismatic shift
 }
 
+-- The doc labels each tier with the generic rarity it stands for ("Fabled · Common · soft
+-- white"), which is the bridge between the design's names and the ones this game uses.
+-- Metadata/Spawns declares the ladder as Common · Rare · Epic · Legendary · Secret — five
+-- tiers deep exactly like the design's, so they line up rank for rank. "Secret" is the
+-- rarest (spawn weight 5 against Common's 100), so it takes the design's rarest tier and
+-- gets the prismatic ring.
+--
+-- Unmapped values fall through to the tier of the same name, so metadata that adopts the
+-- design's own vocabulary keeps working without a change here.
+ThemeUtil.RarityTier = {
+	Common = "Fabled",
+	Rare = "Awakened",
+	Epic = "Ancient",
+	Legendary = "Divine",
+	Secret = "Primordial",
+	Mythical = "Primordial",
+}
+
+--- The design tier for a metadata rarity, e.g. "Legendary" -> "Divine".
+function ThemeUtil.tier(rarity: string?): string
+	if not rarity then
+		return "Fabled"
+	end
+	return ThemeUtil.RarityTier[rarity] or rarity
+end
+
 -- Primordial's ring cycles rather than sitting still. RingUtil tweens through these.
 ThemeUtil.PrimordialCycle = {
 	hex("ffd75e"),
@@ -113,13 +139,15 @@ ThemeUtil.Element = {
 	Dark = hex("9d6bd6"),
 }
 
---- Rarity ring colour, falling back to Fabled for anything unrecognised.
+--- Rarity ring colour, falling back to Fabled for anything unrecognised. Takes either a
+--- design tier ("Divine") or a metadata rarity ("Legendary").
 function ThemeUtil.rarityColor(rarity: string?): Color3
-	return (rarity and ThemeUtil.Rarity[rarity]) or ThemeUtil.Rarity.Fabled
+	return ThemeUtil.Rarity[ThemeUtil.tier(rarity)] or ThemeUtil.Rarity.Fabled
 end
 
+--- Only the top tier animates its ring.
 function ThemeUtil.isPrismatic(rarity: string?): boolean
-	return rarity == "Primordial"
+	return ThemeUtil.tier(rarity) == "Primordial"
 end
 
 --- Element tint, falling back to gold for anything unrecognised.
@@ -241,9 +269,10 @@ function ThemeUtil.paint(instance: GuiObject, token: Surface)
 	instance.BackgroundTransparency = token.transparency
 end
 
---- Rounds a corner. Radius is in pixels, matching the doc.
+--- Rounds a corner. Radius is in pixels, matching the doc. Reuses an existing UICorner so
+--- restyling an authored instance twice cannot leave two of them behind.
 function ThemeUtil.corner(parent: Instance, radius: number): UICorner
-	local corner = Instance.new("UICorner")
+	local corner = parent:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, radius)
 	corner.Parent = parent
 	return corner
@@ -251,7 +280,7 @@ end
 
 --- A pill's radius is "fully round", which in Roblox is half the height.
 function ThemeUtil.pill(parent: Instance): UICorner
-	local corner = Instance.new("UICorner")
+	local corner = parent:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(1, 0)
 	corner.Parent = parent
 	return corner

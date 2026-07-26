@@ -9,6 +9,8 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
+local ThemeUtil = require(script.Parent.ThemeUtil)
+
 local ToastUtil = {}
 
 local POP_TI = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -45,6 +47,15 @@ local function ensureGui(): boolean
 
 	frame = toastFrame
 	label = textLabel
+
+	-- The toast predates the design system and is authored in the place file, so it gets
+	-- the §08 modal surface and Nunito on the way past. Its own transparency is animated,
+	-- so only the colour is taken from the token.
+	toastFrame.BackgroundColor3 = ThemeUtil.Surface.modal.color
+	ThemeUtil.corner(toastFrame, ThemeUtil.Radius.pill)
+	textLabel.FontFace = ThemeUtil.Font.extraBold
+	textLabel.TextColor3 = ThemeUtil.Text.body
+
 	-- Read the authored size once, before the first tween shrinks it to zero.
 	finalSize = finalSize or toastFrame.Size
 	return true
