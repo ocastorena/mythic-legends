@@ -4,8 +4,10 @@ local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 
 -- Modules
-local InputGuardUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("InputGuardUtil"))
-local ButtonUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("ButtonUtil"))
+local Util = ReplicatedStorage:WaitForChild("Util")
+local InputGuardUtil = require(Util:WaitForChild("InputGuardUtil"))
+local ButtonUtil = require(Util:WaitForChild("ButtonUtil"))
+local CardListUtil = require(Util:WaitForChild("CardListUtil"))
 local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
 
@@ -53,17 +55,15 @@ local selectedTab = nil
 local selectedFrame = nil
 local selectedInfo = nil
 
-local mythlingCards = {}
-local mythlingCardsData = {}
-local selectedMythlingCard = nil
 local pendingDeleteId = nil
-local pendingDeleteCard = nil
 local mythlingButtonsConnected = false
-
-local resourceCards = {}
-local resourceCardsData = {}
-local selectedResourceCard = nil
 local resourceButtonsConnected = false
+
+--- Both grids highlight with a UIStroke; shared by the mythling and resource lists.
+local function setStrokeHighlight(card, selected: boolean)
+	card.UIStroke.Color = selected and selectCardColor or deselectCardColor
+	card.UIStroke.Thickness = selected and 0.04 or 0.02
+end
 
 -- helper functions
 local function closeConfirmDeleteModal()
@@ -76,26 +76,40 @@ local function openConfirmDeleteModal(displayName)
 end
 
 -- Mythlings
-local function clearMythlingCards()
-	for _, card in pairs(mythlingCards) do
-		card:Destroy()
-	end
-	table.clear(mythlingCards)
-end
-
 local function clearMythlingInfo()
 	mythlingInfo.NameLabel.Text = ""
 	mythlingInfo.VariantLabel.Text = ""
 	mythlingInfo.DescriptionLabel.Text = ""
 end
 
-local function clearSelectedMythlingCard()
-	if selectedMythlingCard then
-		selectedMythlingCard.UIStroke.Color = deselectCardColor
-		selectedMythlingCard.UIStroke.Thickness = 0.02
-		selectedMythlingCard = nil
-	end
-end
+local mythlingList = CardListUtil.new({
+	template = mythlingCardTemplate,
+	parent = mythlingsFrame,
+	setHighlight = setStrokeHighlight,
+	decorate = function(card, _id, entry)
+		card:WaitForChild("2dPreview").Image = MythlingsData[entry.typeId].variants[entry.variantId].thumbnail
+	end,
+	onSelect = function(_id, entry)
+		local metadata = MythlingsData[entry.typeId]
+		mythlingInfo.NameLabel.Text = metadata.displayName
+		mythlingInfo.VariantLabel.Text = metadata.rarity
+		mythlingInfo.DescriptionLabel.Text = metadata.description
+	end,
+})
+
+local resourceList = CardListUtil.new({
+	template = resourcesCardTemplate,
+	parent = resourcesFrame,
+	setHighlight = setStrokeHighlight,
+	decorate = function(card, id, entry)
+		card:WaitForChild("2dPreview").Image = ResourcesMeta[id].thumbnail
+		card.QuantityLabel.Text = `x{entry.total}`
+	end,
+	onSelect = function(id)
+		resourceInfo.NameLabel.Text = ResourcesMeta[id].displayName
+		resourceInfo.ScrollingFrame.DescriptionLabel.Text = ResourcesMeta[id].description
+	end,
+})
 
 local function setMythlingButtons()
 	bottomFrame.FirstButton.Text = "Delete"
@@ -108,11 +122,11 @@ local function setMythlingButtons()
 	mythlingButtonsConnected = true
 
 	ButtonUtil.hookClick(bottomFrame.FirstButton, function()
-		if not selectedMythlingCard then
+		local selectedId = mythlingList:GetSelectedId()
+		if not selectedId then
 			return
 		end
-		pendingDeleteId = selectedMythlingCard.Name
-		pendingDeleteCard = selectedMythlingCard
+		pendingDeleteId = selectedId
 		openConfirmDeleteModal(mythlingInfo.NameLabel.Text)
 	end)
 
@@ -123,83 +137,18 @@ local function setMythlingButtons()
 		end
 
 		clearMythlingInfo()
-		clearSelectedMythlingCard()
-
-		local card = pendingDeleteCard or mythlingCards[pendingDeleteId]
-		if card then
-			card:Destroy()
-		end
-		mythlingCards[pendingDeleteId] = nil
-		mythlingCardsData[pendingDeleteId] = nil
-		selectedMythlingCard = nil
+		mythlingList:Remove(pendingDeleteId)
 
 		MythlingsEvent:FireServer("Delete", pendingDeleteId)
 
 		pendingDeleteId = nil
-		pendingDeleteCard = nil
 		closeConfirmDeleteModal()
 	end)
 
 	ButtonUtil.hookClick(cancelButton, function()
 		pendingDeleteId = nil
-		pendingDeleteCard = nil
 		closeConfirmDeleteModal()
 	end)
-end
-
-local function selectMythlingCard(card)
-	if selectedMythlingCard == card then
-		return
-	end
-	clearSelectedMythlingCard()
-	card.UIStroke.Color = selectCardColor
-	card.UIStroke.Thickness = 0.04
-	selectedMythlingCard = card
-end
-
-local function showMythlingInfo()
-	if not selectedMythlingCard then
-		return
-	end
-	local mythlingMetadata = MythlingsData[mythlingCardsData[selectedMythlingCard.Name].typeId]
-	mythlingInfo.NameLabel.Text = mythlingMetadata.displayName
-	mythlingInfo.VariantLabel.Text = mythlingMetadata.rarity
-	mythlingInfo.DescriptionLabel.Text = mythlingMetadata.description
-end
-
-local function createMythlingCard(mythlingId, mythlingEntry)
-	local newCard = mythlingCardTemplate:Clone()
-	newCard.Name = mythlingId
-	newCard.Parent = mythlingsFrame
-	newCard.Visible = true
-	newCard.LayoutOrder = 1
-	newCard:WaitForChild("2dPreview").Image =
-		MythlingsData[mythlingEntry.typeId].variants[mythlingEntry.variantId].thumbnail
-	ButtonUtil.hookClick(newCard, function()
-		selectMythlingCard(newCard)
-		showMythlingInfo()
-	end)
-	return newCard
-end
-
-local function addMythlingCard(mythlingId, mythlingEntry)
-	if mythlingCards[mythlingId] then
-		return
-	end
-	local newCard = createMythlingCard(mythlingId, mythlingEntry)
-	mythlingCards[mythlingId] = newCard
-	mythlingCardsData[mythlingId] = mythlingEntry
-	if not selectedMythlingCard then
-		selectMythlingCard(newCard)
-		showMythlingInfo()
-	end
-end
-
-local function addMythlingsCards(list)
-	clearMythlingCards()
-	for mythlingId, mythlingEntry in pairs(list) do
-		addMythlingCard(mythlingId, mythlingEntry)
-	end
 end
 
 ------------- Resources Start -------------
@@ -213,114 +162,10 @@ local function setResourceButtons()
 	end
 	resourceButtonsConnected = true
 
-	-- ButtonUtil.hookClick(bottomFrame.FirstButton, function()
-	-- 	if not selectedResourceCard then
-	-- 		return
-	-- 	end
-	-- 	pendingDeleteId = selectedResourceCard.Name
-	-- 	pendingDeleteCard = selectedResourceCard
-	-- 	openConfirmDeleteModal(mythlingInfo.NameLabel.Text)
-	-- end)
-
-	-- ButtonUtil.hookClick(confirmButton, function()
-	-- 	if not pendingDeleteId then
-	-- 		closeConfirmDeleteModal()
-	-- 		return
-	-- 	end
-
-	-- 	clearMythlingInfo()
-	-- 	clearSelectedMythlingCard()
-
-	-- 	local card = pendingDeleteCard or mythlingCards[pendingDeleteId]
-	-- 	if card then
-	-- 		card:Destroy()
-	-- 	end
-	-- 	mythlingCards[pendingDeleteId] = nil
-	-- 	mythlingCardsData[pendingDeleteId] = nil
-	-- 	selectedMythlingCard = nil
-
-	-- 	MythlingsEvent:FireServer("Delete", pendingDeleteId)
-
-	-- 	pendingDeleteId = nil
-	-- 	pendingDeleteCard = nil
-	-- 	closeConfirmDeleteModal()
-	-- end)
-
-	-- ButtonUtil.hookClick(cancelButton, function()
-	-- 	pendingDeleteId = nil
-	-- 	pendingDeleteCard = nil
-	-- 	closeConfirmDeleteModal()
-	-- end)
+	-- Resources have no delete action yet; FirstButton stays hidden above.
 end
 
-local function clearResourceCards()
-	for _, card in pairs(resourceCards) do
-		card:Destroy()
-	end
-	table.clear(resourceCards)
-end
 
-local function clearSelectedResourceCard()
-	if selectedResourceCard then
-		selectedResourceCard.UIStroke.Color = deselectCardColor
-		selectedResourceCard.UIStroke.Thickness = 0.02
-		selectedResourceCard = nil
-	end
-end
-
-local function selectResourceCard(card)
-	if selectedResourceCard == card then
-		return
-	end
-	clearSelectedResourceCard()
-	card.UIStroke.Color = selectCardColor
-	card.UIStroke.Thickness = 0.04
-	selectedResourceCard = card
-end
-
-local function showResourceInfo()
-	if not selectedResourceCard then
-		return
-	end
-
-	resourceInfo.NameLabel.Text = ResourcesMeta[selectedResourceCard.Name].displayName
-	resourceInfo.ScrollingFrame.DescriptionLabel.Text = ResourcesMeta[selectedResourceCard.Name].description
-end
-
-local function createResourceCard(resourceId, resourceEntry)
-	local newCard = resourcesCardTemplate:Clone()
-	newCard.Name = resourceId
-	newCard.Parent = resourcesFrame
-	newCard.Visible = true
-	newCard.LayoutOrder = 1
-	newCard:WaitForChild("2dPreview").Image = ResourcesMeta[resourceId].thumbnail
-	newCard.QuantityLabel.Text = `x{resourceEntry.total}`
-	ButtonUtil.hookClick(newCard, function()
-		selectResourceCard(newCard)
-		showResourceInfo()
-	end)
-	return newCard
-end
-
-local function addResourceCard(resourceId, resourceEntry)
-	if resourceCards[resourceId] then
-		return
-	end
-	local newCard = createResourceCard(resourceId, resourceEntry)
-	resourceCards[resourceId] = newCard
-	resourceCardsData[resourceId] = resourceEntry
-	if not selectedResourceCard then
-		selectResourceCard(newCard)
-		showResourceInfo()
-	end
-end
-
-local function addResourcesCards(list)
-	clearResourceCards()
-	for resourceId, resourceEntry in pairs(list) do
-		addResourceCard(resourceId, resourceEntry)
-	end
-end
 ------------- Resources End -------------
 
 local function selectTab(tab)
@@ -356,7 +201,7 @@ end
 
 MythlingsEvent.OnClientEvent:Connect(function(event, list)
 	if event == "Update" then
-		addMythlingsCards(list)
+		mythlingList:Replace(list)
 	end
 end)
 
@@ -371,10 +216,8 @@ end)
 ButtonUtil.hookClick(inventoryBtn, function()
 	if not inventoryGui.Enabled then
 		backgroundGui.Enabled = true
-		selectedMythlingCard = nil
-		selectedResourceCard = nil
-		addMythlingsCards(MythlingsRequest:InvokeServer("GetMythlings"))
-		addResourcesCards(ResourcesRequest:InvokeServer("GetResources"))
+		mythlingList:Replace(MythlingsRequest:InvokeServer("GetMythlings"))
+		resourceList:Replace(ResourcesRequest:InvokeServer("GetResources"))
 		selectTab(mythlingsTab)
 		inventoryGui.Enabled = true
 	else

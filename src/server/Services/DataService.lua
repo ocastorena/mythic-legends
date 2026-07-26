@@ -7,7 +7,7 @@
 
 -- schema example
 -- {
---     version = 1.4, -- instead of "_v"
+--     version = 1.0, -- must match SCHEMA_VERSION below
 --     profile = {
 --         userId = 123,
 --         createdAt = 1710000000,
@@ -47,14 +47,23 @@
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LogUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("LogUtil"))
+local log = LogUtil.For("DataService")
 
 local KEYSPACE = "Mythic_Legends_PlayerDoc_v1"
 local STORE = DataStoreService:GetDataStore(KEYSPACE)
 local MAX_RETRIES = 3 -- light retry for transient DS errors
 local BACKOFF_BASE_SEC = 0.15 -- 0.15, 0.30, 0.60...
+
+-- Current schema version. Bumping this REQUIRES adding a matching MIGRATIONS entry --
+-- see the migration notes below.
+local SCHEMA_VERSION = 1.0
+
 -- Top-level document schema (add sections as you grow your game)
 local DEFAULT_DOC = {
-	version = 1.0,
+	version = SCHEMA_VERSION,
 	profile = {},
 	mythlings = {}, -- array of saved mythlings
 	resources = {},
@@ -65,6 +74,8 @@ local DEFAULT_DOC = {
 -- In-memory cache: uid -> doc table
 local _docs: { [number]: any } = {}
 local _loading = {}
+-- Scratch documents for sessions whose save could not be read; never persisted.
+local _volatile: { [number]: any } = {}
 
 -- ====== Utilities ======
 local function deepClone(t)
@@ -94,25 +105,82 @@ local function withRetry(fn)
 	return false, res
 end
 
+-- ====== Migrations ======
+--
+-- Keyed by the version being migrated FROM; each returns the upgraded doc. To add one:
+-- bump SCHEMA_VERSION, then add MIGRATIONS[oldVersion] returning a doc at the new
+-- version. Migrations run in sequence, so a very old save walks forward one step at a
+-- time. Never delete an entry -- players who have not logged in since still need it.
+--
+-- Example:
+--   MIGRATIONS[1.0] = function(doc)
+--       doc.flags = doc.flags or {}
+--       doc.version = 1.1
+--       return doc
+--   end
+local MIGRATIONS: { [number]: (any) -> any } = {}
+
+-- Fills in any top-level section the document is missing, so adding a section to
+-- DEFAULT_DOC does not need a migration of its own.
+local function backfillSections(doc)
+	for key, value in pairs(DEFAULT_DOC) do
+		if doc[key] == nil then
+			doc[key] = (type(value) == "table") and deepClone(value) or value
+		end
+	end
+	return doc
+end
+
+-- Walks a document up to SCHEMA_VERSION. Returns nil if it cannot be migrated, which the
+-- caller must treat as "do not touch this save" rather than "start fresh".
+local function migrate(doc, userId: number)
+	local guard = 0
+	while doc.version ~= SCHEMA_VERSION do
+		local step = MIGRATIONS[doc.version]
+		if not step then
+			log.error(
+				`No migration from version {doc.version} to {SCHEMA_VERSION} for userId {userId};`
+					.. " refusing to overwrite this save"
+			)
+			return nil
+		end
+
+		local before = doc.version
+		doc = step(doc)
+
+		guard += 1
+		if doc.version == before or guard > 32 then
+			log.error(`Migration from version {before} did not advance for userId {userId}`)
+			return nil
+		end
+	end
+	return backfillSections(doc)
+end
+
 -- Load (or create default), then cache it.
 local function loadPlayerDoc(userId: number)
 	local ok, result = withRetry(function()
 		return STORE:GetAsync(tostring(userId))
 	end)
 
-	local doc = ok and result or nil
-	if doc and doc.version ~= DEFAULT_DOC.version then
-		doc = deepClone(DEFAULT_DOC)
-	else
-		doc = doc or deepClone(DEFAULT_DOC)
+	if not ok then
+		-- Never fall back to a blank document here: SaveNow would then overwrite the real
+		-- save with an empty one. Leave the cache unset so this session is read-only.
+		log.error(`Load failed for userId {userId}; not caching a document`, result)
+		return
 	end
 
-	_docs[userId] = doc
+	local doc = result
+	if not doc then
+		_docs[userId] = deepClone(DEFAULT_DOC)
+		return
+	end
+
+	_docs[userId] = migrate(doc, userId)
 end
 
 local function getPlayerDoc(userId)
 	if _docs[userId] then
-		print("[DataService] From cache:", _docs[userId])
 		return _docs[userId]
 	end
 
@@ -120,24 +188,39 @@ local function getPlayerDoc(userId)
 		repeat
 			task.wait()
 		until not _loading[userId]
+	else
+		_loading[userId] = true
+		loadPlayerDoc(userId) -- sets _docs[userId], or leaves it nil on failure
+		_loading[userId] = nil
+	end
+
+	if _docs[userId] then
+		log.debug(`Loaded document for userId {userId}`)
 		return _docs[userId]
 	end
 
-	_loading[userId] = true
-	loadPlayerDoc(userId) -- sets _docs[userId]
-	_loading[userId] = nil
-
-	print("[DataService] From dataStore:", _docs[userId])
-	return _docs[userId]
+	-- Load or migration failed. Hand back a scratch document so gameplay keeps running,
+	-- and mark the session read-only so SaveNow cannot clobber the real save with it.
+	log.warn(`Serving a volatile document for userId {userId}; changes will NOT be saved`)
+	_volatile[userId] = _volatile[userId] or deepClone(DEFAULT_DOC)
+	return _volatile[userId]
 end
 
 -- ====== Module ======
 local DataService = {}
 
+-- DataService owns persistence that other services read during their own Init, so it must
+-- come first.
+DataService.Priority = 10
+
+-- True when this player's save could not be read and must not be written.
+function DataService.IsReadOnly(player: Player): boolean
+	return _volatile[player.UserId] ~= nil and _docs[player.UserId] == nil
+end
+
 -- Return a named top-level section table; auto-creates if missing.
 function DataService.GetSection(player: Player, sectionName: string)
 	assert(type(sectionName) == "string" and sectionName ~= "", "sectionName must be a non-empty string")
-	print("[DataService] Getting", sectionName)
 	local doc = getPlayerDoc(player.UserId)
 	local section = doc[sectionName]
 	if type(section) ~= "table" then
@@ -151,23 +234,27 @@ end
 function DataService.SaveNow(player: Player)
 	local userId = player.UserId
 	local doc = _docs[userId]
-	print("doc:", doc)
 	if not doc then
+		-- Either nothing was loaded, or the load failed and the session is volatile.
 		return
 	end
 	local snapshot = deepClone(doc)
 
-	withRetry(function()
+	local ok, err = withRetry(function()
 		return STORE:UpdateAsync(tostring(userId), function()
 			return snapshot
 		end)
 	end)
+	if not ok then
+		log.error(`Save failed for userId {userId}`, err)
+	end
 end
 
 -- Dev utility: clear both persistent and cached storage for a player.
 function DataService.WipeAsync(player: Player)
 	local userId = player.UserId
 	_docs[userId] = deepClone(DEFAULT_DOC) -- reset cache first (so immediate reads are empty)
+	_volatile[userId] = nil
 	withRetry(function()
 		return STORE:SetAsync(tostring(userId), deepClone(DEFAULT_DOC))
 	end)
@@ -179,6 +266,7 @@ function DataService.Init()
 	Players.PlayerRemoving:Connect(function(player)
 		DataService.SaveNow(player)
 		_docs[player.UserId] = nil
+		_volatile[player.UserId] = nil
 	end)
 
 	-- Save all on shutdown (server closes). Keep it quick; Roblox may force close after ~30s.
@@ -188,7 +276,7 @@ function DataService.Init()
 		end
 	end)
 
-	print("[DataService] Initialized")
+	log.info("Initialized")
 end
 
 return DataService

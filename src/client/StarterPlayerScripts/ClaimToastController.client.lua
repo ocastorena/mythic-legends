@@ -54,7 +54,7 @@ local function resolveName(payload)
 	return "a Mythling"
 end
 
--- Server fires: SpawnEvent:FireAllClients("Claimed", { mythlingId, winnerUserId, instanceId, typeId|typeName })
+-- Server fires: SpawnEvent:FireAllClients("Claimed", { mythlingId, winnerUserId, typeId|typeName })
 SpawnEvent.OnClientEvent:Connect(function(event, payload)
 	if event ~= "Claimed" then return end
 	if not payload or payload.winnerUserId ~= localPlayer.UserId then return end

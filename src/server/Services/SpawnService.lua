@@ -7,6 +7,10 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local PathfindingService = game:GetService("PathfindingService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LogUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("LogUtil"))
+local log = LogUtil.For("SpawnService")
 
 --// Module State --------------------------------------------------------------
 
@@ -39,8 +43,13 @@ local threads = {
 -- }
 local Active: { [string]: any } = {}
 
--- Next spawn attempt time (randomized window)
+-- Absolute unix time of the next permitted spawn. Kept distinct from the interval used to
+-- pace the loop: these were previously the same variable, so the deadline check compared
+-- an os.time() value against a 10-15 second interval and was always true.
 local nextSpawnAt = 0
+
+-- Rarity weights filtered to those that actually have mythlings defined (built in Init).
+local SpawnableWeights: { [string]: number } = {}
 
 -- rarity -> {typeId, ...} (built in Init from MythlingsData + Spawn.RarityWeights)
 local TypesByRarity: { [string]: { string } } = {}
@@ -190,7 +199,7 @@ local function createMythlingModel(typeId: string, position: Vector3, zoneRadius
 	local mythlings = Context.Instances.MythlingAssets
 	local template = mythlings and mythlings:FindFirstChild(MythlingsData[typeId].variants["regular"].model)
 	if not (template and template:IsA("Model")) then
-		warn("[SpawnService] Missing base model for typeId:", typeId)
+		log.warn(`Missing base model for typeId: {typeId}`)
 		return nil, nil
 	end
 
@@ -251,8 +260,8 @@ end
 --- Returns true on success, false otherwise. (No side effects beyond one spawn.)
 -- Helper: roll rarity → pick typeId → fetch per-type stats + expire seconds
 local function chooseSpawnDef(cfg)
-	-- 1) roll rarity
-	local rarity = pickWeighted(cfg.RarityWeights)
+	-- 1) roll rarity (only those with mythlings behind them; see Init)
+	local rarity = pickWeighted(SpawnableWeights)
 	if not rarity then
 		return nil
 	end
@@ -260,7 +269,7 @@ local function chooseSpawnDef(cfg)
 	-- 2) pick a typeId within that rarity
 	local list = TypesByRarity[rarity]
 	if not (list and #list > 0) then
-		warn("[SpawnService] No typeIds for rarity:", rarity)
+		log.warn(`No typeIds for rarity: {rarity}`)
 		return nil
 	end
 	local typeId = list[math.random(1, #list)]
@@ -567,10 +576,17 @@ local function escortThenCleanup(e, winner: Player, mythlingId: string, baseAnch
 			tween:Play()
 			tween.Completed:Wait()
 		end
-		stopWalk()
+		-- playWalkingAnimation returns nil when the model has no animator or no Walking
+		-- clip, so this must be guarded -- calling it unconditionally aborted the escort
+		-- and leaked the mythling model.
+		if stopWalk then
+			stopWalk()
+		end
 		destroyEntry(e)
 	else
-		warn(errorMessage)
+		log.warn(`Escort pathfinding failed: {errorMessage}`)
+		-- Still clean up, otherwise a failed path leaves the mythling stranded forever.
+		destroyEntry(e)
 	end
 
 	-- local tween = TweenService:Create(
@@ -623,21 +639,35 @@ function SpawnService.Init(context)
 		if rarity and weights[rarity] ~= nil then
 			TypesByRarity[rarity] = TypesByRarity[rarity] or {}
 			table.insert(TypesByRarity[rarity], typeId)
+		elseif rarity == nil then
+			log.warn(`Mythling '{typeId}' is missing a rarity`)
 		else
-			if rarity == nil then
-				warn("[SpawnService] MythlingsData.", typeId, " is missing a string rarity")
-			elseif weights[def.rarity] == nil then
-				warn(
-					"[SpawnService] Rarity '",
-					def.rarity,
-					"' on typeId '",
-					typeId,
-					"' has no weight in Spawn.RarityWeights"
-				)
-			end
+			log.warn(`Rarity '{rarity}' on '{typeId}' has no weight in Spawns.RarityWeights`)
 		end
 	end
-	print("[SpawnService] Initialized")
+
+	-- Only roll rarities that can actually produce a mythling. Spawns.RarityWeights lists
+	-- Epic and Secret, but no mythling declares them, so those rolls used to pick a rarity
+	-- and then fail with "No typeIds for rarity" -- silently wasting spawn attempts.
+	table.clear(SpawnableWeights)
+	local unusable = {}
+	for rarity, weight in pairs(weights) do
+		if TypesByRarity[rarity] and #TypesByRarity[rarity] > 0 then
+			SpawnableWeights[rarity] = weight
+		else
+			table.insert(unusable, rarity)
+		end
+	end
+
+	if #unusable > 0 then
+		table.sort(unusable)
+		log.warn(`Ignoring rarities with no mythlings: {table.concat(unusable, ", ")}`)
+	end
+	if next(SpawnableWeights) == nil then
+		log.error("No spawnable rarities; nothing will spawn")
+	end
+
+	log.info("Initialized")
 end
 
 --- Starts the spawn/expire pumps. Spawns at most one mythling per tick (no prefill).
@@ -648,27 +678,31 @@ function SpawnService.Start()
 	running = true
 
 	local cfg = Context.Metadata.Spawns
-	nextSpawnAt = math.random(cfg.SpawnIntervalMin, cfg.SpawnIntervalMax)
 
-	-- Spawn pump
+	local function rollInterval(): number
+		return math.random(cfg.SpawnIntervalMin, cfg.SpawnIntervalMax)
+	end
+
+	nextSpawnAt = timeNow() + rollInterval()
+
+	-- Spawn pump. Polls on a short fixed tick and gates on the deadline, so the interval
+	-- only advances when a spawn actually happens.
 	threads.spawn = task.spawn(function()
 		while running do
-			task.wait(nextSpawnAt)
+			task.wait(0.5)
 
-			local currTime = timeNow()
-			local target = cfg.TargetActive
-
-			-- Count current live
-			local live = 0
-			for _, e in pairs(Active) do
-				if e.state ~= "DESPAWNED" then
-					live += 1
+			if timeNow() >= nextSpawnAt then
+				-- Count current live
+				local live = 0
+				for _, e in pairs(Active) do
+					if e.state ~= "DESPAWNED" then
+						live += 1
+					end
 				end
-			end
 
-			if live < target and currTime >= nextSpawnAt then
-				spawnOne()
-				nextSpawnAt = math.random(cfg.SpawnIntervalMin, cfg.SpawnIntervalMax)
+				if live < cfg.TargetActive and spawnOne() then
+					nextSpawnAt = timeNow() + rollInterval()
+				end
 			end
 		end
 	end)
@@ -696,7 +730,7 @@ function SpawnService.Stop()
 end
 
 --- Called after a mythling is claimed and saved (winner decided).
-function SpawnService.OnClaimed(mythlingId: string, winner: Player, instanceId: string)
+function SpawnService.OnClaimed(mythlingId: string, winner: Player)
 	local e = Active[mythlingId]
 	if not e or e.state == "DESPAWNED" then
 		return
@@ -709,7 +743,6 @@ function SpawnService.OnClaimed(mythlingId: string, winner: Player, instanceId: 
 	sendAll("Claimed", {
 		mythlingId = mythlingId,
 		winnerUserId = winner.UserId,
-		instanceId = instanceId,
 		displayName = e.displayName,
 	})
 

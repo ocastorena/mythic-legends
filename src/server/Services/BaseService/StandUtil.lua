@@ -127,9 +127,9 @@ function StandUtil.RemoveMythlingFromStand(mythlingEntry: any, baseModel: any)
 	local child = standModel:FindFirstChildWhichIsA("Model")
 	child:Destroy()
 	-- clear saved data
-	print("mythlingEntry:", mythlingEntry)
+
 	mythlingEntry.standId = nil
-	print("mythlingEntry:", mythlingEntry)
+
 	return true
 end
 

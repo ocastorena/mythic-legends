@@ -1,5 +1,12 @@
 -- ServerScriptService/Services/ResourceService
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Util = ReplicatedStorage:WaitForChild("Util")
+local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
+local LogUtil = require(Util:WaitForChild("LogUtil"))
+
+local log = LogUtil.For("ResourceService")
 
 local DataService = nil
 
@@ -26,11 +33,11 @@ function ResourceService.Init(context)
 	ResourcesRequest = context.Remotes.ResourcesRequest
 	ResourcesMeta = context.Metadata.Resources
 
-	print("[ResourceService] Initialized")
+	log.info("Initialized")
 end
 
 function ResourceService.Start()
-	Players.PlayerAdded:Connect(function(player: Player)
+	PlayerUtil.OnPlayer(function(player: Player)
 		local resources = DataService.GetSection(player, "resources")
 		CacheByPlayer[player.UserId] = { resources = resources }
 	end)
@@ -41,7 +48,7 @@ function ResourceService.Start()
 
 	ResourcesRequest.OnServerInvoke = handleResourcesRequest
 
-	print("[ResourceService] Started")
+	log.info("Started")
 end
 
 return ResourceService

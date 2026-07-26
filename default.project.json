@@ -18,8 +18,8 @@
       "Services": {
         "$path": "src/server/Services"
       },
-      "Systems": {
-        "$path": "src/server/Systems"
+      "Bootstrap": {
+        "$path": "src/server/Bootstrap.server.lua"
       }
     },
 

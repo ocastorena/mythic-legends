@@ -230,9 +230,10 @@ RunService.Heartbeat:Connect(function(dt)
 			if ClaimState.state ~= "InZone" or ClaimState.zone ~= zone then
 				ClaimState.state = "InZone"
 				ClaimState.zone  = zone
+				-- Position is deliberately NOT sent: the server reads our character
+				-- position itself. This only tells it which zone to check.
 				ClaimEvent:FireServer("InZone", {
 					mythlingId = mythling:GetAttribute("Id"),
-					playerPos  = pos,
 				})
 			end
 			break

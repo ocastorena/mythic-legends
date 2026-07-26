@@ -3,6 +3,13 @@ local BaseService = {}
 
 -- Roblox services
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Util = ReplicatedStorage:WaitForChild("Util")
+local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
+local LogUtil = require(Util:WaitForChild("LogUtil"))
+
+local log = LogUtil.For("BaseService")
 
 -- Module dependencies
 local StandUtil = require(script.StandUtil)
@@ -46,7 +53,7 @@ local function resolveAssets()
 	local root = Context.Instances.BaseAssets
 	BaseModel = root:FindFirstChild("BaseLevel1")
 	if not (BaseModel and BaseModel:IsA("Model")) then
-		warn("[BaseService] Missing base model: BaseLevel1")
+		log.warn("Missing base model: BaseLevel1")
 	end
 end
 
@@ -62,7 +69,7 @@ end
 local function handlePlayerAdded(player: Player)
 	local result, message = BaseUtil.SpawnBaseFor(player, SLOTS, MAX_SLOTS, BaseModel, Arena, BaseIslands, BasesFolder)
 	if not result then
-		warn("[BaseService] " .. message)
+		log.warn(message)
 	end
 
 	local base = getPlayerBase(player)
@@ -87,7 +94,7 @@ local function handleBaseEvent(player: Player, eventType: string, payload: any)
 		local result, message =
 			StandUtil.SetMythlingOnStand(mythlingEntry, base, standId, MythlingAssets, mythlingMeta)
 		if not result then
-			warn("[BaseService] " .. message)
+			log.warn(message)
 		end
 		MythlingService.StartProduction(player, mythlingId)
 	elseif eventType == "RemoveMythling" then
@@ -121,7 +128,7 @@ end
 function BaseService.Init(context)
 	Context = context
 	resolveAssets()
-	print("[BaseService] Initialized")
+	log.info("Initialized")
 end
 
 function BaseService.Start()
@@ -130,7 +137,7 @@ function BaseService.Start()
 	end
 	running = true
 
-	Players.PlayerAdded:Connect(handlePlayerAdded)
+	PlayerUtil.OnPlayer(handlePlayerAdded)
 	Players.PlayerRemoving:Connect(handlePlayerRemoving)
 	BaseEventRemote.OnServerEvent:Connect(handleBaseEvent)
 	MythlingsEvent.OnServerEvent:Connect(handleInventoryEvent)

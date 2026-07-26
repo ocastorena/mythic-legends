@@ -2,6 +2,13 @@
 -- Server-only service that manages a player's Mythlings.
 -- Persistence is delegated to DataService (authoritative read/write).
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Util = ReplicatedStorage:WaitForChild("Util")
+local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
+local LogUtil = require(Util:WaitForChild("LogUtil"))
+
+local log = LogUtil.For("MythlingService")
 
 local DataService = nil
 
@@ -17,15 +24,33 @@ local function makeId(): string
 	return string.format("%s%d%04x", "myth_", os.time(), math.random(0, 0xFFFF))
 end
 
+--- The player's owned-mythling table, or nil if they have no cache entry yet. Every path
+--- reachable from a remote must go through this: a request arriving before the join
+--- handler ran would otherwise index a nil cache and error.
+local function getOwned(player: Player)
+	local cache = CacheByPlayer[player.UserId]
+	return cache and cache.mythlings or nil
+end
+
+--- Looks up one owned mythling, validating the id came from the client as a string.
+local function getOwnedEntry(player: Player, mythlingId: any)
+	if type(mythlingId) ~= "string" then
+		return nil
+	end
+	local owned = getOwned(player)
+	return owned and owned[mythlingId] or nil
+end
+
 local function computeAccrual(player: Player, mythlingId: string)
-	if not CacheByPlayer[player.UserId].mythlings[mythlingId] then
-		print(`[MythlingService] mythlingId {mythlingId} not found in cache for userId {player.UserId}`)
+	local entry = getOwnedEntry(player, mythlingId)
+	if not entry then
+		log.debug(`mythlingId {tostring(mythlingId)} not found for userId {player.UserId}`)
 		return 0, 0, 0
 	end
 
-	local mythlingType = CacheByPlayer[player.UserId].mythlings[mythlingId].typeId
-	if not mythlingType then
-		print(`[MythlingService] typeId {mythlingType} not found for mythlingId {mythlingId}`)
+	local mythlingType = entry.typeId
+	if not mythlingType or not MythlingsData[mythlingType] then
+		log.warn(`Unknown typeId '{tostring(mythlingType)}' for mythlingId {mythlingId}`)
 		return 0, 0, 0
 	end
 
@@ -36,11 +61,10 @@ local function computeAccrual(player: Player, mythlingId: string)
 	-- get capacity for mythling
 	local capacity = MythlingsData[mythlingType].production.baseCapacity
 	-- get time elapsed from last collection
-	local lastCollection = CacheByPlayer[player.UserId].mythlings[mythlingId].lastCollectionAt
+	local lastCollection = entry.lastCollectionAt
 	if not lastCollection then
 		-- If production hasn't been started yet, initialize it now and report zero accrued at base rate/capacity.
-		local now = os.time()
-		CacheByPlayer[player.UserId].mythlings[mythlingId].lastCollectionAt = now
+		entry.lastCollectionAt = os.time()
 		return 0, capacity, rate
 	end
 
@@ -62,24 +86,39 @@ end
 
 local function handleMythlingsRequest(player: Player, action: string, payload: any)
 	if action == "GetMythlings" then
-		return CacheByPlayer[player.UserId].mythlings
+		return getOwned(player)
 	end
+
+	-- Everything below needs a mythling id from the client, so validate once here rather
+	-- than dereferencing straight off the payload.
+	if type(payload) ~= "table" then
+		return
+	end
+	local entry = getOwnedEntry(player, payload.mythlingId)
+	if not entry then
+		return
+	end
+
 	if action == "GetProduction" then
 		local production, capacity, rate = computeAccrual(player, payload.mythlingId)
 		return { production = production, capacity = capacity, rate = rate }
 	end
+
 	if action == "CollectProduction" then
-		local typeId = CacheByPlayer[player.UserId].mythlings[payload.mythlingId].typeId
-		local resource = MythlingsData[typeId].production.resourceId
-		local production, capacity, rate = computeAccrual(player, payload.mythlingId)
+		local def = MythlingsData[entry.typeId]
+		if not def then
+			return
+		end
+		local resource = def.production.resourceId
+		local production = computeAccrual(player, payload.mythlingId)
+
 		local resources = DataService.GetSection(player, "resources")
 		if not resources[resource] then
 			resources[resource] = { total = production }
 		else
 			resources[resource].total += production
 		end
-		local time = os.time()
-		CacheByPlayer[player.UserId].mythlings[payload.mythlingId].lastCollectionAt = time
+		entry.lastCollectionAt = os.time()
 	end
 	return
 end
@@ -87,21 +126,24 @@ end
 -- ===================== public API =====================
 local MythlingService = {}
 
-function MythlingService.SaveWonMythling(player: Player, params: any): string
-	print("[MythlingService] SaveWonMythling")
+function MythlingService.SaveWonMythling(player: Player, params: any): string?
 	assert(player and player.UserId, "[MythlingService.SaveWonMythling] invalid player")
 	assert(params, "[MythlingService.SaveWonMythling] params required")
 
-	local list = CacheByPlayer[player.UserId].mythlings
+	local list = getOwned(player)
+	if not list then
+		log.warn(`No cache for userId {player.UserId}; cannot save won mythling`)
+		return nil
+	end
+
 	local id = makeId()
-	local entry = {
+	list[id] = {
 		typeId = params.typeId,
 		variantId = params.variantId,
 		claimedAt = os.time(),
 	}
 
-	list[id] = entry
-	print("cache:", CacheByPlayer[player.UserId].mythlings)
+	log.debug(`Saved won mythling {id} for userId {player.UserId}`)
 	DataService.SaveNow(player)
 	return id
 end
@@ -109,9 +151,13 @@ end
 -- Delete an inventory entry by id (used by your side-panel Delete).
 function MythlingService.RemoveMythling(player: Player, mythlingId: string): boolean
 	assert(player and player.UserId, "[MythlingService.RemoveMythling] invalid player")
-	assert(type(mythlingId) == "string", "[MythlingService.RemoveMythling] mythlingId must be string")
 
-	local list = CacheByPlayer[player.UserId].mythlings
+	-- mythlingId arrives straight off a remote, so validate rather than assert: an assert
+	-- here lets any client raise a server-side error at will.
+	local list = getOwned(player)
+	if not (list and type(mythlingId) == "string" and list[mythlingId]) then
+		return false
+	end
 
 	list[mythlingId] = nil
 	DataService.SaveNow(player)
@@ -122,39 +168,29 @@ end
 -- Each row: { id, typeName, standIndex, claimedAt, thumbnailId? }
 function MythlingService.ListMythlings(player: Player): { any }
 	assert(player and player.UserId, "[MythlingService.ListMythlings] invalid player")
-
-	local list = CacheByPlayer[player.UserId].mythlings
-	return list
+	return getOwned(player) or {}
 end
 
 -- Fetch the full server entry (for systems that need details).
 function MythlingService.GetMythling(player: Player, mythlingId: string): any?
 	assert(player and player.UserId, "[MythlingService.GetMythling] invalid player")
-	assert(type(mythlingId) == "string", "[MythlingService.GetMythling] mythlingId must be string")
-
-	local list = CacheByPlayer[player.UserId].mythlings
-	return mythlingId and list[mythlingId] or nil
+	return getOwnedEntry(player, mythlingId)
 end
 
 function MythlingService.StartProduction(player: Player, mythlingId: string)
-	if not CacheByPlayer[player.UserId] then
+	local entry = getOwnedEntry(player, mythlingId)
+	if not entry then
 		return
 	end
-	if not CacheByPlayer[player.UserId].mythlings[mythlingId] then
-		return
-	end
-	local time = os.time()
-	CacheByPlayer[player.UserId].mythlings[mythlingId].lastCollectionAt = time
+	entry.lastCollectionAt = os.time()
 end
 
 function MythlingService.StopProduction(player: Player, mythlingId: string)
-	if not CacheByPlayer[player.UserId] then
+	local entry = getOwnedEntry(player, mythlingId)
+	if not entry then
 		return
 	end
-	if not CacheByPlayer[player.UserId].mythlings[mythlingId] then
-		return
-	end
-	CacheByPlayer[player.UserId].mythlings[mythlingId].lastCollectionAt = nil
+	entry.lastCollectionAt = nil
 end
 
 function MythlingService.Init(context)
@@ -174,11 +210,11 @@ function MythlingService.Init(context)
 		end
 	end)
 
-	print("[MythlingService] Initialized")
+	log.info("Initialized")
 end
 
 function MythlingService.Start()
-	Players.PlayerAdded:Connect(function(player: Player)
+	PlayerUtil.OnPlayer(function(player: Player)
 		local mythlings = DataService.GetSection(player, "mythlings")
 		CacheByPlayer[player.UserId] = { mythlings = mythlings }
 	end)
@@ -189,7 +225,7 @@ function MythlingService.Start()
 
 	MythlingsRequest.OnServerInvoke = handleMythlingsRequest
 
-	print("[MythlingService] Started")
+	log.info("Started")
 end
 
 return MythlingService

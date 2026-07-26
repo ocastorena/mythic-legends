@@ -1,9 +1,24 @@
--- ServerScriptService/Systems/Bootstrap
--- Services
+-- ServerScriptService/Bootstrap
+-- Builds the shared Context, then initialises and starts every service in a declared
+-- order. This is the only script that knows about all services at once.
+
+local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
-local ServicesFolder = script.Parent.Parent:WaitForChild("Services")
+
+local Util = ReplicatedStorage:WaitForChild("Util")
+local RemoteUtil = require(Util:WaitForChild("RemoteUtil"))
+local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
+local LogUtil = require(Util:WaitForChild("LogUtil"))
+
+local log = LogUtil.For("Bootstrap")
+local ServicesFolder = script.Parent:WaitForChild("Services")
+
+-- Services without an explicit Priority fall here. Lower numbers initialise first, so
+-- anything others depend on during Init/Start must declare a lower value. Ordering used
+-- to be alphabetical, which happened to work only because no service called another
+-- during Init -- an invariant nothing enforced.
+local DEFAULT_PRIORITY = 100
 
 -- Context table for all services + configs & remotes + constants
 local Context = {
@@ -26,30 +41,45 @@ local Context = {
 	Services = {},
 }
 
--- Load remotes
-local remotes = {}
-for _, child in ipairs(RemotesFolder:GetChildren()) do
-	if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
-		local remote = child
-		remotes[child.Name] = remote
-	end
-end
-Context.Remotes = remotes
+-- Create any remotes the source declares but the place is missing, then collect them all.
+Context.Remotes = RemoteUtil.Ensure(ReplicatedStorage)
 
 -- Load services
 local services = {}
 for _, child in ipairs(ServicesFolder:GetChildren()) do
 	if child:IsA("ModuleScript") then
-		local mod = require(child)
-		services[child.Name] = mod
+		services[child.Name] = require(child)
 	end
 end
 Context.Services = services
 
--- === Disable climbing globally (server-side) ===
-local Players = game:GetService("Players")
-local ServerScriptService = game:GetService("ServerScriptService")
-local DataService = require(ServerScriptService.Services.DataService)
+-- Order by declared Priority, falling back to name so the sequence stays deterministic.
+local ordered = {}
+for name, mod in pairs(services) do
+	table.insert(ordered, { name = name, mod = mod, priority = mod.Priority or DEFAULT_PRIORITY })
+end
+table.sort(ordered, function(a, b)
+	if a.priority ~= b.priority then
+		return a.priority < b.priority
+	end
+	return a.name < b.name
+end)
+
+for _, s in ipairs(ordered) do
+	if type(s.mod.Init) == "function" then
+		s.mod.Init(Context)
+	end
+end
+
+for _, s in ipairs(ordered) do
+	if type(s.mod.Start) == "function" then
+		s.mod.Start()
+	end
+end
+
+log.info("Services started:", #ordered)
+
+--// Character rules -----------------------------------------------------------
 
 local function guardHumanoid(hum: Humanoid)
 	-- Do not allow entering the Climbing state at all
@@ -70,39 +100,16 @@ local function onCharacter(char: Model)
 	end
 end
 
--- Hook existing
-for _, plr in ipairs(Players:GetPlayers()) do
-	if plr.Character then
-		onCharacter(plr.Character)
+--// Per-player profile --------------------------------------------------------
+
+local DataService = services.DataService
+
+PlayerUtil.OnPlayer(function(player)
+	if player.Character then
+		onCharacter(player.Character)
 	end
-	plr.CharacterAdded:Connect(onCharacter)
-end
-
--- === end disable climbing ===
-
--- Initialize & start services
-local ordered = {}
-for name, mod in pairs(services) do
-	table.insert(ordered, { name = name, mod = mod })
-end
-table.sort(ordered, function(a, b)
-	return a.name < b.name
-end)
-
-for _, s in ipairs(ordered) do
-	if type(s.mod.Init) == "function" then
-		s.mod.Init(Context)
-	end
-end
-
-for _, s in ipairs(ordered) do
-	if type(s.mod.Start) == "function" then
-		s.mod.Start()
-	end
-end
-
-Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(onCharacter)
+
 	local profile = DataService.GetSection(player, "profile")
 	if not profile.userId then
 		profile.userId = player.UserId
@@ -110,7 +117,6 @@ Players.PlayerAdded:Connect(function(player)
 	if not profile.createdAt then
 		profile.createdAt = os.time()
 	end
-
 	profile.lastLoginAt = os.time()
 end)
 
