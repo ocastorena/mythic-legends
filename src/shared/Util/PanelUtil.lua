@@ -75,6 +75,31 @@ local function flexFill(instance: GuiObject): UIFlexItem
 	return flex
 end
 
+--- Sizes text from an em multiple, and records the multiple on the instance so the panel
+--- can re-derive it later.
+---
+--- The design sizes every label in em against a per-device root, and that root changes
+--- when a window crosses a breakpoint -- a desktop player dragging their window narrow is
+--- a phone by the doc's rules. Stamping the multiple as an attribute means `rescaleText`
+--- can walk a whole panel and reapply it without a registry to keep in sync, and because
+--- attributes survive `:Clone()`, grid cells stamped on the template stay correct too.
+local function setText(instance: TextLabel | TextButton, em: number, root: number, scale: number?)
+	instance:SetAttribute("Em", em)
+	instance:SetAttribute("EmScale", scale)
+	instance.TextSize = ThemeUtil.text(em, root) * (scale or 1)
+end
+
+--- Reapplies every em-stamped text size under `container` against a new device root.
+function PanelUtil.rescaleText(container: Instance, root: number)
+	for _, descendant in ipairs(container:GetDescendants()) do
+		local em = descendant:GetAttribute("Em")
+		if em and (descendant:IsA("TextLabel") or descendant:IsA("TextButton")) then
+			local scale = descendant:GetAttribute("EmScale") or 1
+			descendant.TextSize = ThemeUtil.text(em, root) * scale
+		end
+	end
+end
+
 --------------------------------------------------------------------------------
 -- 04 · Tabs
 --------------------------------------------------------------------------------
@@ -89,7 +114,7 @@ function PanelUtil.tab(parent: Instance, text: string, accent: Color3?, root: nu
 	button.BorderSizePixel = 0
 	button.Text = text
 	button.FontFace = ThemeUtil.Font.extraBold
-	button.TextSize = ThemeUtil.text(Em.tab, root)
+	setText(button, Em.tab, root)
 	button.Parent = parent
 	ThemeUtil.corner(button, Radius.tab)
 	PanelUtil.setTabActive(button, false, accent or ThemeUtil.Accent.gold)
@@ -127,7 +152,7 @@ function PanelUtil.primaryButton(parent: Instance, text: string, root: number, a
 	button.BorderSizePixel = 0
 	button.Text = text
 	button.FontFace = ThemeUtil.Font.extraBold
-	button.TextSize = ThemeUtil.text(Em.body, root)
+	setText(button, Em.body, root)
 	button.Parent = parent
 	ThemeUtil.corner(button, Radius.button)
 	PanelUtil.setButtonEnabled(button, true, accent or ThemeUtil.Accent.gold)
@@ -190,7 +215,7 @@ function PanelUtil.squareTextButton(parent: Instance, glyph: string, root: numbe
 	button.BackgroundTransparency = 0.88
 	button.Text = glyph
 	button.FontFace = ThemeUtil.Font.heavy
-	button.TextSize = ThemeUtil.text(Em.panelTitle, root)
+	setText(button, Em.panelTitle, root)
 	button.TextColor3 = tint or ThemeUtil.Accent.gold
 	button.Parent = parent
 	ThemeUtil.corner(button, Radius.buttonSmall)
@@ -231,19 +256,27 @@ function PanelUtil.closeButton(parent: Instance, root: number): TextButton
 end
 
 --- Coin pill: rounded chip, coin glyph, gold figures. Returns the pill and its label.
-function PanelUtil.coinPill(parent: Instance, icon: string, root: number): (Frame, TextLabel)
+---
+--- `height` defaults to the design's in-panel size. The HUD passes the top bar's button
+--- size instead, so the pill matches the height of Roblox's own chrome beside it; every
+--- part scales off that rather than being pinned to the panel-sized numbers.
+function PanelUtil.coinPill(parent: Instance, icon: string, root: number, height: number?): (Frame, TextLabel)
+	local pillHeight = height or 26
+	local scale = pillHeight / 26
+
 	local pill = newFrame("CoinPill", parent)
 	pill.AutomaticSize = Enum.AutomaticSize.X
-	pill.Size = UDim2.fromOffset(0, 26)
+	pill.Size = UDim2.fromOffset(0, pillHeight)
 	ThemeUtil.paint(pill, Surface.chip)
 	ThemeUtil.pill(pill)
-	ThemeUtil.padding(pill, 0, 11, 0, 8)
-	newList(pill, Enum.FillDirection.Horizontal, 5)
+	ThemeUtil.padding(pill, 0, math.round(11 * scale), 0, math.round(8 * scale))
+	newList(pill, Enum.FillDirection.Horizontal, math.round(5 * scale))
 
+	local iconSize = math.round(15 * scale)
 	local coin = Instance.new("ImageLabel")
 	coin.Name = "Icon"
 	coin.BackgroundTransparency = 1
-	coin.Size = UDim2.fromOffset(15, 15)
+	coin.Size = UDim2.fromOffset(iconSize, iconSize)
 	coin.Image = icon
 	coin.ScaleType = Enum.ScaleType.Fit
 	coin.LayoutOrder = 1
@@ -251,8 +284,8 @@ function PanelUtil.coinPill(parent: Instance, icon: string, root: number): (Fram
 
 	local label = newLabel("Amount", pill)
 	label.AutomaticSize = Enum.AutomaticSize.X
-	label.Size = UDim2.fromOffset(0, 26)
-	label.TextSize = ThemeUtil.text(Em.sectionLabel, root)
+	label.Size = UDim2.fromOffset(0, pillHeight)
+	setText(label, Em.sectionLabel, root, scale)
 	label.TextColor3 = ThemeUtil.Text.coin
 	label.LayoutOrder = 2
 	label.Text = "0"
@@ -270,7 +303,7 @@ function PanelUtil.levelPill(parent: Instance, root: number, accent: Color3?): T
 	label.BackgroundTransparency = 0.84
 	label.TextColor3 = tint
 	label.FontFace = ThemeUtil.Font.heavy
-	label.TextSize = ThemeUtil.text(Em.caption, root)
+	setText(label, Em.caption, root)
 	label.TextXAlignment = Enum.TextXAlignment.Center
 	label.Text = ""
 	ThemeUtil.pill(label)
@@ -378,7 +411,7 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	local titleLabel = newLabel("Title", identity)
 	titleLabel.AutomaticSize = Enum.AutomaticSize.X
 	titleLabel.Size = UDim2.new(0, 0, 1, 0)
-	titleLabel.TextSize = ThemeUtil.text(Em.panelTitle, root)
+	setText(titleLabel, Em.panelTitle, root)
 	titleLabel.Text = config.title
 	titleLabel.LayoutOrder = 2
 
@@ -443,12 +476,15 @@ function PanelUtil.panel(config: PanelConfig): Panel
 		closeButton.Activated:Connect(config.onClose)
 	end
 
-	-- Rotating a phone or resizing a window changes which device root applies.
+	-- Rotating a phone or resizing a window changes which device root applies, so the card
+	-- is re-measured and every em-sized label re-derived against the new root. The details
+	-- pane and grid live under this card, so one pass covers them.
 	if camera then
 		camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 			local size = camera.ViewportSize
 			card.Size = ThemeUtil.panelSize(size)
 			details.Size = UDim2.new(0, ThemeUtil.detailWidth(size), 1, 0)
+			PanelUtil.rescaleText(card, ThemeUtil.root(size))
 		end)
 	end
 
@@ -503,6 +539,11 @@ function PanelUtil.grid(parent: Instance): ScrollingFrame
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 	scroll.Parent = parent
 
+	-- The scroll bar is drawn inside the frame, so cells laid out across the full width run
+	-- underneath it and the right-hand column gets clipped. Reserving its width here keeps
+	-- the columns clear of it at every size.
+	ThemeUtil.padding(scroll, 0, scroll.ScrollBarThickness, 0, 0)
+
 	local layout = Instance.new("UIGridLayout")
 	layout.CellPadding = UDim2.fromOffset(Metric.cellGap, Metric.cellGap)
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -512,7 +553,8 @@ function PanelUtil.grid(parent: Instance): ScrollingFrame
 	--- Phones get four equal columns; everything else gets the fixed 112px cell.
 	local function applyCellSize(size: Vector2)
 		if size.Y < 500 then
-			local cell = math.max(48, math.floor((gridColumnWidth(size) - 3 * Metric.cellGap) / 4))
+			local usable = gridColumnWidth(size) - scroll.ScrollBarThickness
+			local cell = math.max(48, math.floor((usable - 3 * Metric.cellGap) / 4))
 			layout.CellSize = UDim2.fromOffset(cell, cell)
 		else
 			layout.CellSize = UDim2.fromOffset(Metric.cellSize, Metric.cellSize)
@@ -575,7 +617,7 @@ function PanelUtil.cellTemplate(config: CellConfig): ImageButton
 		badge.Position = UDim2.new(0, 3, 1, -3)
 		badge.AutomaticSize = Enum.AutomaticSize.X
 		badge.Size = UDim2.fromOffset(0, 15)
-		badge.TextSize = ThemeUtil.text(Em.badge, config.root)
+		setText(badge, Em.badge, config.root)
 		badge.TextXAlignment = Enum.TextXAlignment.Center
 		badge.Text = ""
 		badge.Visible = false
@@ -590,7 +632,7 @@ function PanelUtil.cellTemplate(config: CellConfig): ImageButton
 		badge.Position = UDim2.new(1, -3, 1, -3)
 		badge.AutomaticSize = Enum.AutomaticSize.X
 		badge.Size = UDim2.fromOffset(0, 15)
-		badge.TextSize = ThemeUtil.text(Em.badge, config.root)
+		setText(badge, Em.badge, config.root)
 		badge.TextXAlignment = Enum.TextXAlignment.Center
 		badge.TextColor3 = ThemeUtil.Text.coin
 		badge.Text = ""
@@ -608,7 +650,7 @@ function PanelUtil.cellTemplate(config: CellConfig): ImageButton
 		check.BackgroundTransparency = 0
 		check.TextColor3 = ThemeUtil.Ink.onGreen
 		check.FontFace = ThemeUtil.Font.heavy
-		check.TextSize = ThemeUtil.text(Em.badge, config.root)
+		setText(check, Em.badge, config.root)
 		check.TextXAlignment = Enum.TextXAlignment.Center
 		check.Text = "✓"
 		check.Visible = false
@@ -784,7 +826,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 
 	local nameLabel = newLabel("NameLabel", nameRow)
 	nameLabel.Size = UDim2.new(1, -31, 1, 0)
-	nameLabel.TextSize = ThemeUtil.text(Em.itemName, root)
+	setText(nameLabel, Em.itemName, root)
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLabel.Text = ""
 	nameLabel.LayoutOrder = 2
@@ -807,7 +849,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 		button.BackgroundTransparency = 0.5
 		button.Text = "i"
 		button.FontFace = ThemeUtil.Font.heavy
-		button.TextSize = ThemeUtil.text(Em.caption, root)
+		setText(button, Em.caption, root)
 		button.TextColor3 = ThemeUtil.Text.strong
 		button.ZIndex = 3
 		button.Parent = hero
@@ -822,7 +864,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 	rarityLabel.AutomaticSize = Enum.AutomaticSize.X
 	rarityLabel.Size = UDim2.fromOffset(0, 16)
 	rarityLabel.FontFace = ThemeUtil.Font.heavy
-	rarityLabel.TextSize = ThemeUtil.text(Em.caption, root)
+	setText(rarityLabel, Em.caption, root)
 	rarityLabel.TextColor3 = accent
 	rarityLabel.ZIndex = 3
 	rarityLabel.Text = ""
@@ -855,7 +897,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 			local value = newLabel("Value", slot)
 			value.Size = UDim2.new(1, 0, 0, math.ceil(ThemeUtil.text(Em.statValue, root)))
 			value.FontFace = ThemeUtil.Font.heavy
-			value.TextSize = ThemeUtil.text(Em.statValue, root)
+			setText(value, Em.statValue, root)
 			value.TextXAlignment = Enum.TextXAlignment.Center
 			value.TextTruncate = Enum.TextTruncate.AtEnd
 			value.Text = "—"
@@ -864,7 +906,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 			local label = newLabel("Label", slot)
 			label.Size = UDim2.new(1, 0, 0, math.ceil(ThemeUtil.text(Em.statLabel, root)) + 2)
 			label.FontFace = ThemeUtil.Font.bold
-			label.TextSize = ThemeUtil.text(Em.statLabel, root)
+			setText(label, Em.statLabel, root)
 			label.TextColor3 = ThemeUtil.Text.muted
 			label.TextTransparency = ThemeUtil.Text.mutedTransparency
 			label.TextXAlignment = Enum.TextXAlignment.Center
@@ -897,7 +939,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 
 		progressLabel = newLabel("Label", row)
 		;(progressLabel :: TextLabel).Size = UDim2.new(0.5, 0, 1, 0)
-		;(progressLabel :: TextLabel).TextSize = ThemeUtil.text(Em.caption, root)
+		setText(progressLabel :: TextLabel, Em.caption, root)
 		;(progressLabel :: TextLabel).Text = ""
 
 		progressDetail = newLabel("Detail", row)
@@ -905,7 +947,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 		;(progressDetail :: TextLabel).Position = UDim2.fromScale(1, 0)
 		;(progressDetail :: TextLabel).Size = UDim2.new(0.5, 0, 1, 0)
 		;(progressDetail :: TextLabel).FontFace = ThemeUtil.Font.bold
-		;(progressDetail :: TextLabel).TextSize = ThemeUtil.text(Em.statLabel, root)
+		setText(progressDetail :: TextLabel, Em.statLabel, root)
 		;(progressDetail :: TextLabel).TextColor3 = ThemeUtil.Text.muted
 		;(progressDetail :: TextLabel).TextTransparency = ThemeUtil.Text.mutedTransparency
 		;(progressDetail :: TextLabel).TextXAlignment = Enum.TextXAlignment.Right
@@ -1121,7 +1163,7 @@ function PanelUtil.modal(config: ModalConfig): Modal
 
 	local titleLabel = newLabel("Title", identity)
 	titleLabel.Size = UDim2.new(1, -37, 1, 0)
-	titleLabel.TextSize = ThemeUtil.text(Em.itemName, root)
+	setText(titleLabel, Em.itemName, root)
 	titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	titleLabel.Text = config.title or ""
 	titleLabel.LayoutOrder = 2
@@ -1134,7 +1176,7 @@ function PanelUtil.modal(config: ModalConfig): Modal
 	if config.subtitle then
 		subtitleLabel = newLabel("Subtitle", card)
 		;(subtitleLabel :: TextLabel).Size = UDim2.new(1, 0, 0, 16)
-		;(subtitleLabel :: TextLabel).TextSize = ThemeUtil.text(Em.sectionLabel, root)
+		setText(subtitleLabel :: TextLabel, Em.sectionLabel, root)
 		;(subtitleLabel :: TextLabel).TextColor3 = accent
 		;(subtitleLabel :: TextLabel).Text = ""
 		;(subtitleLabel :: TextLabel).LayoutOrder = 2
@@ -1151,7 +1193,7 @@ function PanelUtil.modal(config: ModalConfig): Modal
 		;(bodyLabel :: TextLabel).Size = UDim2.new(1, 0, 0, 0)
 		;(bodyLabel :: TextLabel).AutomaticSize = Enum.AutomaticSize.Y
 		;(bodyLabel :: TextLabel).FontFace = Font.fromName("Nunito", Enum.FontWeight.Bold, Enum.FontStyle.Italic)
-		;(bodyLabel :: TextLabel).TextSize = ThemeUtil.text(Em.body, root)
+		setText(bodyLabel :: TextLabel, Em.body, root)
 		;(bodyLabel :: TextLabel).TextColor3 = ThemeUtil.Text.body
 		;(bodyLabel :: TextLabel).TextTransparency = 0.15
 		;(bodyLabel :: TextLabel).TextWrapped = true
@@ -1213,6 +1255,15 @@ function PanelUtil.modal(config: ModalConfig): Modal
 		scrim.Visible = false
 	end)
 
+	-- A modal is a sibling of the panel card, not a descendant, so it needs its own pass
+	-- when the device root changes.
+	local camera = workspace.CurrentCamera
+	if camera then
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			PanelUtil.rescaleText(card, ThemeUtil.root(camera.ViewportSize))
+		end)
+	end
+
 	return modal
 end
 
@@ -1248,7 +1299,7 @@ function PanelUtil.proximityButton(parent: Instance, icon: string, caption: stri
 	local label = newLabel("Caption", group)
 	label.AutomaticSize = Enum.AutomaticSize.X
 	label.Size = UDim2.fromOffset(0, 15)
-	label.TextSize = ThemeUtil.text(Em.statLabel, root)
+	setText(label, Em.statLabel, root)
 	label.TextXAlignment = Enum.TextXAlignment.Center
 	label.Text = caption
 	label.LayoutOrder = 2

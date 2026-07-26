@@ -241,6 +241,75 @@ ThemeUtil.Metric = {
 	proximitySize = 56,
 }
 
+--------------------------------------------------------------------------------
+-- Top bar
+--------------------------------------------------------------------------------
+
+-- Roblox's own top bar chrome, read off CoreGui:
+--
+--   IconHitArea  44x44  screen y 12..56  #121215 @ 0.08  corner UDim(1, 0)
+--   unibar pill  140x44 screen y 12..56  #121215 @ 0.08  corner UDim(1, 0)
+--
+-- with GetGuiInset().Y = 58. So the bar is the *bottom 48px* of the inset, and its buttons
+-- are 44px centred in that, leaving 2px above and below.
+--
+-- These are constants rather than measurements because a LocalScript in a live game cannot
+-- read CoreGui -- only Studio can. Deriving the button size from the inset instead would
+-- be wrong on a notched phone, where the inset grows to clear the notch but Roblox's bar
+-- stays 48 and simply sits lower. Anchoring to the bottom of the inset handles that.
+ThemeUtil.Platform = {
+	topbarRowHeight = 48,
+	topbarButtonSize = 44,
+	topbarButtonFill = hex("121215"),
+	topbarButtonTransparency = 0.08,
+	-- Slightly more opaque under the cursor, standing in for Roblox's own state overlay.
+	topbarButtonHoverTransparency = 0,
+}
+
+export type Topbar = {
+	-- Screen Y where Roblox's bar starts, and how tall it is.
+	rowTop: number,
+	rowHeight: number,
+	-- Diameter of a HUD button that sits level with Roblox's own.
+	buttonSize: number,
+	-- Horizontal span the developer may use. Roblox's own chrome sits left of `minX`.
+	minX: number,
+	maxX: number,
+}
+
+--- Locates Roblox's top bar so HUD chrome can line up with it.
+---
+--- The horizontal span really is dynamic -- it shrinks as Roblox adds top bar controls --
+--- so it is read rather than assumed. The vertical geometry is anchored to the bottom of
+--- the GUI inset, which is where the bar sits on every device including notched ones.
+---
+--- Guarded because GuiService is only meaningful on a client; a server-side require of
+--- this module still needs to load.
+function ThemeUtil.topbar(viewport: Vector2): Topbar
+	local rowHeight = ThemeUtil.Platform.topbarRowHeight
+
+	local okInset, guiInset = pcall(function()
+		return game:GetService("GuiService"):GetGuiInset()
+	end)
+	local insetY = (okInset and guiInset and guiInset.Y > 0) and guiInset.Y or rowHeight
+
+	local minX, maxX = 0, viewport.X
+	local okBar, bar = pcall(function()
+		return game:GetService("GuiService").TopbarInset
+	end)
+	if okBar and bar and bar.Width > 0 then
+		minX, maxX = bar.Min.X, bar.Max.X
+	end
+
+	return {
+		rowTop = math.max(0, insetY - rowHeight),
+		rowHeight = rowHeight,
+		buttonSize = ThemeUtil.Platform.topbarButtonSize,
+		minX = minX,
+		maxX = maxX,
+	}
+end
+
 --- Panel card size for a viewport, following the design canvas' own breakpoints:
 --- phones fill the screen, everything else gets a fixed-height 470px card.
 function ThemeUtil.panelSize(viewport: Vector2): UDim2
