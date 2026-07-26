@@ -5,19 +5,20 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
-local StarterGui = game:GetService("StarterGui")
 
 --// Modules
-local InputGuardUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("InputGuardUtil"))
+local ModalUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("ModalUtil"))
 local ButtonUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("ButtonUtil"))
 local CardListUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("CardListUtil"))
 local MythlingsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Resources"))
 
+-- Identifies this panel to ModalUtil, which owns the backdrop and input guard.
+local PANEL_NAME = "Stand"
+
 --// Player/UI roots
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
-local backgroundGui = playerGui.Background
 
 -- ScreenGui + major frames
 local standGui = playerGui:WaitForChild("StandGui")
@@ -246,12 +247,14 @@ end
 -- UI lifecycle
 --//////////////////////////////////////////////////////////////////////////////////////////////////
 
--- When the Stand GUI is toggled on/off
+-- This ScreenGui's own Enabled property is the open/close contract; ModalUtil handles the
+-- backdrop, input guard and backpack. The old version called InputGuardUtil.close() here
+-- AND again from the backdrop handler -- one open, two closes.
 standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if standGui.Enabled then
-		-- Do nothing
+		ModalUtil.Open(PANEL_NAME)
 	else
-		InputGuardUtil.close()
+		ModalUtil.Close(PANEL_NAME)
 	end
 end)
 
@@ -317,7 +320,6 @@ end)
 ButtonUtil.hookClick(closeButton, function()
 	mythlingList:Clear()
 	clearInfo()
-	backgroundGui.Enabled = false
 	standGui.Enabled = false
 end)
 
@@ -341,18 +343,5 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 	showMythlingInfo()
 	updateButtons()
 
-	backgroundGui.Enabled = true
 	standGui.Enabled = true
-end)
-
-backgroundGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-	if backgroundGui.Enabled then
-		-- ScreenGui just got enabled → block inputs
-		InputGuardUtil.open()
-		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
-	else
-		-- ScreenGui just got disabled → allow inputs
-		InputGuardUtil.close()
-		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
-	end
 end)

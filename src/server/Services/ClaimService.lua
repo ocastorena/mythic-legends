@@ -28,9 +28,8 @@ local PlayersState: { [number]: any } = {}
 -- how often we run server-side claim checks
 local TICK_INTERVAL = 0.1
 
--- Slack on the zone edge, in studs, to absorb the round trip between the client noticing
--- it crossed the boundary and the server checking. Without it, a player walking the rim
--- flickers between filling and draining purely from latency.
+-- Slack on the zone edge, in studs. Character positions replicate to the server with some
+-- lag, so without a margin a player walking the rim flickers between filling and draining.
 local ZONE_TOLERANCE_STUDS = 4
 
 -- Helpers
@@ -40,21 +39,6 @@ local ZONE_TOLERANCE_STUDS = 4
 local function distXZ(a: Vector3, b: Vector3): number
 	local dx, dz = a.X - b.X, a.Z - b.Z
 	return math.sqrt(dx * dx + dz * dz)
-end
-
---- True when the player is physically standing in this mythling's zone, per the server's
---- own copy of the character. This is the authority for filling; client messages only
---- prompt an earlier re-check.
-local function isPlayerInZone(player: Player, mythlingData): boolean
-	local zone = mythlingData and mythlingData.zone
-	if not zone then
-		return false
-	end
-	local pos = PlayerUtil.GetPosition(player)
-	if not pos then
-		return false
-	end
-	return distXZ(pos, zone.Position) <= (zone.Size.X * 0.5 + ZONE_TOLERANCE_STUDS)
 end
 
 local function ensurePlayerState(player)
@@ -183,85 +167,68 @@ local function integrateProgress(player, state, now, activeMythlings)
 	end
 end
 
--- Verb handlers
+--- The id of whichever active mythling's zone the player is standing in, or nil.
+local function findZoneUnderPlayer(player: Player, activeMythlings): string?
+	local pos = PlayerUtil.GetPosition(player)
+	if not pos then
+		return nil
+	end
+	for mythlingId, data in pairs(activeMythlings) do
+		if not data.claimed and data.zone then
+			if distXZ(pos, data.zone.Position) <= (data.zone.Size.X * 0.5 + ZONE_TOLERANCE_STUDS) then
+				return mythlingId
+			end
+		end
+	end
+	return nil
+end
 
-local function handleInZone(player, payload)
+--- Derives mode and target purely from where the player is standing.
+---
+--- This is the authority. Entry used to rely on a single client "InZone" message sent on
+--- the transition -- if the server rejected that one message (for example the character
+--- had just respawned and its position had not replicated yet) the client never re-sent,
+--- and the player could stand in a zone indefinitely with nothing happening.
+local function resolveState(player: Player, state, now: number, activeMythlings)
 	local userId = player.UserId
-	if type(payload) ~= "table" then
-		return
-	end
-	-- Position comes from the server's own copy of the character. The client used to send
-	-- its position and we validated against that, which let a modified client claim any
-	-- mythling from anywhere on the map.
-	local mythlingId = payload.mythlingId
+	local zoneMythlingId = findZoneUnderPlayer(player, activeMythlings)
 
-	local activeMythlings = SpawnService.GetActiveMythlings()
-	local mythlingData = activeMythlings[mythlingId]
-	if not mythlingData then
-		return
-	end
-
-	-- Validate the player really is inside, against the server's own geometry.
-	if not isPlayerInZone(player, mythlingData) then
-		return
-	end
-
-	local state = ensurePlayerState(player)
-
-	-- Before switching mode/mythling, integrate existing progress to "now"
-	integrateProgress(player, state, os.clock(), activeMythlings)
-
-	-- If they switch to a different mythling, reset progress
-	if state.mythlingId ~= mythlingId then
-		state.mythlingId = mythlingId
+	-- Standing in a zone that is not the one we were tracking: switch to it.
+	if zoneMythlingId and state.mythlingId ~= zoneMythlingId then
+		integrateProgress(player, state, now, activeMythlings)
+		state.mythlingId = zoneMythlingId
 		state.progress = 0
+		state.mode = "Filling"
+		state.lastUpdateTime = now
+		local data = activeMythlings[zoneMythlingId]
+		sendStateUpdate(userId, state, MythlingsData[data.typeId])
+		return
 	end
 
-	-- Now they’re actively filling
-	state.mode = "Filling"
-	state.lastUpdateTime = os.clock()
+	if not state.mythlingId then
+		return
+	end
 
-	local cfg = MythlingsData[mythlingData.typeId]
-	sendStateUpdate(userId, state, {
-		fillRate = cfg.fillRate,
-		drainRate = cfg.drainRate,
-	})
+	local expected = zoneMythlingId and "Filling" or "Draining"
+	if state.mode == expected or state.mode == "Idle" then
+		return
+	end
+
+	integrateProgress(player, state, now, activeMythlings)
+	if not state.mythlingId then
+		return -- integrateProgress cleared the claim
+	end
+
+	state.mode = expected
+	state.lastUpdateTime = now
+	local data = activeMythlings[state.mythlingId]
+	if data then
+		sendStateUpdate(userId, state, MythlingsData[data.typeId])
+	end
 end
 
-local function handleOutZone(player)
-	local userId = player.UserId
-	local state = PlayersState[userId]
-	if not state then
-		return
-	end
-
-	local activeMythlings = SpawnService.GetActiveMythlings()
-	integrateProgress(player, state, os.clock(), activeMythlings)
-
-	if not state.mythlingId or state.progress <= 0 then
-		-- Nothing to drain; just go idle & clear bar
-		resetPlayerClaimState(state)
-		sendClear(userId)
-		return
-	end
-
-	-- Start draining from current progress
-	state.mode = "Draining"
-	state.lastUpdateTime = os.clock()
-
-	local mythlingData = activeMythlings[state.mythlingId]
-	if not mythlingData then
-		resetPlayerClaimState(state)
-		sendClear(userId)
-		return
-	end
-
-	local cfg = MythlingsData[mythlingData.typeId]
-	sendStateUpdate(userId, state, {
-		fillRate = cfg.fillRate,
-		drainRate = cfg.drainRate,
-	})
-end
+-- Zone entry and exit are derived from the character's position in the tick above, so
+-- there are no client verbs to handle. ClaimEvent is server -> client only.
 
 -- Public
 
@@ -277,14 +244,6 @@ function ClaimService.Init(context)
 
 	Players.PlayerRemoving:Connect(function(player)
 		PlayersState[player.UserId] = nil
-	end)
-
-	ClaimEvent.OnServerEvent:Connect(function(player, verb, payload)
-		if verb == "InZone" then
-			handleInZone(player, payload)
-		elseif verb == "OutZone" then
-			handleOutZone(player)
-		end
 	end)
 
 	log.info("Initialized")
@@ -307,26 +266,7 @@ function ClaimService.Start()
 			if not player then
 				PlayersState[userId] = nil
 			else
-				-- Re-derive the mode from where the player actually is before advancing
-				-- progress. The client's InZone/OutZone messages are only hints; a client
-				-- that simply never sends OutZone would otherwise fill forever.
-				if state.mythlingId then
-					local mythlingData = activeMythlings[state.mythlingId]
-					local inZone = isPlayerInZone(player, mythlingData)
-					local expected = inZone and "Filling" or "Draining"
-
-					if state.mode ~= expected and state.mode ~= "Idle" then
-						integrateProgress(player, state, now, activeMythlings)
-						-- integrateProgress may have cleared the claim entirely
-						if state.mythlingId then
-							state.mode = expected
-							state.lastUpdateTime = now
-							local cfg = MythlingsData[mythlingData.typeId]
-							sendStateUpdate(userId, state, cfg)
-						end
-					end
-				end
-
+				resolveState(player, state, now, activeMythlings)
 				integrateProgress(player, state, now, activeMythlings)
 			end
 		end
