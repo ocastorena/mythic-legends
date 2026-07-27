@@ -24,9 +24,6 @@
       "Infrastructure": {
         "$path": "src/server/Infrastructure"
       },
-      "Config": {
-        "$path": "src/server/Config"
-      },
       "Services": {
         "$path": "src/server/Services"
       },

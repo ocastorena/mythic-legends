@@ -6,11 +6,8 @@
 
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
-local ServerScriptService = game:GetService("ServerScriptService")
 local TextChatService = game:GetService("TextChatService")
 local TweenService = game:GetService("TweenService")
-
-local DivineInterventionConfig = require(ServerScriptService.Config.DivineInterventionConfig)
 
 local DivineInterventionService = {
 	Priority = 140,
@@ -108,17 +105,9 @@ local function getRequestedEvent(unfilteredText: string): string?
 	return eventId
 end
 
-local function isOwner(player: Player): boolean
-	return player.UserId == DivineInterventionConfig.OwnerUserId
-end
-
 local function handleCommand(originTextSource: TextSource, unfilteredText: string)
 	local player = Players:GetPlayerByUserId(originTextSource.UserId)
 	if not player then
-		return
-	end
-	if not isOwner(player) then
-		warn("[DivineIntervention] Ignored command from an unauthorized player:", player.UserId)
 		return
 	end
 
@@ -149,7 +138,7 @@ function DivineInterventionService.Start()
 	end
 
 	command.Triggered:Connect(handleCommand)
-	print("[DivineIntervention] Owner command ready: /admin blockstorm")
+	print("[DivineIntervention] Public command ready: /admin blockstorm")
 end
 
 return DivineInterventionService
