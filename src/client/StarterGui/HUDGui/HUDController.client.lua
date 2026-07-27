@@ -165,12 +165,13 @@ local shopButton = clusterButton("ShopButton", SHOP_ICON, SHOP_TINT, 2)
 -- Coin pill (§08)
 --------------------------------------------------------------------------------
 
--- Pinned to the right edge of the span Roblox leaves free, not the raw screen edge, so it
--- can never slide under the platform's own right-hand chrome.
+-- Pinned to the physical right edge with the same device-safe gap as Roblox's first
+-- control has on the left.
 local runiesFrame = Instance.new("Frame")
 runiesFrame.Name = "RuniesFrame"
 runiesFrame.AnchorPoint = Vector2.new(1, 0.5)
-runiesFrame.Position = UDim2.new(0, topbar.maxX - 12, 0.5, 0)
+local initialWidth = screenWidth()
+runiesFrame.Position = UDim2.new(0, initialWidth - topbarEdgePadding(initialWidth), 0.5, 0)
 runiesFrame.Size = UDim2.fromOffset(0, buttonSize)
 runiesFrame.AutomaticSize = Enum.AutomaticSize.X
 runiesFrame.BackgroundTransparency = 1
