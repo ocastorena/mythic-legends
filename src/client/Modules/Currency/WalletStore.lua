@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/CurrencyUtil
+-- ReplicatedStorage/Client/Currency/WalletStore
 -- Client-side cache of the player's currency, and the one place that listens to
 -- CurrencyEvent.
 --
@@ -15,7 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local CurrencyEvent: RemoteEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CurrencyEvent")
 
-local CurrencyUtil = {}
+local WalletStore = {}
 
 local runies = 0
 local listeners: { (number) -> () } = {}
@@ -31,13 +31,13 @@ CurrencyEvent.OnClientEvent:Connect(function(action, payload)
 end)
 
 --- The latest known total.
-function CurrencyUtil.Runies(): number
+function WalletStore.Runies(): number
 	return runies
 end
 
 --- Subscribes to changes. Fires immediately with the current value so a pill created after
 --- the join broadcast still shows the right number. Returns a disconnect function.
-function CurrencyUtil.OnRuniesChanged(listener: (number) -> ()): () -> ()
+function WalletStore.OnRuniesChanged(listener: (number) -> ()): () -> ()
 	table.insert(listeners, listener)
 	task.spawn(listener, runies)
 
@@ -50,7 +50,7 @@ function CurrencyUtil.OnRuniesChanged(listener: (number) -> ()): () -> ()
 end
 
 --- 1234567 -> "1,234,567". Shared so every coin pill formats identically.
-function CurrencyUtil.format(amount: number): string
+function WalletStore.format(amount: number): string
 	local formatted = tostring(math.floor(amount))
 	local replaced
 	while true do
@@ -62,4 +62,4 @@ function CurrencyUtil.format(amount: number): string
 	return formatted
 end
 
-return CurrencyUtil
+return WalletStore

@@ -3,11 +3,11 @@ local BaseService = {}
 
 -- Roblox services
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local Util = ReplicatedStorage:WaitForChild("Util")
-local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
-local LogUtil = require(Util:WaitForChild("LogUtil"))
+local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 
 local log = LogUtil.For("BaseService")
 
@@ -34,7 +34,8 @@ local BaseEventRemote: RemoteEvent
 local MythlingsEvent: RemoteEvent
 local MythlingsMeta: ModuleScript
 local DataService: any
-local MythlingService: any
+local InventoryService: any
+local ProductionService: any
 
 -- ===== Utilities =====
 
@@ -48,7 +49,8 @@ local function resolveAssets()
 	BaseEventRemote = Context.Remotes.BaseEvent
 	MythlingsEvent = Context.Remotes.MythlingsEvent
 	DataService = Context.Services.DataService
-	MythlingService = Context.Services.MythlingService
+	InventoryService = Context.Services.InventoryService
+	ProductionService = Context.Services.ProductionService
 
 	local root = Context.Instances.BaseAssets
 	BaseModel = root:FindFirstChild("BaseLevel1")
@@ -95,15 +97,22 @@ local function handleBaseEvent(player: Player, eventType: string, payload: any)
 			StandUtil.SetMythlingOnStand(mythlingEntry, base, standId, MythlingAssets, mythlingMeta)
 		if not result then
 			log.warn(message)
+		else
+			InventoryService.MarkDirty(player)
 		end
-		MythlingService.StartProduction(player, mythlingId)
+		ProductionService.StartProduction(player, mythlingId)
 	elseif eventType == "RemoveMythling" then
 		local mythlingId = payload.mythlingId
 		local base = getPlayerBase(player)
 		local mythlingSection = DataService.GetSection(player, "mythlings")
 		local mythlingEntry = mythlingSection[mythlingId]
-		StandUtil.RemoveMythlingFromStand(mythlingEntry, base)
-		MythlingService.StopProduction(player, mythlingId)
+		local result, message = StandUtil.RemoveMythlingFromStand(mythlingEntry, base)
+		if result then
+			InventoryService.MarkDirty(player)
+		else
+			log.warn(message)
+		end
+		ProductionService.StopProduction(player, mythlingId)
 	end
 end
 

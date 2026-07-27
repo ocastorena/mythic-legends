@@ -7,7 +7,7 @@
 -- there), and hides this ScreenGui instead when a panel opens.
 --
 -- A slot is one of Roblox's top left buttons: `#121215 @ 0.08`, going opaque under the
--- cursor. Those are the same tokens the HUD cluster in MainGui already uses, so the top and
+-- cursor. Those are the same tokens the HUD cluster in HUDGui already uses, so the top and
 -- bottom of the screen read as one system. There is no bar behind the slots -- the row is
 -- the slots and nothing else. Two things depart from the platform on purpose:
 --
@@ -26,11 +26,12 @@ local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 
-local Util = ReplicatedStorage:WaitForChild("Util")
-local ButtonUtil = require(Util:WaitForChild("ButtonUtil"))
-local ThemeUtil = require(Util:WaitForChild("ThemeUtil"))
-local ModalUtil = require(Util:WaitForChild("ModalUtil"))
-local CharacterUtil = require(Util:WaitForChild("CharacterUtil"))
+local Client = ReplicatedStorage:WaitForChild("Client")
+local Ui = Client:WaitForChild("Ui")
+local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
+local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
+local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
+local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("CharacterUtil"))
 
 -- Six slots, all of them on screen whether or not they hold anything. Roblox's hotbar is
 -- ten deep and hides the empties; a fixed six reads as a deliberate loadout rather than a

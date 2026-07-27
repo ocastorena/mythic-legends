@@ -2,7 +2,8 @@
 -- Blocks "climbing other players" but still allows ladders/walls.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local CharacterUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("CharacterUtil"))
+local Client = ReplicatedStorage:WaitForChild("Client")
+local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("CharacterUtil"))
 
 -- Re-applied per character: the guard used to be installed once on the first Humanoid, so
 -- every respawn after that was unguarded on the client.

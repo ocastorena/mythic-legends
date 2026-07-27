@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/CharacterUtil
+-- ReplicatedStorage/Client/Character/CharacterUtil
 -- Client-side character lifecycle. The mirror of PlayerUtil.OnPlayer on the server.
 --
 -- Controllers used to each write their own `player.Character or player.CharacterAdded:Wait()`

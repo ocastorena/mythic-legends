@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/LogUtil
+-- ServerScriptService/Infrastructure/LogUtil
 -- Tagged, level-filtered logging. Replaces bare print() so that verbose output can be
 -- turned down in production without hunting individual call sites.
 

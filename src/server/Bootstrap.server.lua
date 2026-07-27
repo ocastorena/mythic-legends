@@ -5,11 +5,12 @@
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local Util = ReplicatedStorage:WaitForChild("Util")
-local RemoteUtil = require(Util:WaitForChild("RemoteUtil"))
-local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
-local LogUtil = require(Util:WaitForChild("LogUtil"))
+local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local RemoteUtil = require(Infrastructure:WaitForChild("RemoteUtil"))
+local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 
 local log = LogUtil.For("Bootstrap")
 local ServicesFolder = script.Parent:WaitForChild("Services")
@@ -20,13 +21,17 @@ local ServicesFolder = script.Parent:WaitForChild("Services")
 -- during Init -- an invariant nothing enforced.
 local DEFAULT_PRIORITY = 100
 
+-- Studio-owned world content is grouped into authored map assets and runtime containers.
+local Map = workspace:WaitForChild("Map")
+local Runtime = workspace:WaitForChild("Runtime")
+
 -- Context table for all services + configs & remotes + constants
 local Context = {
 	Instances = {
-		Arena = workspace:WaitForChild("Arena"),
-		Mythlings = workspace:WaitForChild("Mythlings"),
-		Bases = workspace:WaitForChild("Bases"),
-		BaseIslands = workspace:WaitForChild("BaseIslands"),
+		Arena = Map:WaitForChild("Arena"),
+		Mythlings = Runtime:WaitForChild("Mythlings"),
+		Bases = Runtime:WaitForChild("Bases"),
+		BaseIslands = Map:WaitForChild("BaseIslands"),
 		MythlingAssets = ServerStorage:WaitForChild("MythlingAssets"),
 		BaseAssets = ServerStorage:WaitForChild("BaseAssets"),
 		Templates = ReplicatedStorage:WaitForChild("Templates"),
@@ -118,6 +123,7 @@ PlayerUtil.OnPlayer(function(player)
 		profile.createdAt = os.time()
 	end
 	profile.lastLoginAt = os.time()
+	DataService.MarkDirty(player)
 end)
 
 -- Cleanup on shutdown

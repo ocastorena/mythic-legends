@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/ThemeUtil
+-- ReplicatedStorage/Client/Ui/ThemeUtil
 -- The Mythic Legends design system, in one place.
 --
 -- Ported from the "Mythic Legends — Design System" doc. Sections below match its numbered
@@ -292,9 +292,9 @@ export type Topbar = {
 
 --- Locates Roblox's top bar so HUD chrome can line up with it.
 ---
---- The horizontal span really is dynamic -- it shrinks as Roblox adds top bar controls --
---- so it is read rather than assumed. The vertical geometry is anchored to the bottom of
---- the GUI inset, which is where the bar sits on every device including notched ones.
+--- TopbarInset is the absolute rectangle Roblox reserves for unobstructed topbar content.
+--- It is the only reliable source for both axes: GetGuiInset describes the Core UI safe
+--- canvas, which can be much taller than the visual topbar on mobile devices.
 ---
 --- Guarded because GuiService is only meaningful on a client; a server-side require of
 --- this module still needs to load.
@@ -305,6 +305,7 @@ function ThemeUtil.topbar(viewport: Vector2): Topbar
 		return game:GetService("GuiService"):GetGuiInset()
 	end)
 	local insetY = (okInset and guiInset and guiInset.Y > 0) and guiInset.Y or rowHeight
+	local rowTop = math.max(0, insetY - rowHeight)
 
 	local minX, maxX = 0, viewport.X
 	local okBar, bar = pcall(function()
@@ -312,10 +313,14 @@ function ThemeUtil.topbar(viewport: Vector2): Topbar
 	end)
 	if okBar and bar and bar.Width > 0 then
 		minX, maxX = bar.Min.X, bar.Max.X
+		if bar.Height > 0 then
+			rowTop = bar.Min.Y
+			rowHeight = bar.Height
+		end
 	end
 
 	return {
-		rowTop = math.max(0, insetY - rowHeight),
+		rowTop = rowTop,
 		rowHeight = rowHeight,
 		buttonSize = ThemeUtil.Platform.topbarButtonSize,
 		minX = minX,

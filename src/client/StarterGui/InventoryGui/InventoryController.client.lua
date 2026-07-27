@@ -16,12 +16,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PANEL_NAME = "Inventory"
 
 -- Modules
-local Util = ReplicatedStorage:WaitForChild("Util")
-local ButtonUtil = require(Util:WaitForChild("ButtonUtil"))
-local CardListUtil = require(Util:WaitForChild("CardListUtil"))
-local ModalUtil = require(Util:WaitForChild("ModalUtil"))
-local ThemeUtil = require(Util:WaitForChild("ThemeUtil"))
-local PanelUtil = require(Util:WaitForChild("PanelUtil"))
+local Ui = ReplicatedStorage:WaitForChild("Client"):WaitForChild("Ui")
+local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
+local CardListUtil = require(Ui:WaitForChild("CardListUtil"))
+local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
+local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
+local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
 local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
 
@@ -29,7 +29,6 @@ local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local MythlingsEvent = Remotes.MythlingsEvent
 local MythlingsRequest = Remotes.MythlingsRequest
-local ResourcesEvent = Remotes.ResourcesEvent
 local ResourcesRequest = Remotes.ResourcesRequest
 
 -- Art already in the place file.
@@ -440,8 +439,8 @@ ButtonUtil.hookClick(resourcesTab, function()
 	selectTab(resourcesTab)
 end)
 
--- This ScreenGui's own Enabled property is the open/close contract. HudController owns the
--- button in MainGui that toggles it, so this controller no longer reaches across into
+-- This ScreenGui's own Enabled property is the open/close contract. HUDController owns the
+-- button in HUDGui that toggles it, so this controller no longer reaches across into
 -- another GUI, and anything else that wants the inventory open just sets this flag.
 inventoryGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if inventoryGui.Enabled then

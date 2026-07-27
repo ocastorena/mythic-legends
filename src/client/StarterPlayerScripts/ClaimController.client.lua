@@ -10,8 +10,8 @@ local Player = Players.LocalPlayer
 
 
 local TEMPLATE    = ReplicatedStorage:WaitForChild("Templates")
-	:WaitForChild("GUI")
-	:WaitForChild("ProgressBar")
+	:WaitForChild("Billboards")
+	:WaitForChild("ClaimProgressBar")
 
 -- Overhead UI cache: OverheadBars[userId] = { gui = BillboardGui, fill = Frame, tween = Tween }
 local OverheadBars = {}
@@ -29,16 +29,16 @@ local function getOverheadBar(forPlayer: Player)
 	if not hrp then return nil end
 
 	local billboard = TEMPLATE:Clone()
-	billboard.Name = "ProgressBar"
+	billboard.Name = "ClaimProgressBar"
 	billboard.Adornee = hrp
 	billboard.Enabled = true
 	billboard.Parent  = hrp
 
 	entry = {
 		gui = billboard,
-		fill = billboard.Background.Bar,
+		fill = billboard.ProgressRoot.Fill,
 		tween = nil,
-		percent = billboard.Background.Percent,
+		percent = billboard.ProgressRoot.PercentLabel,
 	}
 	
 	OverheadBars[userId] = entry

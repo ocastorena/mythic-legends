@@ -7,9 +7,10 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local PathfindingService = game:GetService("PathfindingService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local LogUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("LogUtil"))
+local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local log = LogUtil.For("SpawnService")
 
 --// Module State --------------------------------------------------------------
@@ -215,10 +216,11 @@ local function createMythlingModel(typeId: string, position: Vector3, zoneRadius
 
 	-- Attach expire timer GUI if template exists
 	local guiRoot = Context.Instances.Templates
-	local timerTemplate = guiRoot and guiRoot:FindFirstChild("GUI") and guiRoot.GUI:FindFirstChild("ExpireTimer")
+	local billboards = guiRoot and guiRoot:FindFirstChild("Billboards")
+	local timerTemplate = billboards and billboards:FindFirstChild("MythlingExpireTimer")
 	if timerTemplate and model.PrimaryPart then
 		local timer = timerTemplate:Clone()
-		timer.Name = "ExpireTimer"
+		timer.Name = "MythlingExpireTimer"
 		timer.Adornee = model.PrimaryPart
 		timer.Parent = model
 	end
@@ -422,7 +424,7 @@ end
 --- Remove the capture zone if present.
 local function removeZoneIfAny(e)
 	if e.zone and e.zone.Parent then
-		e.model:FindFirstChild("ExpireTimer"):Destroy()
+		e.model:FindFirstChild("MythlingExpireTimer"):Destroy()
 		e.zone:Destroy()
 		e.zone = nil
 	end

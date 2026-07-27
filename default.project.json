@@ -5,16 +5,25 @@
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "Util": {
-        "$path": "src/shared/Util"
-      },
       "Metadata": {
         "$path": "src/shared/Metadata"
+      },
+      "Shared": {
+        "$className": "Folder",
+        "Types": {
+          "$path": "src/shared/Types.lua"
+        }
+      },
+      "Client": {
+        "$path": "src/client/Modules"
       }
     },
 
     "ServerScriptService": {
       "$className": "ServerScriptService",
+      "Infrastructure": {
+        "$path": "src/server/Infrastructure"
+      },
       "Services": {
         "$path": "src/server/Services"
       },
@@ -43,10 +52,10 @@
         "$ignoreUnknownInstances": true,
         "$path": "src/client/StarterGui/StandGui"
       },
-      "MainGui": {
+      "HUDGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
-        "$path": "src/client/StarterGui/MainGui"
+        "$path": "src/client/StarterGui/HUDGui"
       },
       "HotbarGui": {
         "$className": "ScreenGui",

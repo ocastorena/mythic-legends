@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/ButtonUtil
+-- ReplicatedStorage/Client/Ui/ButtonUtil
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local clickSound = ReplicatedStorage:WaitForChild("Audio"):WaitForChild("ButtonClick")
 

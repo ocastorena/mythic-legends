@@ -1,15 +1,15 @@
--- ReplicatedStorage/Util/ModalUtil
+-- ReplicatedStorage/Client/Ui/ModalUtil
 -- Single owner of the modal backdrop, the input guard and the hotbar toggle.
 --
 -- InventoryController and StandController each used to hold their own reference to the
--- shared Background ScreenGui and each connected its own handler to
--- Background:GetPropertyChangedSignal("Enabled") -- two handlers doing identical work on
+-- shared ModalBackdropGui ScreenGui and each connected its own handler to
+-- ModalBackdropGui:GetPropertyChangedSignal("Enabled") -- two handlers doing identical work on
 -- one signal. Because the guard keyed off the backdrop's Enabled property rather than off
 -- how many panels were open, this sequence unguarded input with a panel still up:
 --
---   1. open Inventory        -> Background.Enabled = true, guard on
---   2. open a Stand          -> Background already enabled, so no signal fires
---   3. close the Stand       -> Background.Enabled = false, guard OFF
+--   1. open Inventory        -> ModalBackdropGui.Enabled = true, guard on
+--   2. open a Stand          -> ModalBackdropGui already enabled, so no signal fires
+--   3. close the Stand       -> ModalBackdropGui.Enabled = false, guard OFF
 --      ...while the Inventory is still on screen.
 --
 -- Panels now declare themselves open or closed by name and never touch the backdrop.
@@ -35,7 +35,7 @@ local listeners: { (boolean) -> () } = {}
 
 local function getBackdrop(): ScreenGui?
 	local playerGui = localPlayer:FindFirstChildOfClass("PlayerGui")
-	local backdrop = playerGui and playerGui:FindFirstChild("Background")
+	local backdrop = playerGui and playerGui:FindFirstChild("ModalBackdropGui")
 	if not (backdrop and backdrop:IsA("ScreenGui")) then
 		return nil
 	end
@@ -45,7 +45,7 @@ local function getBackdrop(): ScreenGui?
 	-- of being left to drift from the tokens.
 	backdrop.DisplayOrder = ThemeUtil.Layer.scrim
 
-	local frame = backdrop:FindFirstChild("Background")
+	local frame = backdrop:FindFirstChild("ModalBackdrop")
 	if frame and frame:IsA("GuiObject") then
 		ThemeUtil.paint(frame, ThemeUtil.Surface.scrim)
 	end

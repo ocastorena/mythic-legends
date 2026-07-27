@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/PanelUtil
+-- ReplicatedStorage/Client/Ui/PanelUtil
 -- The panel shell and its parts, as described by §03-§08 of the design system.
 --
 -- The design doc's own instruction is to build every menu by composing one shell rather
@@ -16,7 +16,7 @@
 --   })
 --   local details = PanelUtil.details(panel.Details, { stats = 3, progress = true })
 --
--- The scrim is deliberately absent: ModalUtil already owns the shared Background
+-- The scrim is deliberately absent: ModalUtil already owns the shared ModalBackdropGui
 -- ScreenGui, so a panel that drew its own would double-darken the world.
 
 local ThemeUtil = require(script.Parent.ThemeUtil)

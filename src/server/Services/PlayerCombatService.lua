@@ -1,13 +1,13 @@
--- ServerScriptService/Services/CombatService
+-- ServerScriptService/Services/PlayerCombatService
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local Util = ReplicatedStorage:WaitForChild("Util")
-local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
-local LogUtil = require(Util:WaitForChild("LogUtil"))
+local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 
-local log = LogUtil.For("CombatService")
+local log = LogUtil.For("PlayerCombatService")
 
 local WeaponsData = nil
 local CombatEvent = nil
@@ -113,9 +113,9 @@ local function handleCombatEvent(player: Player, action: string?, payload: any?)
 	})
 end
 
-local CombatService = {}
+local PlayerCombatService = {}
 
-function CombatService.Init(context: any)
+function PlayerCombatService.Init(context: any)
 	WeaponsData = context.Metadata.Weapons
 	CombatEvent = context.Remotes.CombatEvent
 
@@ -133,4 +133,4 @@ function CombatService.Init(context: any)
 	log.info("Initialized")
 end
 
-return CombatService
+return PlayerCombatService

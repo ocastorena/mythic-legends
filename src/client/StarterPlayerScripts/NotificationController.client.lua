@@ -6,7 +6,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ToastUtil = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("ToastUtil"))
+local ToastUtil = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("Ui"):WaitForChild("ToastUtil"))
 
 local localPlayer = Players.LocalPlayer
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")

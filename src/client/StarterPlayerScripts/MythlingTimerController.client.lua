@@ -3,7 +3,8 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local mythlingsFolder = workspace:WaitForChild("Mythlings")
+local runtimeFolder = workspace:WaitForChild("Runtime")
+local mythlingsFolder = runtimeFolder:WaitForChild("Mythlings")
 
 -- -- Helpers ---------------------------------------------------------------
 
@@ -29,10 +30,10 @@ local function tryAttach(model: Instance)
 	local expireAt = model:GetAttribute("ExpireAt")
 	if typeof(expireAt) ~= "number" then return end
 
-	local gui = model:FindFirstChild("ExpireTimer")
+	local gui = model:FindFirstChild("MythlingExpireTimer")
 	if not (gui and gui:IsA("BillboardGui")) then return end
 
-	local label = gui:FindFirstChild("Text")
+	local label = gui:FindFirstChild("TimerLabel")
 	if not (label and label:IsA("TextLabel")) then return end
 
 	tracked[model] = { model = model, gui = gui, label = label }

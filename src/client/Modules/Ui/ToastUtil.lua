@@ -1,8 +1,8 @@
--- ReplicatedStorage/Util/ToastUtil
--- Transient message that pops in and fades out. Owns the ClaimToast ScreenGui and its
+-- ReplicatedStorage/Client/Ui/ToastUtil
+-- Transient message that pops in and fades out. Owns the ToastGui ScreenGui and its
 -- animation, so callers only supply text.
 --
--- Split out of ClaimToastController: the animation was never claim-specific, it just had
+-- Split out of a claim-specific controller: the animation was never claim-specific, it just had
 -- one caller. Anything that needs to tell the player something in passing can use this
 -- without another controller growing a second copy of the tween code.
 
@@ -31,7 +31,7 @@ local function ensureGui(): boolean
 	end
 
 	local playerGui = localPlayer:FindFirstChildOfClass("PlayerGui")
-	local screenGui = playerGui and playerGui:FindFirstChild("ClaimToast")
+	local screenGui = playerGui and playerGui:FindFirstChild("ToastGui")
 	if not (screenGui and screenGui:IsA("ScreenGui")) then
 		return false
 	end
@@ -39,8 +39,8 @@ local function ensureGui(): boolean
 	-- Survive respawns; the toast is not tied to the character.
 	screenGui.ResetOnSpawn = false
 
-	local toastFrame = screenGui:FindFirstChild("Frame")
-	local textLabel = toastFrame and toastFrame:FindFirstChild("Text")
+	local toastFrame = screenGui:FindFirstChild("ToastFrame")
+	local textLabel = toastFrame and toastFrame:FindFirstChild("MessageLabel")
 	if not (toastFrame and toastFrame:IsA("Frame") and textLabel and textLabel:IsA("TextLabel")) then
 		return false
 	end

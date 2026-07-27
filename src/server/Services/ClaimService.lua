@@ -4,17 +4,17 @@ local ClaimService = {}
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local Util = ReplicatedStorage:WaitForChild("Util")
-local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
-local LogUtil = require(Util:WaitForChild("LogUtil"))
+local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 
 local log = LogUtil.For("ClaimService")
 
 local ClaimEvent: RemoteEvent
 local SpawnService
-local MythlingService
+local InventoryService
 local MythlingsData
 
 -- PlayersState[userId] = {
@@ -108,13 +108,13 @@ local function handleClaimWin(player, mythlingId, mythlingData)
 			sendClear(userId)
 		end
 	end
-	-- send to Inventory Service to save mythling
+	-- Add the claimed mythling to the player's inventory.
 	-- params:
 	--   mythlingId (spawn id)  - optional, for analytics/backrefs
 	--   typeId / typeName      - identify the Mythling kind
 	--   rarity / variantId     - optional extra tags
 	--   model                  - optional live model instance (to read traits/seed)
-	MythlingService.SaveWonMythling(player, {
+	InventoryService.SaveWonMythling(player, {
 		typeId = mythlingData.typeId,
 		variantId = "regular",
 	})
@@ -235,7 +235,7 @@ end
 function ClaimService.Init(context)
 	ClaimEvent = context.Remotes.ClaimEvent
 	SpawnService = context.Services.SpawnService
-	MythlingService = context.Services.MythlingService
+	InventoryService = context.Services.InventoryService
 	MythlingsData = context.Metadata.Mythlings
 
 	PlayerUtil.OnPlayer(function(player)

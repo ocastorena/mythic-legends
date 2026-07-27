@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/InputGuardUtil
+-- ReplicatedStorage/Client/Ui/InputGuardUtil
 -- Blocks movement/camera across KB/mouse/gamepad/touch while modal UIs are open.
 
 local Players = game:GetService("Players")
@@ -176,4 +176,3 @@ function M.close()
 end
 
 return M
-

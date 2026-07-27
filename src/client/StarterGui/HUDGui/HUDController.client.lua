@@ -1,8 +1,8 @@
--- StarterGui/MainGui/HudController
--- Owns every widget in MainGui: the always-on-screen HUD.
+-- StarterGui/HUDGui/HUDController
+-- Owns every widget in HUDGui: the always-on-screen HUD.
 --
--- The inventory open button lives in MainGui but used to be hooked by InventoryController
--- reaching across into another ScreenGui. MainGui owns its own button now and asks for the
+-- The inventory open button lives in HUDGui but used to be hooked by InventoryController
+-- reaching across into another ScreenGui. HUDGui owns its own button now and asks for the
 -- inventory by toggling that ScreenGui's Enabled property, which is the contract
 -- InventoryController already reacts to.
 --
@@ -15,11 +15,12 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
-local Util = ReplicatedStorage:WaitForChild("Util")
-local ButtonUtil = require(Util:WaitForChild("ButtonUtil"))
-local ThemeUtil = require(Util:WaitForChild("ThemeUtil"))
-local PanelUtil = require(Util:WaitForChild("PanelUtil"))
-local CurrencyUtil = require(Util:WaitForChild("CurrencyUtil"))
+local Client = ReplicatedStorage:WaitForChild("Client")
+local Ui = Client:WaitForChild("Ui")
+local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
+local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
+local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
+local WalletStore = require(Client:WaitForChild("Currency"):WaitForChild("WalletStore"))
 
 -- Art already in the place file; the design only specifies the frame around it.
 local INVENTORY_ICON = "rbxassetid://135273755533681"
@@ -45,6 +46,14 @@ local BUTTON_GAP = 8
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local screenGui = script.Parent
 
+-- The topbar layout uses physical-screen coordinates from GuiService. Keep this explicit
+-- in code because a Rojo-created ScreenGui otherwise defaults to respecting the inset and
+-- applies the topbar offset a second time.
+screenGui.IgnoreGuiInset = true
+pcall(function()
+	screenGui.ScreenInsets = Enum.ScreenInsets.None
+end)
+
 -- Above the modal scrim, so the inventory, shop and coin pill stay fully lit and clickable
 -- whenever a menu is open. The HUD lives in the top bar strip, which no panel reaches.
 screenGui.DisplayOrder = ThemeUtil.Layer.hud
@@ -66,7 +75,7 @@ if authored then
 	authored:Destroy()
 end
 
--- Occupies exactly Roblox's top bar row. MainGui ignores the GUI inset, so its coordinate
+-- Occupies exactly Roblox's top bar row. HUDGui ignores the GUI inset, so its coordinate
 -- space is screen space and the row can be placed where the platform's own bar sits;
 -- anything centred in here lands level with Roblox's buttons.
 local mainFrame = Instance.new("Frame")
@@ -241,8 +250,8 @@ pcall(function()
 	game:GetService("GuiService"):GetPropertyChangedSignal("TopbarInset"):Connect(relayout)
 end)
 
-CurrencyUtil.OnRuniesChanged(function(amount)
-	runiesTotalLabel.Text = CurrencyUtil.format(amount)
+WalletStore.OnRuniesChanged(function(amount)
+	runiesTotalLabel.Text = WalletStore.format(amount)
 end)
 
 --- Panels are opened by toggling their ScreenGui's Enabled flag; that is the contract

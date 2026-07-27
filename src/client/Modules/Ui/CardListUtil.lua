@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/CardListUtil
+-- ReplicatedStorage/Client/Ui/CardListUtil
 -- Scrolling grid of selectable cards cloned from a template.
 --
 -- InventoryController (mythlings and resources) and StandController each grew their own

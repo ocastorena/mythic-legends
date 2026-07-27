@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/RemoteUtil
+-- ServerScriptService/Infrastructure/RemoteUtil
 -- Canonical list of every remote the game uses, so the source alone describes the API
 -- surface between client and server. Bootstrap creates any that are missing, which makes
 -- a fresh `rojo build` produce a runnable place instead of one that errors on
@@ -10,12 +10,12 @@ RemoteUtil.FOLDER_NAME = "Remotes"
 
 -- name -> class. Requests are RemoteFunctions (they return a value); the rest are events.
 RemoteUtil.DEFINITIONS = {
+	AdminEvent = "RemoteEvent",
 	BaseEvent = "RemoteEvent",
 	ClaimEvent = "RemoteEvent",
 	CombatEvent = "RemoteEvent",
 	CurrencyEvent = "RemoteEvent",
 	MythlingsEvent = "RemoteEvent",
-	ResourcesEvent = "RemoteEvent",
 	SpawnEvent = "RemoteEvent",
 
 	GetStands = "RemoteFunction",

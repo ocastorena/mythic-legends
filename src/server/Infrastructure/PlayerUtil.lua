@@ -1,4 +1,4 @@
--- ReplicatedStorage/Util/PlayerUtil
+-- ServerScriptService/Infrastructure/PlayerUtil
 -- Helpers for the join/leave lifecycle.
 
 local Players = game:GetService("Players")

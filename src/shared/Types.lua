@@ -1,6 +1,6 @@
--- ReplicatedStorage/Util/Types
+-- ReplicatedStorage/Shared/Types
 -- Shared shapes so services can stop typing `any`. Import with:
---   local Types = require(ReplicatedStorage.Util.Types)
+--   local Types = require(ReplicatedStorage.Shared.Types)
 --   local function f(ctx: Types.Context) ... end
 
 export type ResourceEntry = {

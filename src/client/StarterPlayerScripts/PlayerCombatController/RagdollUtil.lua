@@ -1,4 +1,4 @@
--- StarterPlayer/StarterPlayerScripts/CombatController/RagdollUtil
+-- StarterPlayer/StarterPlayerScripts/PlayerCombatController/RagdollUtil
 
 local RagdollUtil = {}
 

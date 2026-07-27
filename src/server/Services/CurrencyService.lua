@@ -1,10 +1,10 @@
 -- ServerScriptService/Services/CurrencyService
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local Util = ReplicatedStorage:WaitForChild("Util")
-local PlayerUtil = require(Util:WaitForChild("PlayerUtil"))
-local LogUtil = require(Util:WaitForChild("LogUtil"))
+local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 
 local log = LogUtil.For("CurrencyService")
 
@@ -15,18 +15,20 @@ local CurrencyEvent: RemoteEvent = nil
 -- cache CacheByPlayer[userId] = {currency}
 local CacheByPlayer = {}
 
-local function setupRunies(userId: number)
+local function setupRunies(userId: number): boolean
 	local cache = CacheByPlayer[userId]
 	if not cache.currency then
 		log.warn("Player cache not found")
-		return
+		return false
 	end
 
 	if not cache.currency.runies then
 		cache.currency.runies = 0
 		log.debug("First-time runies setup")
-		return
+		return true
 	end
+
+	return false
 end
 
 local CurrencyService = {}
@@ -43,7 +45,9 @@ function CurrencyService.Start()
 		local currency = DataService.GetSection(player, "currency")
 		CacheByPlayer[player.UserId] = { currency = currency }
 		-- setup runies if first time
-		setupRunies(player.UserId)
+		if setupRunies(player.UserId) then
+			DataService.MarkDirty(player)
+		end
 
 		CurrencyEvent:FireClient(player, "RuniesUpdate", CacheByPlayer[player.UserId].currency.runies)
 	end)

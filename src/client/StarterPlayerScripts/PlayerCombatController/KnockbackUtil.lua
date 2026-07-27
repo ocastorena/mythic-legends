@@ -1,4 +1,4 @@
--- StarterPlayer/StarterPlayerScripts/CombatController/KnockbackUtil
+-- StarterPlayer/StarterPlayerScripts/PlayerCombatController/KnockbackUtil
 local RagdollUtil = require(script.Parent.RagdollUtil)
 
 local KnockbackUtil = {}

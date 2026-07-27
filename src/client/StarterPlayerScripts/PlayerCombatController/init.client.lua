@@ -1,4 +1,4 @@
--- StarterPlayer/StarterPlayerScripts/CombatController
+-- StarterPlayer/StarterPlayerScripts/PlayerCombatController
 
 -- services
 local Players           = game:GetService("Players")
@@ -7,7 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- modules
 local KnockbackUtil     = require(script.KnockbackUtil)
-local CharacterUtil     = require(ReplicatedStorage:WaitForChild("Util"):WaitForChild("CharacterUtil"))
+local CharacterUtil     = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("Character"):WaitForChild("CharacterUtil"))
 
 -- remotes
 local combatEvent       = ReplicatedStorage.Remotes.CombatEvent
@@ -82,7 +82,7 @@ local function onToolAdded(tool: Instance)
 	-- second time would leave the player holding a weapon that never swings.
 	local handle = tool:FindFirstChild("Handle")
 	if not handle then
-		error(string.format("[CombatController] Tool %s does not have a Handle", tool.Name))
+		error(string.format("[PlayerCombatController] Tool %s does not have a Handle", tool.Name))
 	end
 	equippedWeapon = tool
 	animationId = handle:FindFirstChild("Animation").AnimationId
