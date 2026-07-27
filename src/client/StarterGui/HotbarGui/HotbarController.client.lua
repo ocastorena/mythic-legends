@@ -40,9 +40,9 @@ local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("Cha
 -- in the backpack on the platform hotbar, and here that is InventoryGui.
 local SLOT_COUNT = 6
 
--- Gap between the bottom slot edge and the bottom of the screen. This is the one number to
--- change to raise or lower the hotbar.
-local BOTTOM_MARGIN = 6
+-- Match the physical 12px gap Roblox leaves around its top-bar controls. The hotbar uses
+-- the same value so its slots have equal visual breathing room at the bottom.
+local BOTTOM_MARGIN = ThemeUtil.Platform.topbarEdgePadding
 
 -- Keyboard slot bindings, in slot order.
 local SLOT_KEYS = {
@@ -60,6 +60,9 @@ local screenGui = script.Parent
 screenGui.DisplayOrder = ThemeUtil.Layer.hotbar
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
+pcall(function()
+	screenGui.ScreenInsets = Enum.ScreenInsets.None
+end)
 
 -- Off for the whole session. Set here rather than in ModalUtil because this script is the
 -- thing standing in for it, so the flag and its replacement live or die together.
@@ -451,11 +454,9 @@ end)
 -- Layout and visibility
 --------------------------------------------------------------------------------
 
---- Drops the slots to `BOTTOM_MARGIN` off the physical bottom edge.
----
---- This used to mirror the gap above Roblox's top bar buttons, but that gap is measured to
---- the *bar*, and there is no bar down here any more -- matching it left the slots reading
---- as though they were floating well short of the edge.
+--- Positions the slots `BOTTOM_MARGIN` off the physical bottom edge, matching the top-bar
+--- control padding. The ScreenGui ignores every inset, so device home-indicator safe space
+--- cannot add a second, inconsistent gap on phones.
 local function relayout()
 	tray.Position = UDim2.new(0.5, 0, 1, -BOTTOM_MARGIN)
 end

@@ -270,6 +270,8 @@ ThemeUtil.Metric = {
 ThemeUtil.Platform = {
 	topbarRowHeight = 48,
 	topbarButtonSize = 44,
+	-- Physical gap between a platform control and a display edge.
+	topbarEdgePadding = 12,
 	topbarButtonFill = hex("121215"),
 	topbarButtonTransparency = 0.08,
 	-- Slightly more opaque under the cursor, standing in for Roblox's own state overlay.
@@ -285,16 +287,13 @@ export type Topbar = {
 	rowHeight: number,
 	-- Diameter of a HUD button that sits level with Roblox's own.
 	buttonSize: number,
-	-- Horizontal span the developer may use. Roblox's own chrome sits left of `minX`.
-	minX: number,
-	maxX: number,
 }
 
 --- Locates Roblox's top bar so HUD chrome can line up with it.
 ---
---- TopbarInset is the absolute rectangle Roblox reserves for unobstructed topbar content.
---- It is the only reliable source for both axes: GetGuiInset describes the Core UI safe
---- canvas, which can be much taller than the visual topbar on mobile devices.
+--- The vertical Core UI inset gives the bottom of Roblox's button row. We keep the row
+--- height fixed to Roblox's standard control height, rather than stretching the HUD to
+--- the whole inset (which includes additional device-safe space on phones).
 ---
 --- Guarded because GuiService is only meaningful on a client; a server-side require of
 --- this module still needs to load.
@@ -307,24 +306,10 @@ function ThemeUtil.topbar(viewport: Vector2): Topbar
 	local insetY = (okInset and guiInset and guiInset.Y > 0) and guiInset.Y or rowHeight
 	local rowTop = math.max(0, insetY - rowHeight)
 
-	local minX, maxX = 0, viewport.X
-	local okBar, bar = pcall(function()
-		return game:GetService("GuiService").TopbarInset
-	end)
-	if okBar and bar and bar.Width > 0 then
-		minX, maxX = bar.Min.X, bar.Max.X
-		if bar.Height > 0 then
-			rowTop = bar.Min.Y
-			rowHeight = bar.Height
-		end
-	end
-
 	return {
 		rowTop = rowTop,
 		rowHeight = rowHeight,
 		buttonSize = ThemeUtil.Platform.topbarButtonSize,
-		minX = minX,
-		maxX = maxX,
 	}
 end
 

@@ -86,6 +86,19 @@ mainFrame.Size = UDim2.new(1, 0, 0, topbar.rowHeight)
 mainFrame.Position = UDim2.new(0, 0, 0, topbar.rowTop)
 mainFrame.Parent = screenGui
 
+-- A ScreenGui with ScreenInsets.None uses the entire physical display, while the camera
+-- viewport may be narrowed by a phone's side safe areas. The HUD is positioned in the
+-- ScreenGui's coordinate space, so use MainFrame's resolved width once it is available.
+local function screenWidth(): number
+	local width = mainFrame.AbsoluteSize.X
+	return width > 0 and width or viewportSize().X
+end
+
+local function topbarEdgePadding(width: number): number
+	local sideSafeInset = math.max(0, (width - viewportSize().X) / 2)
+	return math.round(sideSafeInset) + ThemeUtil.Platform.topbarEdgePadding
+end
+
 --------------------------------------------------------------------------------
 -- Top-center cluster
 --------------------------------------------------------------------------------
@@ -195,10 +208,8 @@ local function relayout()
 	cluster.Size = UDim2.fromOffset(0, buttonSize)
 
 	local inset = math.round(buttonSize * 0.2)
-	local count = 0
 	for _, button in ipairs(cluster:GetChildren()) do
 		if button:IsA("ImageButton") then
-			count += 1
 			button.Size = UDim2.fromOffset(buttonSize, buttonSize)
 			local padding = button:FindFirstChildOfClass("UIPadding")
 			if padding then
@@ -210,17 +221,15 @@ local function relayout()
 		end
 	end
 
-	-- Screen-centred as the design shows, but never allowed to slide under Roblox's own
-	-- chrome. On a phone that chrome is wide enough to reach the middle of a short screen.
-	--
-	-- Width is derived rather than read off AbsoluteSize, which is still zero on the frame
-	-- the HUD is built and would put the clamp in the wrong place exactly once.
-	local half = (count * buttonSize + math.max(count - 1, 0) * BUTTON_GAP) / 2
-	local centre = viewportSize().X / 2
-	local earliest = topbar.minX + BUTTON_GAP + half
-	cluster.Position = UDim2.new(0, math.max(centre, earliest), 0.5, 0)
+	-- Centre against the full physical display, not the camera viewport. On phones those
+	-- differ because the latter excludes side safe areas, which was pulling the cluster
+	-- left of the actual screen centre.
+	local width = screenWidth()
+	cluster.Position = UDim2.new(0, width / 2, 0.5, 0)
 
-	runiesFrame.Position = UDim2.new(0, topbar.maxX - 12, 0.5, 0)
+	-- Mirror the Roblox button's edge treatment: device-safe inset plus the platform's
+	-- standard 12px topbar padding.
+	runiesFrame.Position = UDim2.new(0, width - topbarEdgePadding(width), 0.5, 0)
 	runiesFrame.Size = UDim2.fromOffset(0, buttonSize)
 
 	local scale = buttonSize / 26
@@ -239,13 +248,18 @@ local function relayout()
 	end
 end
 
+mainFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+
 relayout()
+-- The ScreenGui's physical size can settle one frame after the controller starts.
+-- Re-layout once more so first spawn receives the same centring as later resizes.
+task.defer(relayout)
 
 if camera then
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(relayout)
 end
--- The free span changes independently of the viewport when Roblox adds or removes a top
--- bar control, so the inset itself is watched too.
+-- Roblox can change its Core UI inset independently of the viewport, so keep the row
+-- vertically aligned when the top bar changes.
 pcall(function()
 	game:GetService("GuiService"):GetPropertyChangedSignal("TopbarInset"):Connect(relayout)
 end)
