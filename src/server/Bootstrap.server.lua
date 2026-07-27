@@ -28,6 +28,7 @@ local Runtime = workspace:WaitForChild("Runtime")
 -- Context table for all services + configs & remotes + constants
 local Context = {
 	Instances = {
+		Runtime = Runtime,
 		Arena = Map:WaitForChild("Arena"),
 		Mythlings = Runtime:WaitForChild("Mythlings"),
 		Bases = Runtime:WaitForChild("Bases"),
