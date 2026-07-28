@@ -20,7 +20,15 @@ local Weapons = {
 
 			swing = {
 				cooldownSeconds = 0.72,
-				impactDelaySeconds = 0.12,
+				-- Start validation as soon as the server receives the swing. Delaying here
+				-- adds network latency a second time and makes close moving targets feel missed.
+				impactDelaySeconds = 0,
+				-- Sample the short arc across several physics frames so moving players are
+				-- not judged by one snapshot. The hitbox itself remains deliberately tight.
+				activeWindowSeconds = 0.22,
+				-- The server may rewind only this bounded amount when validating a
+				-- timestamped client prediction against server-recorded transforms.
+				maxRewindSeconds = 0.3,
 			},
 
 			target = {
@@ -34,6 +42,16 @@ local Weapons = {
 			},
 
 			impact = {
+				-- Light swords use a rigid launch/air-tumble instead of splitting the
+				-- avatar into a floor-bouncing multi-body ragdoll.
+				reactionMode = "Knockdown",
+				preservePlayerOwnership = true,
+				tumbleAngularSpeed = 5.5,
+				-- Hold one deterministic velocity briefly on the target's owning client.
+				launchControlSeconds = 0.1,
+				-- Reliable acknowledgement prevents a high-latency hit from receiving
+				-- both a client launch and a server fallback launch.
+				knockbackAckTimeoutSeconds = 0.4,
 				-- Velocity changes, not raw physical force. The server mass-scales this
 				-- before applying it so every character receives the intended launch.
 				-- This is a compact starter-sword pop: enough vertical lift to clearly
@@ -43,7 +61,7 @@ local Weapons = {
 				-- The ragdoll normally ends half a second after a confirmed landing. This
 				-- maximum is only a failsafe for a player who misses the arena entirely.
 				ragdollMaxSeconds = 3.5,
-				ragdollLandingRecoverySeconds = 0.5,
+				ragdollLandingRecoverySeconds = 0.2,
 				hitImmunitySeconds = 1.1,
 				serverOwnershipSeconds = 0.8,
 			},
@@ -55,6 +73,8 @@ local Weapons = {
 					-- Creator Store: "Sword Hit (Impact)" by BushSeed.
 					id = "rbxassetid://7171761940",
 					volume = 0.65,
+					-- Skip the asset's quiet lead-in so the transient lands with the burst.
+					startTimeSeconds = 0.06,
 					minDistance = 7,
 					maxDistance = 60,
 				},

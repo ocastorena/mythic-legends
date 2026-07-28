@@ -110,10 +110,23 @@ function KnockbackUtil.ClaimServerOwnership(character: Model, player: Player): b
 	return true
 end
 
-function KnockbackUtil.Apply(character: Model, player: Player, deltaV: Vector3, ownershipSeconds: number): boolean
+function KnockbackUtil.Apply(
+	character: Model,
+	player: Player,
+	deltaV: Vector3,
+	ownershipSeconds: number,
+	preservePlayerOwnership: boolean?,
+	angularVelocity: Vector3?
+): boolean
 	local roots = getAssemblyRoots(character)
 	if #roots == 0 then
 		return false
+	end
+
+	if preservePlayerOwnership then
+		-- The validated target's owning client applies this impulse through the combat
+		-- event. A server write here can be overwritten by the owner or double the launch.
+		return roots[1].Parent ~= nil
 	end
 
 	local launched: { { root: BasePart, token: number } } = {}
@@ -135,7 +148,7 @@ function KnockbackUtil.Apply(character: Model, player: Player, deltaV: Vector3, 
 
 	for _, launch in ipairs(launched) do
 		local applied = pcall(function()
-			launch.root.AssemblyAngularVelocity = Vector3.zero
+			launch.root.AssemblyAngularVelocity = angularVelocity or Vector3.zero
 			launch.root:ApplyImpulse(deltaV * launch.root.AssemblyMass)
 		end)
 		if not applied then
@@ -156,6 +169,76 @@ function KnockbackUtil.Apply(character: Model, player: Player, deltaV: Vector3, 
 		end
 	end
 
+	return true
+end
+
+function KnockbackUtil.ApplyVelocity(
+	character: Model,
+	player: Player,
+	launchVelocity: Vector3,
+	durationSeconds: number,
+	ownershipSeconds: number,
+	angularVelocity: Vector3?
+): boolean
+	local roots = getAssemblyRoots(character)
+	if #roots == 0 then
+		return false
+	end
+
+	local launched = {}
+	for _, root in ipairs(roots) do
+		local owned, token = takeServerOwnership(root, character)
+		if not owned then
+			for _, launch in ipairs(launched) do
+				if launch.linearVelocity.Parent then
+					launch.linearVelocity:Destroy()
+				end
+				if launch.attachment.Parent then
+					launch.attachment:Destroy()
+				end
+				restoreOwnership(launch.root, launch.token, player)
+			end
+			return false
+		end
+
+		local attachment = Instance.new("Attachment")
+		attachment.Name = "CombatFallbackLaunchAttachment"
+		attachment.Parent = root
+
+		local linearVelocity = Instance.new("LinearVelocity")
+		linearVelocity.Name = "CombatFallbackLaunchVelocity"
+		linearVelocity.Attachment0 = attachment
+		linearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+		linearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+		linearVelocity.VectorVelocity = launchVelocity
+		linearVelocity.ForceLimitsEnabled = false
+		linearVelocity.Parent = root
+		root.AssemblyAngularVelocity = angularVelocity or Vector3.zero
+
+		table.insert(launched, {
+			root = root,
+			token = token,
+			attachment = attachment,
+			linearVelocity = linearVelocity,
+		})
+	end
+
+	task.delay(math.clamp(durationSeconds, 0.04, 0.2), function()
+		for _, launch in ipairs(launched) do
+			if launch.linearVelocity.Parent then
+				launch.linearVelocity:Destroy()
+			end
+			if launch.attachment.Parent then
+				launch.attachment:Destroy()
+			end
+		end
+	end)
+
+	for _, launch in ipairs(launched) do
+		task.delay(math.max(durationSeconds, ownershipSeconds), function()
+			restoreOwnership(launch.root, launch.token, player)
+		end)
+	end
 	return true
 end
 

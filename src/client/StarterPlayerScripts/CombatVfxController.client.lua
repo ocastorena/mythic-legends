@@ -1,13 +1,18 @@
 -- StarterPlayerScripts/CombatVfxController
--- The server confirms combat impacts; every client renders the resulting presentation
--- locally. No visual here grants damage, targeting, or knockback authority.
+-- The server confirms combat impacts; every client renders presentation locally, while
+-- the target's owning client applies one server-approved, idempotent launch.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ContentProvider = game:GetService("ContentProvider")
+local Players = game:GetService("Players")
 local SoundService = game:GetService("SoundService")
 
+local combatEvent: RemoteEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CombatEvent")
 local combatVfxEvent: RemoteEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CombatVfxEvent")
+local combatPredictionBus = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("CombatPredictionBus"))
+local clientKnockbackController = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("ClientKnockbackController"))
 local weaponsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
+local localPlayer = Players.LocalPlayer
 
 type AirTrailState = {
 	token: number,
@@ -29,6 +34,8 @@ type PooledImpactSound = {
 local activeAirTrails: { [Model]: AirTrailState } = {}
 local nextTrailToken = 0
 local impactSoundPools: { [string]: { PooledImpactSound } } = {}
+local predictedTargetsBySequence: { [number]: Model } = {}
+local settledSequences: { [number]: boolean } = {}
 
 local HIT_TEXTURE = "rbxasset://textures/particles/sparkles_main.dds"
 local IMPACT_RING_TEXTURE = "rbxassetid://1266170131"
@@ -37,6 +44,7 @@ local TRAIL_POLL_SECONDS = 0.03
 local TRAIL_FADE_SECONDS = 0.9
 local MAX_TRAIL_PARTICLES_PER_POLL = 10
 local IMPACT_SOUND_POOL_SIZE = 3
+local PREDICTION_LIFETIME_SECONDS = 1
 
 local function getNumber(config: any, key: string, fallback: number, minimum: number, maximum: number): number
 	local value = if type(config) == "table" then config[key] else nil
@@ -140,7 +148,7 @@ local function playHitBurst(character: Model, config: any)
 		NumberSequenceKeypoint.new(0, 0),
 		NumberSequenceKeypoint.new(1, 1),
 	})
-	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 233, 166), Color3.fromRGB(218, 151, 74))
+	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 72, 24), Color3.fromRGB(255, 164, 46))
 	emitter.LightEmission = 1
 	emitter.LightInfluence = 0
 	emitter.LockedToPart = false
@@ -160,7 +168,7 @@ local function playHitBurst(character: Model, config: any)
 		NumberSequenceKeypoint.new(0, 0.1),
 		NumberSequenceKeypoint.new(1, 1),
 	})
-	ring.Color = ColorSequence.new(Color3.fromRGB(255, 216, 112))
+	ring.Color = ColorSequence.new(Color3.fromRGB(255, 82, 28), Color3.fromRGB(255, 174, 58))
 	ring.LightEmission = 1
 	ring.LightInfluence = 0
 	ring.LockedToPart = false
@@ -175,9 +183,9 @@ local function playHitBurst(character: Model, config: any)
 	flash.Name = "CombatHitFlash"
 	flash.Adornee = character
 	flash.DepthMode = Enum.HighlightDepthMode.Occluded
-	flash.FillColor = Color3.fromRGB(255, 191, 85)
+	flash.FillColor = Color3.fromRGB(255, 70, 24)
 	flash.FillTransparency = 0.45
-	flash.OutlineColor = Color3.fromRGB(255, 235, 166)
+	flash.OutlineColor = Color3.fromRGB(255, 166, 64)
 	flash.OutlineTransparency = 0.05
 	flash.Parent = character
 
@@ -234,6 +242,7 @@ local function playImpactSound(character: Model, config: any)
 	sound.RollOffMinDistance = getNumber(soundConfig, "minDistance", 7, 1, 40)
 	sound.RollOffMaxDistance = getNumber(soundConfig, "maxDistance", 60, 5, 200)
 	sound.Parent = effectPart
+	sound.TimePosition = getNumber(soundConfig, "startTimeSeconds", 0, 0, 0.5)
 	sound:Play()
 
 	local poolToken = if pooledSound then pooledSound.token else 0
@@ -365,11 +374,104 @@ local function startAirTrail(character: Model, durationSeconds: number, config: 
 	end)
 end
 
-combatVfxEvent.OnClientEvent:Connect(function(action: string, character: Model, config: any, airTrailSeconds: number)
-	if not (character and character:IsA("Model")) then
+combatPredictionBus.Event:Connect(function(
+	action: string,
+	character: Model,
+	config: any,
+	sequence: number
+)
+	if action ~= "PredictedImpact"
+		or type(sequence) ~= "number"
+		or settledSequences[sequence]
+		or not (character and character:IsA("Model")) then
 		return
 	end
 
+	predictedTargetsBySequence[sequence] = character
+	playImpactSound(character, config)
+	playHitBurst(character, config)
+	task.delay(PREDICTION_LIFETIME_SECONDS, function()
+		if predictedTargetsBySequence[sequence] == character then
+			predictedTargetsBySequence[sequence] = nil
+		end
+	end)
+end)
+
+combatVfxEvent.OnClientEvent:Connect(function(
+	action: string,
+	character: Model?,
+	config: any,
+	airTrailSeconds: number,
+	attackerUserId: number?,
+	sequence: number?,
+	launchVelocity: Vector3?,
+	angularVelocity: Vector3?,
+	hitId: number?,
+	launchDurationSeconds: number?
+)
+	if action == "ApplyKnockback" then
+		if character ~= localPlayer.Character
+			or typeof(launchVelocity) ~= "Vector3"
+			or typeof(angularVelocity) ~= "Vector3"
+			or type(hitId) ~= "number"
+			or type(launchDurationSeconds) ~= "number" then
+			return
+		end
+
+		local accepted = clientKnockbackController.Apply(
+			character,
+			hitId,
+			launchVelocity,
+			angularVelocity,
+			launchDurationSeconds
+		)
+		if accepted then
+			combatEvent:FireServer("KnockbackAck", {
+				hitId = hitId,
+			})
+		end
+		return
+	end
+
+	if action == "Recovered" then
+		if character ~= localPlayer.Character then
+			return
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if humanoid and humanoid.Health > 0 then
+			if root and root:IsA("BasePart") then
+				root.AssemblyAngularVelocity = Vector3.zero
+			end
+			humanoid.AutoRotate = true
+			humanoid.PlatformStand = false
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+			task.delay(0.08, function()
+				if humanoid.Parent and humanoid.Health > 0
+					and (humanoid:GetState() == Enum.HumanoidStateType.Physics
+						or humanoid:GetState() == Enum.HumanoidStateType.PlatformStanding) then
+					humanoid:ChangeState(Enum.HumanoidStateType.Running)
+				end
+			end)
+		end
+		return
+	end
+
+	if action == "Rejected" then
+		if attackerUserId == localPlayer.UserId and type(sequence) == "number" then
+			predictedTargetsBySequence[sequence] = nil
+			settledSequences[sequence] = true
+			task.delay(PREDICTION_LIFETIME_SECONDS, function()
+				settledSequences[sequence] = nil
+			end)
+		end
+		return
+	end
+
+	if not (character and character:IsA("Model")) then
+		return
+	end
 	if action == "Landed" then
 		stopAirTrail(character, nil, true)
 		return
@@ -379,8 +481,22 @@ combatVfxEvent.OnClientEvent:Connect(function(action: string, character: Model, 
 		return
 	end
 
-	playImpactSound(character, config)
-	playHitBurst(character, config)
+	local wasLocallyPredicted = false
+	if attackerUserId == localPlayer.UserId and type(sequence) == "number" then
+		wasLocallyPredicted = predictedTargetsBySequence[sequence] == character
+		predictedTargetsBySequence[sequence] = nil
+		settledSequences[sequence] = true
+		task.delay(PREDICTION_LIFETIME_SECONDS, function()
+			settledSequences[sequence] = nil
+		end)
+	end
+
+	-- The attacking client already rendered lightweight feedback at contact. Suppress
+	-- only that duplicate; smoke and all gameplay still begin on server confirmation.
+	if not wasLocallyPredicted then
+		playImpactSound(character, config)
+		playHitBurst(character, config)
+	end
 	if type(airTrailSeconds) == "number" and airTrailSeconds > 0 then
 		startAirTrail(character, airTrailSeconds, config)
 	end
