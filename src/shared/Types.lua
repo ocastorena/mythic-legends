@@ -41,11 +41,64 @@ export type MythlingDef = {
 	variants: { [string]: MythlingVariant },
 }
 
-export type WeaponDef = {
-	hitType: string,
-	hitDuration: number,
-	horiForce: number,
-	vertForce: number,
+export type WeaponSwing = {
+	cooldownSeconds: number,
+	impactDelaySeconds: number,
+}
+
+export type WeaponTarget = {
+	maxTargets: number,
+	reachStuds: number,
+	arcDegrees: number,
+	maxVerticalDifference: number,
+	requireLineOfSight: boolean,
+}
+
+export type WeaponImpact = {
+	planarDeltaV: number,
+	verticalDeltaV: number,
+	ragdollMaxSeconds: number,
+	ragdollLandingRecoverySeconds: number,
+	hitImmunitySeconds: number,
+	serverOwnershipSeconds: number,
+}
+
+export type WeaponImpactSound = {
+	id: string,
+	volume: number,
+	minDistance: number,
+	maxDistance: number,
+}
+
+export type WeaponVfx = {
+	hitBurstParticles: number,
+	impactSound: WeaponImpactSound?,
+	airTrailParticlesPerStud: number,
+	airTrailSeconds: number,
+	airTrailBurstParticles: number,
+}
+
+export type WeaponProfile = {
+	displayName: string,
+	rarity: string,
+	thumbnail: string,
+	description: string,
+	combatKind: string,
+	weaponFamily: string,
+	arenaOnly: boolean?,
+	arenaHeightAllowanceStuds: number?,
+	swing: WeaponSwing,
+	target: WeaponTarget,
+	impact: WeaponImpact,
+	vfx: WeaponVfx?,
+}
+
+export type WeaponsMetadata = {
+	ToolAliases: { [string]: string },
+	Profiles: { [string]: WeaponProfile },
+	GetId: (Tool) -> string?,
+	GetProfile: (Tool) -> (string?, WeaponProfile?),
+	IsMeleeTool: (Tool) -> boolean,
 }
 
 -- The player document held by DataService.
@@ -64,8 +117,9 @@ export type Context = {
 	Metadata: {
 		Mythlings: { [string]: MythlingDef },
 		Resources: { [string]: any },
+		Items: { [string]: any },
 		Spawns: { [string]: any },
-		Weapons: { [string]: WeaponDef },
+		Weapons: WeaponsMetadata,
 	},
 	Remotes: { [string]: RemoteEvent | RemoteFunction },
 	Services: { [string]: any },

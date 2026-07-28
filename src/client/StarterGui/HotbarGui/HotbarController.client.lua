@@ -143,7 +143,7 @@ local function createSlot(index: number): Slot
 	ring.Transparency = 1
 
 	-- The tool's own TextureId, when it has one. Roblox's hotbar falls back to the tool
-	-- name and so does this: the Bat in StarterPack ships with an empty TextureId, so the
+	-- name and so does this: the Wooden Sword in StarterPack ships with an empty TextureId, so the
 	-- fallback is the path this game actually takes today, not a rare edge case.
 	local icon = Instance.new("ImageLabel")
 	icon.Name = "Icon"
@@ -299,7 +299,7 @@ end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	-- `gameProcessed` covers chat and any other text field, so typing "1" in chat cannot
-	-- swing a bat.
+	-- swing an arena weapon.
 	if gameProcessed or input.UserInputType ~= Enum.UserInputType.Keyboard then
 		return
 	end
@@ -406,8 +406,9 @@ local function refresh()
 
 	-- The tray is always up, even carrying nothing: the six slots are the loadout, and a
 	-- player who has just dropped their last tool should still see where it goes back.
-	-- Panels are the one thing that takes it off screen.
-	tray.Visible = not ModalUtil.AnyOpen()
+	-- Its ScreenGui sits below the modal backdrop, so open panels dim it and block its
+	-- input without removing that persistent point of reference from the screen.
+	tray.Visible = true
 end
 
 -- Every signal that can change what the player is carrying, coalesced onto one refresh.
@@ -466,11 +467,5 @@ relayout()
 if camera then
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(relayout)
 end
-
--- Out of the way while a panel is up, in place of the CoreGui backpack toggle that used to
--- live in ModalUtil.
-ModalUtil.OnChanged(function()
-	queueRefresh()
-end)
 
 queueRefresh()

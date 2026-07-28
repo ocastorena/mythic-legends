@@ -1,135 +1,116 @@
 -- StarterPlayer/StarterPlayerScripts/PlayerCombatController
 
 -- services
-local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 -- modules
-local KnockbackUtil     = require(script.KnockbackUtil)
-local CharacterUtil     = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("Character"):WaitForChild("CharacterUtil"))
+local CharacterUtil = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("Character"):WaitForChild("CharacterUtil"))
 
 -- remotes
-local combatEvent       = ReplicatedStorage.Remotes.CombatEvent
+local combatEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CombatEvent")
+local weaponsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
 
--- Per-character handles, refreshed on every spawn. These were previously captured once
--- from `player.CharacterAdded:Wait()`, which both skipped the character that already
--- existed (blocking until the first respawn) and went stale on every death after that.
-local char: Model? = nil
-local hrp: BasePart? = nil
+local localPlayer = Players.LocalPlayer
+local bindings: { [Tool]: { RBXScriptConnection } } = {}
+local lastSwingRequestAt = 0
 
--- state, reset per life
-local equippedWeapon    = nil
-local animationId       = nil
-local animationRunning  = false
+-- The custom hotbar owns equipping, so combat cannot depend exclusively on Roblox's
+-- default Tool activation path. Keep the Tool signal as a compatibility path for touch
+-- and tool-specific interactions, but also listen for an unconsumed primary input.
+-- This local debounce only merges those two reports from one click; the server remains
+-- authoritative for the real swing cooldown.
+local REQUEST_DEDUP_SECONDS = 0.08
 
--- hitbox visualization
-local function visualizeHitbox(cFrame: CFrame, hitboxSize: Vector3)
-	local part = Instance.new("Part")
-	part.Size = hitboxSize
-	part.CFrame = cFrame
-	part.CanCollide = false
-	part.Parent = workspace
-	part.Anchored = true
-end
+local function getEquippedMeleeTool(): Tool?
+	local character = localPlayer.Character
+	if not character then
+		return nil
+	end
 
--- during animation, check for hits using tool hitbox
-local function handleHitRequest(weapon: Tool)
-	local handle = weapon:FindFirstChild("Handle")
-	local seen = {}
-	
-	-- avoid self hits
-	local params = OverlapParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { char }
-
-	while animationRunning do
-		local cFrame = handle.Hitbox.CFrame
-		local hitboxSize = handle.Hitbox.Size
-		--visualizeHitbox(cFrame, hitboxSize)
-		
-		local parts = workspace:GetPartBoundsInBox(cFrame, hitboxSize, params)
-		for _, part in ipairs(parts) do
-			local model = part:FindFirstAncestorOfClass("Model")
-			if model and model ~= char then
-				local targetPlayer = Players:GetPlayerFromCharacter(model)
-				if targetPlayer and not seen[targetPlayer.UserId] then
-					seen[targetPlayer.UserId] = true
-					combatEvent:FireServer("HitRequest", {
-						targetId = targetPlayer.UserId,
-						weaponName = weapon.Name
-					})
-				end
-			end
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Tool") and weaponsData.IsMeleeTool(child) then
+			return child
 		end
-		RunService.RenderStepped:Wait()
 	end
+
+	return nil
 end
 
-local function handleHitResponse(impulse: Vector3, hitType: string, hitDuration: number)
-	if hitType == "Knockback" and char then
-		KnockbackUtil.Start(impulse, char, hitDuration)
-	end
-end
-
-local function onToolAdded(tool: Instance)
-	if not tool:IsA("Tool") then
+local function requestSwing(tool: Tool?)
+	if not tool or tool.Parent ~= localPlayer.Character or not weaponsData.IsMeleeTool(tool) then
 		return
 	end
 
-	-- No "already processed" guard here: registering is idempotent, and the same Tool
-	-- instance is re-parented in from the Backpack on every respawn, so skipping it the
-	-- second time would leave the player holding a weapon that never swings.
-	local handle = tool:FindFirstChild("Handle")
-	if not handle then
-		error(string.format("[PlayerCombatController] Tool %s does not have a Handle", tool.Name))
-	end
-	equippedWeapon = tool
-	animationId = handle:FindFirstChild("Animation").AnimationId
-end
-
--- Handle weapon hits with animation markers
-local function onAnimationPlayed(track: AnimationTrack)
-	local id = track.Animation and track.Animation.AnimationId or ""
-	if id ~= animationId then
+	local now = os.clock()
+	if now - lastSwingRequestAt < REQUEST_DEDUP_SECONDS then
 		return
 	end
-	track:GetMarkerReachedSignal("Begin"):Connect(function()
-		animationRunning = true
-		handleHitRequest(equippedWeapon)
-	end)
-	track:GetMarkerReachedSignal("End"):Connect(function()
-		animationRunning = false
-	end)
+	lastSwingRequestAt = now
+	combatEvent:FireServer("SwingRequest")
 end
 
----------- Connects ----------
-combatEvent.OnClientEvent:Connect(function(action, payload)
-	if action ~= "HitResponse" then return end
-	if not hrp then return end
-	local impulse = payload.deltaV * hrp.AssemblyMass
-	handleHitResponse(impulse, payload.hitType, payload.hitDuration)
+local function unbindTool(tool: Tool)
+	local connections = bindings[tool]
+	if not connections then
+		return
+	end
+
+	for _, connection in ipairs(connections) do
+		connection:Disconnect()
+	end
+	bindings[tool] = nil
+end
+
+-- Tool animations remain local presentation. A single input request is the only combat
+-- information sent to the server; the server chooses the hit target and applies impact.
+local function bindMeleeTool(tool: Tool)
+	if bindings[tool] or not weaponsData.IsMeleeTool(tool) then
+		return
+	end
+
+	local connections = {}
+	connections[1] = tool.Activated:Connect(function()
+		requestSwing(tool)
+	end)
+	connections[2] = tool.AncestryChanged:Connect(function(_, parent)
+		if parent == nil then
+			unbindTool(tool)
+		end
+	end)
+	bindings[tool] = connections
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then
+		return
+	end
+
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch
+		or input.KeyCode == Enum.KeyCode.ButtonR2 then
+		requestSwing(getEquippedMeleeTool())
+	end
 end)
 
--- Rebind everything character-scoped on each spawn. Connections made against the previous
--- character are severed when Roblox destroys it, so they do not need unwinding here.
+-- Rebind on every spawn. Only recognised melee tools get an input listener, so future
+-- shields, consumables, and utility tools cannot hijack this controller or error because
+-- they lack a Handle, Animation, or Hitbox.
 CharacterUtil.OnCharacter(function(character)
-	local hum = character:WaitForChild("Humanoid") :: Humanoid
-
-	char = character
-	hrp = character:WaitForChild("HumanoidRootPart") :: BasePart
-
-	-- a fresh body is unarmed and mid-nothing
-	equippedWeapon = nil
-	animationId = nil
-	animationRunning = false
-
-	character.ChildAdded:Connect(onToolAdded)
-	-- Tools can be re-parented in before this runs on a respawn.
-	for _, existing in ipairs(character:GetChildren()) do
-		onToolAdded(existing)
+	if localPlayer.Character ~= character then
+		return
 	end
 
-	local animator = hum:WaitForChild("Animator") :: Animator
-	animator.AnimationPlayed:Connect(onAnimationPlayed)
+	character.ChildAdded:Connect(function(child)
+		if child:IsA("Tool") then
+			bindMeleeTool(child)
+		end
+	end)
+
+	for _, existing in ipairs(character:GetChildren()) do
+		if existing:IsA("Tool") then
+			bindMeleeTool(existing)
+		end
+	end
 end)

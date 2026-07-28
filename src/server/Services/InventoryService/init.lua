@@ -11,6 +11,7 @@ local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 
 local Mythlings = require(script.Mythlings)
 local Resources = require(script.Resources)
+local Items = require(script.Items)
 local InventoryRemotes = require(script.InventoryRemotes)
 
 local log = LogUtil.For("InventoryService")
@@ -24,7 +25,8 @@ function InventoryService.Init(context)
 	DataService = context.Services.DataService
 	Mythlings.Init(context, sessionsByUserId)
 	Resources.Init(context, sessionsByUserId)
-	InventoryRemotes.Init(context, Mythlings, Resources)
+	Items.Init(context, sessionsByUserId)
+	InventoryRemotes.Init(context, Mythlings, Resources, Items)
 
 	log.info("Initialized")
 end
@@ -34,6 +36,7 @@ function InventoryService.Start()
 		sessionsByUserId[player.UserId] = {}
 		Mythlings.LoadPlayer(player)
 		Resources.LoadPlayer(player)
+		Items.LoadPlayer(player)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player: Player)
@@ -64,6 +67,10 @@ end
 -- Resource API for production and future crafting services.
 function InventoryService.ListResources(player: Player): any?
 	return Resources.List(player)
+end
+
+function InventoryService.ListItems(player: Player): any?
+	return Items.List(player)
 end
 
 function InventoryService.AddResource(player: Player, resourceId: string, amount: number)

@@ -96,6 +96,19 @@ function PanelUtil.rescaleText(container: Instance, root: number)
 		if em and (descendant:IsA("TextLabel") or descendant:IsA("TextButton")) then
 			local scale = descendant:GetAttribute("EmScale") or 1
 			descendant.TextSize = ThemeUtil.text(em, root) * scale
+
+			-- Labels whose height is derived from their font must be remeasured too.
+			-- Updating only TextSize made the inventory stats grow or shrink inside a
+			-- stale desktop-height box after crossing a device breakpoint.
+			local heightPadding = descendant:GetAttribute("TextHeightPadding")
+			if heightPadding then
+				descendant.Size = UDim2.new(
+					descendant.Size.X.Scale,
+					descendant.Size.X.Offset,
+					descendant.Size.Y.Scale,
+					math.ceil(descendant.TextSize) + heightPadding
+				)
+			end
 		end
 	end
 end
@@ -318,6 +331,9 @@ end
 export type PanelConfig = {
 	parent: Instance,
 	title: string,
+	-- Optional feature-specific responsive size. Placement, safe-area handling and text
+	-- scaling remain owned by the shared shell.
+	size: ((Vector2) -> UDim2)?,
 	-- Left-hand identity glyph. An image id, or nil for a title-only header.
 	titleIcon: string?,
 	-- Draws the glyph as a filled element disc rather than a flat icon (the shrine header).
@@ -366,11 +382,15 @@ function PanelUtil.panel(config: PanelConfig): Panel
 		ThemeUtil.useFullScreenCanvas(screenGui, ThemeUtil.isPhone(viewport))
 	end
 
+	local function resolveCardSize(size: Vector2): UDim2
+		return config.size and config.size(size) or ThemeUtil.panelSize(size)
+	end
+
 	local card = newFrame("Card", config.parent)
 	local anchor, position = ThemeUtil.panelPlacement(viewport)
 	card.AnchorPoint = anchor
 	card.Position = position
-	card.Size = ThemeUtil.panelSize(viewport)
+	card.Size = resolveCardSize(viewport)
 	card.ClipsDescendants = true
 	ThemeUtil.paint(card, Surface.panel)
 	ThemeUtil.corner(card, Radius.card)
@@ -500,7 +520,7 @@ function PanelUtil.panel(config: PanelConfig): Panel
 			if screenGui then
 				ThemeUtil.useFullScreenCanvas(screenGui, ThemeUtil.isPhone(size))
 			end
-			card.Size = ThemeUtil.panelSize(size)
+			card.Size = resolveCardSize(size)
 			card.AnchorPoint, card.Position = ThemeUtil.panelPlacement(size)
 			details.Size = UDim2.new(0, ThemeUtil.detailWidth(size), 1, 0)
 			PanelUtil.rescaleText(card, ThemeUtil.root(size))
@@ -956,6 +976,10 @@ function PanelUtil.details(config: DetailsConfig): Details
 		local statRow = newFrame("Stats", column)
 		statRow.Size = UDim2.new(1, 0, 0, 40)
 		statRow.LayoutOrder = 2
+		-- The stat block owns the flexible middle of the details column. Its slots center
+		-- their contents, placing the text halfway between hero art and footer/progress on
+		-- every viewport instead of pinning it directly beneath the art.
+		flexFill(statRow)
 		local statLayout = newList(statRow, Enum.FillDirection.Horizontal, 6)
 		statLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 
@@ -972,6 +996,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 			value.Size = UDim2.new(1, 0, 0, math.ceil(ThemeUtil.text(Em.statValue, root)))
 			value.FontFace = ThemeUtil.Font.heavy
 			setText(value, Em.statValue, root)
+			value:SetAttribute("TextHeightPadding", 0)
 			value.TextXAlignment = Enum.TextXAlignment.Center
 			value.TextTruncate = Enum.TextTruncate.AtEnd
 			value.Text = "—"
@@ -981,6 +1006,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 			label.Size = UDim2.new(1, 0, 0, math.ceil(ThemeUtil.text(Em.statLabel, root)) + 2)
 			label.FontFace = ThemeUtil.Font.bold
 			setText(label, Em.statLabel, root)
+			label:SetAttribute("TextHeightPadding", 2)
 			label.TextColor3 = ThemeUtil.Text.muted
 			label.TextTransparency = ThemeUtil.Text.mutedTransparency
 			label.TextXAlignment = Enum.TextXAlignment.Center
@@ -995,7 +1021,9 @@ function PanelUtil.details(config: DetailsConfig): Details
 	local spacer = newFrame("Spacer", column)
 	spacer.Size = UDim2.new(1, 0, 0, 0)
 	spacer.LayoutOrder = 3
-	flexFill(spacer)
+	if not config.stats or config.stats <= 0 then
+		flexFill(spacer)
+	end
 
 	local progressLabel: TextLabel? = nil
 	local progressDetail: TextLabel? = nil

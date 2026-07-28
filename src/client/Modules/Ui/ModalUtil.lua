@@ -1,5 +1,5 @@
 -- ReplicatedStorage/Client/Ui/ModalUtil
--- Single owner of the modal backdrop, the input guard and the hotbar toggle.
+-- Single owner of the modal backdrop and input guard.
 --
 -- InventoryController and StandController each used to hold their own reference to the
 -- shared ModalBackdropGui ScreenGui and each connected its own handler to

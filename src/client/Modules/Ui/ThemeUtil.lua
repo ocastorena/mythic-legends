@@ -477,7 +477,8 @@ end
 -- no panel reaches, so being on top costs nothing and keeps the persistent chrome lit and
 -- clickable whenever a menu is open.
 -- The hotbar sits below the scrim: it is world chrome like the Roblox backpack it replaces,
--- so an open panel is meant to dim it, and ModalUtil hides it outright anyway.
+-- so an open panel dims it and blocks its input while leaving it visible as persistent
+-- loadout context.
 ThemeUtil.Layer = {
 	hotbar = 0,
 	scrim = 1,

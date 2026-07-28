@@ -21,15 +21,16 @@ For more help, check out [the Rojo documentation](https://rojo.space/docs).
 ```
 src/
   server/
+    Bootstrap.server.lua -> ServerScriptService.Bootstrap
     Services/          -> ServerScriptService.Services
       BaseService/       init.lua + BaseUtil.lua + StandUtil.lua
       ClaimService.lua
       ...
-    Systems/           -> ServerScriptService.Systems
-      Bootstrap.server.lua
+    Infrastructure/    -> ServerScriptService.Infrastructure
   client/
+    Modules/              -> ReplicatedStorage.Client
     StarterPlayerScripts/  -> StarterPlayer.StarterPlayerScripts
-      CombatController/      init.client.lua + KnockbackUtil.lua + RagdollUtil.lua
+      PlayerCombatController/ init.client.lua (server-authoritative melee input)
       ClaimController.client.lua
       ...
     StarterGui/            -> StarterGui.<Name>Gui (ScreenGui)
@@ -37,7 +38,7 @@ src/
       ...
   shared/
     Metadata/          -> ReplicatedStorage.Metadata
-    Util/              -> ReplicatedStorage.Util
+    Types.lua          -> ReplicatedStorage.Shared.Types
 ```
 
 ## Naming Conventions
@@ -55,4 +56,4 @@ src/
 - **First line is the instance path**, e.g. `-- ServerScriptService/Services/BaseService/BaseUtil`.
 - **No redundant suffixes.** `.client.lua` already marks a LocalScript, so scripts don't repeat `Client`. GUI controllers are named for the feature, not the ScreenGui (`InventoryGui/InventoryController`, not `InventoryGui/InventoryGui`).
 
-`Systems/Bootstrap` loads every `ModuleScript` directly under `Services/` and calls `Init(context)` then `Start()` in alphabetical order, so a new service just needs to be dropped into that folder.
+`Bootstrap` loads every `ModuleScript` directly under `Services/`, then calls `Init(context)` and `Start()` in priority order. A new service just needs to be dropped into that folder.

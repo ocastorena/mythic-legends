@@ -11,6 +11,7 @@
 -- it is.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 -- Identifies this panel to ModalUtil, which owns the backdrop and input guard.
 local PANEL_NAME = "Inventory"
@@ -24,15 +25,20 @@ local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
 local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
+local WeaponsMeta = require(ReplicatedStorage.Metadata.Weapons)
+local ItemsMeta = require(ReplicatedStorage.Metadata.Items)
 
 -- Remotes
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local MythlingsEvent = Remotes.MythlingsEvent
 local MythlingsRequest = Remotes.MythlingsRequest
 local ResourcesRequest = Remotes.ResourcesRequest
+local InventoryRequest = Remotes.InventoryRequest
 
 -- Art already in the place file.
 local INVENTORY_ICON = "rbxassetid://135273755533681"
+local INVENTORY_TEXT_SCALE = 1.15
+local INVENTORY_CONTENT_SCALE = 1.15
 
 local inventoryGui = script.Parent
 inventoryGui.DisplayOrder = ThemeUtil.Layer.panel
@@ -41,6 +47,23 @@ inventoryGui.DisplayOrder = ThemeUtil.Layer.panel
 --- panel is title case, so they are capitalised for display rather than in the metadata.
 local function titleCase(value: string): string
 	return (value:gsub("^%l", string.upper))
+end
+
+local function inventoryContentScale(viewport: Vector2): number
+	return ThemeUtil.isPhone(viewport) and 1 or INVENTORY_CONTENT_SCALE
+end
+
+local function inventoryPanelSize(viewport: Vector2): UDim2
+	if ThemeUtil.isPhone(viewport) then
+		return ThemeUtil.panelSize(viewport)
+	end
+
+	-- UIScale enlarges the complete composition. Give the card its logical dimensions
+	-- here so its rendered footprint still lands at the intended responsive target.
+	local scale = inventoryContentScale(viewport)
+	local width = math.min(math.floor(viewport.X * 0.9), 1240)
+	local height = math.min(600, ThemeUtil.usableHeight(viewport) - 16)
+	return UDim2.fromOffset(math.floor(width / scale), math.floor(height / scale))
 end
 
 --------------------------------------------------------------------------------
@@ -60,7 +83,8 @@ local panel = PanelUtil.panel({
 	parent = inventoryGui,
 	title = "Inventory",
 	titleIcon = INVENTORY_ICON,
-	tabs = { "Mythlings", "Resources" },
+	tabs = { "Mythlings", "Weapons", "Items", "Resources" },
+	size = inventoryPanelSize,
 	-- No coin pill here. §08 puts one in every panel header, but the HUD's pill stays lit
 	-- and on top while a panel is open, so a second one would just repeat itself.
 	accent = ThemeUtil.Accent.gold,
@@ -69,7 +93,20 @@ local panel = PanelUtil.panel({
 	end,
 })
 
+local inventoryScale = Instance.new("UIScale")
+inventoryScale.Name = "ResponsiveContentScale"
+inventoryScale.Scale = inventoryContentScale(workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720))
+inventoryScale.Parent = panel.Card
+
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		inventoryScale.Scale = inventoryContentScale(workspace.CurrentCamera.ViewportSize)
+	end)
+end
+
 local mythlingsTab = panel.Tabs.Mythlings
+local weaponsTab = panel.Tabs.Weapons
+local itemsTab = panel.Tabs.Items
 local resourcesTab = panel.Tabs.Resources
 
 --------------------------------------------------------------------------------
@@ -90,6 +127,8 @@ local function newGridColumn(name: string): ScrollingFrame
 end
 
 local mythlingsFrame = newGridColumn("MythlingsFrame")
+local weaponsFrame = newGridColumn("WeaponsFrame")
+local itemsFrame = newGridColumn("ItemsFrame")
 local resourcesFrame = newGridColumn("ResourcesFrame")
 
 local mythlingCardTemplate = PanelUtil.cellTemplate({
@@ -99,6 +138,17 @@ local mythlingCardTemplate = PanelUtil.cellTemplate({
 })
 local resourcesCardTemplate = PanelUtil.cellTemplate({
 	parent = resourcesFrame,
+	quantity = true,
+	root = panel.Root,
+})
+local weaponsCardTemplate = PanelUtil.cellTemplate({
+	parent = weaponsFrame,
+	quantity = true,
+	check = true,
+	root = panel.Root,
+})
+local itemsCardTemplate = PanelUtil.cellTemplate({
+	parent = itemsFrame,
 	quantity = true,
 	root = panel.Root,
 })
@@ -133,6 +183,20 @@ local resourceInfo = PanelUtil.details({
 	root = panel.Root,
 	accent = ThemeUtil.Accent.gold,
 	stats = 2,
+	info = true,
+})
+local weaponInfo = PanelUtil.details({
+	parent = newDetailsColumn("WeaponInfo"),
+	root = panel.Root,
+	accent = ThemeUtil.Accent.gold,
+	stats = 3,
+	info = true,
+})
+local itemInfo = PanelUtil.details({
+	parent = newDetailsColumn("ItemInfo"),
+	root = panel.Root,
+	accent = ThemeUtil.Accent.gold,
+	stats = 3,
 	info = true,
 })
 
@@ -179,6 +243,7 @@ local selectedInfo = nil
 local pendingDeleteId = nil
 local mythlingButtonsConnected = false
 local resourceButtonsConnected = false
+local localPlayer = Players.LocalPlayer
 
 --- §05's ring rules do the highlighting now: the rarity colour is always on the cell, and
 --- selection is the difference between a 3px ring and a dimmed 2px one. The old yellow
@@ -284,6 +349,88 @@ local resourceList = CardListUtil.new({
 	end,
 })
 
+local function weaponThumbnail(profile, entry): string
+	if profile.thumbnail and profile.thumbnail ~= "" then
+		return profile.thumbnail
+	end
+	return entry.textureId or ""
+end
+
+local weaponList = CardListUtil.new({
+	template = weaponsCardTemplate,
+	parent = weaponsFrame,
+	setHighlight = setRingHighlight,
+	decorate = function(card, id, entry)
+		local profile = WeaponsMeta.Profiles[id]
+		card:WaitForChild("2dPreview").Image = weaponThumbnail(profile, entry)
+		card.QuantityLabel.Text = entry.quantity > 1 and `x{entry.quantity}` or ""
+		card:SetAttribute("Rarity", profile.rarity or "Common")
+		PanelUtil.setCellRing(card, profile.rarity or "Common", false)
+		card.EquippedCheck.Visible = entry.equipped
+	end,
+	onSelect = function(id, entry)
+		local profile = WeaponsMeta.Profiles[id]
+		local rarity = profile.rarity or "Common"
+		weaponInfo.NameLabel.Text = profile.displayName or titleCase(id)
+		weaponInfo.Art.Image = weaponThumbnail(profile, entry)
+		weaponInfo.ElementIcon.BackgroundColor3 = ThemeUtil.rarityColor(rarity)
+		weaponInfo.ElementIcon.Image = weaponThumbnail(profile, entry)
+		PanelUtil.setHeroRarity(weaponInfo, rarity)
+		weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.swing.cooldownSeconds)
+		weaponInfo.Stats[1].Label.Text = "Swing Cooldown"
+		weaponInfo.Stats[2].Value.Text = string.format("%.2f", profile.target.reachStuds)
+		weaponInfo.Stats[2].Label.Text = "Reach (studs)"
+		weaponInfo.Stats[3].Value.Text = tostring(profile.impact.planarDeltaV)
+		weaponInfo.Stats[3].Label.Text = "Knockback"
+	end,
+})
+
+local function getItemMetadata(itemId: string)
+	local direct = ItemsMeta[itemId]
+	if direct then
+		return direct
+	end
+	for metadataId, metadata in pairs(ItemsMeta) do
+		if string.lower(metadataId) == string.lower(itemId) then
+			return metadata
+		end
+	end
+	return nil
+end
+
+local itemList = CardListUtil.new({
+	template = itemsCardTemplate,
+	parent = itemsFrame,
+	setHighlight = setRingHighlight,
+	filter = function(id, entry)
+		return getItemMetadata(entry.itemId or id) ~= nil
+	end,
+	decorate = function(card, id, entry)
+		local metadata = getItemMetadata(entry.itemId or id)
+		local rarity = metadata.rarity or metadata.Rarity or "Common"
+		card:WaitForChild("2dPreview").Image = metadata.thumbnail or ""
+		card.QuantityLabel.Text = `x{entry.quantity or entry.total or 1}`
+		card:SetAttribute("Rarity", rarity)
+		PanelUtil.setCellRing(card, rarity, false)
+	end,
+	onSelect = function(id, entry)
+		local metadata = getItemMetadata(entry.itemId or id)
+		local rarity = metadata.rarity or metadata.Rarity or "Common"
+		local itemType = metadata.Type or "Item"
+		itemInfo.NameLabel.Text = metadata.displayName or titleCase(entry.itemId or id)
+		itemInfo.Art.Image = metadata.thumbnail or ""
+		itemInfo.ElementIcon.BackgroundColor3 = ThemeUtil.rarityColor(rarity)
+		itemInfo.ElementIcon.Image = metadata.thumbnail or ""
+		PanelUtil.setHeroRarity(itemInfo, rarity)
+		itemInfo.Stats[1].Value.Text = tostring(entry.quantity or entry.total or 1)
+		itemInfo.Stats[1].Label.Text = "Owned"
+		itemInfo.Stats[2].Value.Text = itemType
+		itemInfo.Stats[2].Label.Text = "Type"
+		itemInfo.Stats[3].Value.Text = metadata.Value and `+{metadata.Value}` or "—"
+		itemInfo.Stats[3].Label.Text = metadata.Effect or "Effect"
+	end,
+})
+
 --- The [ i ] button on each hero frame opens the lore modal, which is the only place
 --- flavour text appears.
 local function openLore(title: string, subtitle: string, body: string, tint: Color3, icon: string)
@@ -332,6 +479,44 @@ if resourceInfo.InfoButton then
 			metadata.description,
 			Color3.fromHex(metadata.guiColor),
 			metadata.thumbnail
+		)
+	end)
+end
+
+if weaponInfo.InfoButton then
+	ButtonUtil.hookClick(weaponInfo.InfoButton, function()
+		local id = weaponList:GetSelectedId()
+		local entry = id and weaponList:GetData(id)
+		local profile = id and WeaponsMeta.Profiles[id]
+		if not profile or not entry then
+			return
+		end
+		local rarity = profile.rarity or "Common"
+		openLore(
+			profile.displayName or titleCase(id),
+			`{ThemeUtil.tier(rarity)} · {profile.weaponFamily}`,
+			profile.description or "A weapon used in arena combat.",
+			ThemeUtil.rarityColor(rarity),
+			weaponThumbnail(profile, entry)
+		)
+	end)
+end
+
+if itemInfo.InfoButton then
+	ButtonUtil.hookClick(itemInfo.InfoButton, function()
+		local id = itemList:GetSelectedId()
+		local entry = id and itemList:GetData(id)
+		local metadata = entry and getItemMetadata(entry.itemId or id)
+		if not metadata then
+			return
+		end
+		local rarity = metadata.rarity or metadata.Rarity or "Common"
+		openLore(
+			metadata.displayName or titleCase(entry.itemId or id),
+			`{ThemeUtil.tier(rarity)} · {metadata.Type or "Item"}`,
+			metadata.description or "An item found in the Mythic realm.",
+			ThemeUtil.rarityColor(rarity),
+			metadata.thumbnail or ""
 		)
 	end)
 end
@@ -423,6 +608,24 @@ local function selectTab(tab)
 		selectedFrame = resourcesFrame
 		selectedInfo = resourceInfo.Root
 	end
+
+	if tab == weaponsTab then
+		PanelUtil.setTabActive(tab, true, panel.Accent)
+		weaponsFrame.Parent.Visible = true
+		weaponInfo.Root.Visible = true
+		selectedTab = tab
+		selectedFrame = weaponsFrame
+		selectedInfo = weaponInfo.Root
+	end
+
+	if tab == itemsTab then
+		PanelUtil.setTabActive(tab, true, panel.Accent)
+		itemsFrame.Parent.Visible = true
+		itemInfo.Root.Visible = true
+		selectedTab = tab
+		selectedFrame = itemsFrame
+		selectedInfo = itemInfo.Root
+	end
 end
 
 MythlingsEvent.OnClientEvent:Connect(function(event, list)
@@ -439,12 +642,105 @@ ButtonUtil.hookClick(resourcesTab, function()
 	selectTab(resourcesTab)
 end)
 
+ButtonUtil.hookClick(weaponsTab, function()
+	selectTab(weaponsTab)
+end)
+
+ButtonUtil.hookClick(itemsTab, function()
+	selectTab(itemsTab)
+end)
+
+local function collectWeapons()
+	local weapons = {}
+	local function collect(container: Instance?, equipped: boolean)
+		if not container then
+			return
+		end
+		for _, child in ipairs(container:GetChildren()) do
+			if child:IsA("Tool") then
+				local id, profile = WeaponsMeta.GetProfile(child)
+				if id and profile then
+					local entry = weapons[id]
+					if not entry then
+						entry = {
+							quantity = 0,
+							equipped = false,
+							textureId = child.TextureId,
+						}
+						weapons[id] = entry
+					end
+					entry.quantity += 1
+					entry.equipped = entry.equipped or equipped
+					if entry.textureId == "" then
+						entry.textureId = child.TextureId
+					end
+				end
+			end
+		end
+	end
+	collect(localPlayer:FindFirstChildOfClass("Backpack"), false)
+	collect(localPlayer.Character, true)
+	return weapons
+end
+
+local weaponRefreshQueued = false
+local function queueWeaponRefresh()
+	if weaponRefreshQueued then
+		return
+	end
+	weaponRefreshQueued = true
+	task.defer(function()
+		weaponRefreshQueued = false
+		if inventoryGui.Enabled then
+			weaponList:Replace(collectWeapons())
+		end
+	end)
+end
+
+local function watchTools(container: Instance)
+	container.ChildAdded:Connect(queueWeaponRefresh)
+	container.ChildRemoved:Connect(queueWeaponRefresh)
+end
+
+local backpack = localPlayer:FindFirstChildOfClass("Backpack")
+if backpack then
+	watchTools(backpack)
+end
+localPlayer.ChildAdded:Connect(function(child)
+	if child:IsA("Backpack") then
+		watchTools(child)
+		queueWeaponRefresh()
+	end
+end)
+localPlayer.CharacterAdded:Connect(function(character)
+	watchTools(character)
+	queueWeaponRefresh()
+end)
+if localPlayer.Character then
+	watchTools(localPlayer.Character)
+end
+
+-- Inventory carries denser labels than the other panels, especially across four tabs and
+-- three-column stat rows. Increase only this menu's em-stamped typography; cloned card
+-- templates inherit the scale attribute, and PanelUtil keeps it when device roots change.
+for _, descendant in ipairs(inventoryGui:GetDescendants()) do
+	if descendant:GetAttribute("Em") then
+		descendant:SetAttribute(
+			"EmScale",
+			(descendant:GetAttribute("EmScale") or 1) * INVENTORY_TEXT_SCALE
+		)
+	end
+end
+PanelUtil.rescaleText(inventoryGui, panel.Root)
+
 -- This ScreenGui's own Enabled property is the open/close contract. HUDController owns the
 -- button in HUDGui that toggles it, so this controller no longer reaches across into
 -- another GUI, and anything else that wants the inventory open just sets this flag.
 inventoryGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if inventoryGui.Enabled then
 		mythlingList:Replace(MythlingsRequest:InvokeServer("GetMythlings"))
+		weaponList:Replace(collectWeapons())
+		itemList:Replace(InventoryRequest:InvokeServer("GetItems"))
 		resourceList:Replace(ResourcesRequest:InvokeServer("GetResources"))
 		selectTab(mythlingsTab)
 		ModalUtil.Open(PANEL_NAME)

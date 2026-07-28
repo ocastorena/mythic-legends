@@ -14,11 +14,13 @@ RemoteUtil.DEFINITIONS = {
 	BaseEvent = "RemoteEvent",
 	ClaimEvent = "RemoteEvent",
 	CombatEvent = "RemoteEvent",
+	CombatVfxEvent = "RemoteEvent",
 	CurrencyEvent = "RemoteEvent",
 	MythlingsEvent = "RemoteEvent",
 	SpawnEvent = "RemoteEvent",
 
 	GetStands = "RemoteFunction",
+	InventoryRequest = "RemoteFunction",
 	MythlingsRequest = "RemoteFunction",
 	ResourcesRequest = "RemoteFunction",
 }

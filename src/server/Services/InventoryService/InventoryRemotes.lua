@@ -5,14 +5,18 @@ local InventoryRemotes = {}
 
 local Mythlings: any
 local Resources: any
+local Items: any
 local MythlingsEvent: RemoteEvent
 local ResourcesRequest: RemoteFunction
+local InventoryRequest: RemoteFunction
 
-function InventoryRemotes.Init(context, mythlings, resources)
+function InventoryRemotes.Init(context, mythlings, resources, items)
 	Mythlings = mythlings
 	Resources = resources
+	Items = items
 	MythlingsEvent = context.Remotes.MythlingsEvent
 	ResourcesRequest = context.Remotes.ResourcesRequest
+	InventoryRequest = context.Remotes.InventoryRequest
 end
 
 function InventoryRemotes.Start()
@@ -31,6 +35,12 @@ function InventoryRemotes.Start()
 	ResourcesRequest.OnServerInvoke = function(player: Player, action: string)
 		if action == "GetResources" then
 			return Resources.List(player)
+		end
+	end
+
+	InventoryRequest.OnServerInvoke = function(player: Player, action: string)
+		if action == "GetItems" then
+			return Items.List(player)
 		end
 	end
 end
