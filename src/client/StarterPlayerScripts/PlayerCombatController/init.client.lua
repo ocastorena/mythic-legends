@@ -1,86 +1,45 @@
 -- StarterPlayer/StarterPlayerScripts/PlayerCombatController
+-- The attacking client owns sword presentation and blade contact. The server receives
+-- one target report per visible swing and remains authoritative for the resulting effect.
 
--- services
+local ContentProvider = game:GetService("ContentProvider")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
--- modules
 local CharacterUtil = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("Character"):WaitForChild("CharacterUtil"))
-local combatPredictionBus = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("CombatPredictionBus"))
-
--- remotes
-local combatEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CombatEvent")
+local combatPresentationBus = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("CombatPresentationBus"))
 local weaponsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
 
+local combatEvent: RemoteEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CombatEvent")
 local localPlayer = Players.LocalPlayer
-local bindings: { [Tool]: { RBXScriptConnection } } = {}
-local lastSwingRequestAt = 0
+
+type ToolBinding = {
+	connections: { RBXScriptConnection },
+	track: AnimationTrack?,
+}
+
+type SwingState = {
+	tool: Tool,
+	character: Model,
+	profile: any,
+	sequence: number,
+	track: AnimationTrack,
+	windowOpen: boolean,
+	hitReported: boolean,
+	finished: boolean,
+	hitStopToken: number,
+	connections: { RBXScriptConnection },
+}
+
+local bindings: { [Tool]: ToolBinding } = {}
+local activeSwing: SwingState? = nil
 local nextLocalSwingAt = 0
 local nextSwingSequence = 0
 
--- The custom hotbar owns equipping, so combat cannot depend exclusively on Roblox's
--- default Tool activation path. Keep the Tool signal as a compatibility path for touch
--- and tool-specific interactions, but also listen for an unconsumed primary input.
--- This local debounce only merges those two reports from one click; the server remains
--- authoritative for the real swing cooldown.
-local REQUEST_DEDUP_SECONDS = 0.08
-local EPSILON = 0.001
-
-local function getPlanarDirection(vector: Vector3, fallback: Vector3): Vector3
-	local planar = Vector3.new(vector.X, 0, vector.Z)
-	return if planar.Magnitude > EPSILON then planar.Unit else fallback
-end
-
-local function isWithinSwordArc(attackerCFrame: CFrame, targetPosition: Vector3, profile: any): boolean
-	local targetConfig = profile.target
-	local forward = getPlanarDirection(attackerCFrame.LookVector, Vector3.new(0, 0, -1))
-	local offset = targetPosition - attackerCFrame.Position
-	if math.abs(offset.Y) > targetConfig.maxVerticalDifference then
-		return false
-	end
-
-	local horizontal = Vector3.new(offset.X, 0, offset.Z)
-	if horizontal.Magnitude > targetConfig.reachStuds then
-		return false
-	end
-
-	local direction = getPlanarDirection(horizontal, forward)
-	return forward:Dot(direction) >= math.cos(math.rad(targetConfig.arcDegrees * 0.5))
-end
-
-local function hasLocalLineOfSight(attackerCharacter: Model, targetCharacter: Model, origin: Vector3, destination: Vector3): boolean
-	local direction = destination - origin
-	if direction.Magnitude <= EPSILON then
-		return true
-	end
-
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { attackerCharacter }
-	params.IgnoreWater = true
-	local obstruction = workspace:Raycast(origin, direction, params)
-	return obstruction == nil or obstruction.Instance:IsDescendantOf(targetCharacter)
-end
-
-local function getSwordHitboxParts(tool: Tool): { BasePart }
-	local namedBladeParts = {}
-	local fallbackParts = {}
-	for _, descendant in ipairs(tool:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			table.insert(fallbackParts, descendant)
-			local normalizedName = string.lower(descendant.Name)
-			if string.find(normalizedName, "blade", 1, true)
-				or string.find(normalizedName, "edge", 1, true)
-				or string.find(normalizedName, "hitbox", 1, true) then
-				table.insert(namedBladeParts, descendant)
-			end
-		end
-	end
-
-	return if #namedBladeParts > 0 then namedBladeParts else fallbackParts
-end
+local BLADE_SWEEP_SAMPLES = 6
+local MAX_OVERLAP_PARTS = 100
+local HITBOX_PADDING = Vector3.new(0.1, 0.1, 0.1)
 
 local function getPlayerFromDescendant(instance: Instance): Player?
 	local ancestor: Instance? = instance
@@ -96,234 +55,356 @@ local function getPlayerFromDescendant(instance: Instance): Player?
 	return nil
 end
 
-local function findBladeSweepCandidates(
-	tool: Tool,
-	attackerCharacter: Model,
+local function getSwordHitboxParts(tool: Tool): { BasePart }
+	local authoredBlade = tool:FindFirstChild("SwordBlade", true)
+	if authoredBlade and authoredBlade:IsA("BasePart") then
+		return { authoredBlade }
+	end
+
+	local bladeParts = {}
+	for _, descendant in ipairs(tool:GetDescendants()) do
+		if descendant:IsA("BasePart") and descendant:GetAttribute("CombatHitbox") == true then
+			table.insert(bladeParts, descendant)
+		elseif descendant:IsA("BasePart") then
+			local normalizedName = string.lower(descendant.Name)
+			if string.find(normalizedName, "blade", 1, true)
+				or string.find(normalizedName, "edge", 1, true) then
+				table.insert(bladeParts, descendant)
+			end
+		end
+	end
+	return bladeParts
+end
+
+local function hasLocalLineOfSight(attackerCharacter: Model, targetCharacter: Model): boolean
+	local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
+	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+	if not (attackerRoot and attackerRoot:IsA("BasePart") and targetRoot and targetRoot:IsA("BasePart")) then
+		return false
+	end
+
+	local origin = attackerRoot.Position + Vector3.yAxis * 1.5
+	local direction = targetRoot.Position + Vector3.yAxis * 1.5 - origin
+	if direction.Magnitude <= 0.001 then
+		return true
+	end
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { attackerCharacter }
+	params.IgnoreWater = true
+	local obstruction = workspace:Raycast(origin, direction, params)
+	return obstruction == nil or obstruction.Instance:IsDescendantOf(targetCharacter)
+end
+
+local function findBladeContact(
+	state: SwingState,
 	bladeParts: { BasePart },
 	previousPartCFrames: { [BasePart]: CFrame }
-): { [Player]: boolean }
-	local candidates: { [Player]: boolean } = {}
+): Player?
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-	overlapParams.FilterDescendantsInstances = { attackerCharacter, tool }
-	overlapParams.MaxParts = 30
+	overlapParams.FilterDescendantsInstances = { state.character, state.tool }
+	overlapParams.MaxParts = MAX_OVERLAP_PARTS
 
+	local candidateScores: { [Player]: number } = {}
 	for _, bladePart in ipairs(bladeParts) do
 		if not bladePart.Parent then
 			continue
 		end
+
 		local currentCFrame = bladePart.CFrame
 		local previousCFrame = previousPartCFrames[bladePart] or currentCFrame
-		-- Interpolated overlap boxes cover translation and rotation between rendered
-		-- frames; this avoids tunnelling through a moving target at low frame rates.
-		for sampleIndex = 1, 3 do
-			local sampleCFrame = previousCFrame:Lerp(currentCFrame, sampleIndex / 3)
-			local querySize = bladePart.Size + Vector3.new(0.15, 0.15, 0.15)
-			for _, touchedPart in ipairs(workspace:GetPartBoundsInBox(sampleCFrame, querySize, overlapParams)) do
+		for sampleIndex = 1, BLADE_SWEEP_SAMPLES do
+			local sampleCFrame = previousCFrame:Lerp(currentCFrame, sampleIndex / BLADE_SWEEP_SAMPLES)
+			for _, touchedPart in ipairs(
+				workspace:GetPartBoundsInBox(sampleCFrame, bladePart.Size + HITBOX_PADDING, overlapParams)
+			) do
 				local target = getPlayerFromDescendant(touchedPart)
 				if target and target ~= localPlayer then
-					candidates[target] = true
+					local score = (touchedPart.Position - sampleCFrame.Position).Magnitude
+					candidateScores[target] = math.min(candidateScores[target] or math.huge, score)
 				end
 			end
 		end
 		previousPartCFrames[bladePart] = currentCFrame
 	end
 
-	return candidates
-end
-
-local function findPredictedTarget(
-	tool: Tool,
-	attackerCharacter: Model,
-	previousAttackerCFrame: CFrame,
-	currentAttackerCFrame: CFrame,
-	previousTargetPositions: { [Player]: Vector3 },
-	bladeParts: { BasePart },
-	previousPartCFrames: { [BasePart]: CFrame },
-	profile: any
-): Player?
-	local bestTarget = nil
-	local bestDistance = math.huge
-	local bladeSweepCandidates = findBladeSweepCandidates(tool, attackerCharacter, bladeParts, previousPartCFrames)
-
-	for _, target in ipairs(Players:GetPlayers()) do
-		if target ~= localPlayer and bladeSweepCandidates[target] then
-			local targetCharacter = target.Character
-			local humanoid = targetCharacter and targetCharacter:FindFirstChildOfClass("Humanoid")
-			local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
-			if humanoid and humanoid.Health > 0 and targetRoot and targetRoot:IsA("BasePart") then
-				local previousTargetPosition = previousTargetPositions[target] or targetRoot.Position
-				local travelDistance = math.max(
-					(currentAttackerCFrame.Position - previousAttackerCFrame.Position).Magnitude,
-					(targetRoot.Position - previousTargetPosition).Magnitude
-				)
-				local sampleCount = math.clamp(math.ceil(travelDistance / 0.75), 1, 5)
-				local intersectsSwing = false
-				for sampleIndex = 1, sampleCount do
-					local alpha = sampleIndex / sampleCount
-					local attackerCFrame = previousAttackerCFrame:Lerp(currentAttackerCFrame, alpha)
-					local targetPosition = previousTargetPosition:Lerp(targetRoot.Position, alpha)
-					if isWithinSwordArc(attackerCFrame, targetPosition, profile) then
-						intersectsSwing = true
-						break
-					end
-				end
-
-				local distance = (targetRoot.Position - currentAttackerCFrame.Position).Magnitude
-				if intersectsSwing
-					and distance < bestDistance
-					and (not profile.target.requireLineOfSight
-						or hasLocalLineOfSight(
-							attackerCharacter,
-							targetCharacter,
-							currentAttackerCFrame.Position + Vector3.yAxis * 1.5,
-							targetRoot.Position + Vector3.yAxis * 1.5
-						)) then
-					bestTarget = target
-					bestDistance = distance
-				end
-				previousTargetPositions[target] = targetRoot.Position
-			end
+	local bestTarget: Player? = nil
+	local bestScore = math.huge
+	for target, score in pairs(candidateScores) do
+		local targetCharacter = target.Character
+		local humanoid = targetCharacter and targetCharacter:FindFirstChildOfClass("Humanoid")
+		if humanoid
+			and humanoid.Health > 0
+			and targetCharacter
+			and score < bestScore
+			and (not state.profile.target.requireLineOfSight
+				or hasLocalLineOfSight(state.character, targetCharacter)) then
+			bestTarget = target
+			bestScore = score
 		end
 	end
-
 	return bestTarget
 end
 
-local function getEquippedMeleeTool(): Tool?
-	local character = localPlayer.Character
-	if not character then
-		return nil
-	end
-
-	for _, child in ipairs(character:GetChildren()) do
-		if child:IsA("Tool") and weaponsData.IsMeleeTool(child) then
-			return child
-		end
-	end
-
-	return nil
+local function getTrail(tool: Tool): Trail?
+	local trail = tool:FindFirstChild("Trail", true)
+	return if trail and trail:IsA("Trail") then trail else nil
 end
 
-local function requestSwing(tool: Tool?)
-	if not tool or tool.Parent ~= localPlayer.Character or not weaponsData.IsMeleeTool(tool) then
+local function getSlashSound(tool: Tool): Sound?
+	local sound = tool:FindFirstChild("SwordSlash", true)
+	return if sound and sound:IsA("Sound") then sound else nil
+end
+
+local function setTrailEnabled(tool: Tool, enabled: boolean)
+	local trail = getTrail(tool)
+	if trail then
+		trail.Enabled = enabled
+	end
+end
+
+local function playSlashSound(tool: Tool)
+	local sound = getSlashSound(tool)
+	if not sound then
 		return
 	end
 
-	local now = os.clock()
-	if now - lastSwingRequestAt < REQUEST_DEDUP_SECONDS then
+	sound:Stop()
+	sound.TimePosition = 0
+	sound:Play()
+end
+
+local function finishSwing(state: SwingState)
+	if state.finished then
 		return
 	end
-	lastSwingRequestAt = now
 
-	local _, profile = weaponsData.GetProfile(tool)
-	if not profile or now < nextLocalSwingAt then
+	state.finished = true
+	state.windowOpen = false
+	state.hitStopToken += 1
+	setTrailEnabled(state.tool, false)
+	for _, connection in ipairs(state.connections) do
+		connection:Disconnect()
+	end
+	table.clear(state.connections)
+	if activeSwing == state then
+		activeSwing = nil
+	end
+end
+
+local function applyHitStop(state: SwingState)
+	local configuredSeconds = state.profile.swing.hitStopSeconds
+	if type(configuredSeconds) ~= "number" or configuredSeconds <= 0 then
 		return
 	end
-	nextLocalSwingAt = now + profile.swing.cooldownSeconds
-	nextSwingSequence += 1
-	local sequence = nextSwingSequence
-	combatEvent:FireServer("SwingRequest", {
-		sequence = sequence,
-		clientTime = workspace:GetServerTimeNow(),
-	})
 
-	-- Cosmetic prediction follows the same configured arc during the visible active
-	-- window. The server receives only the candidate and still validates the rewind.
-	task.spawn(function()
-		local character = localPlayer.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if not (character and root and root:IsA("BasePart") and tool.Parent == character) then
-			return
-		end
-
-		local activeUntil = os.clock() + profile.swing.activeWindowSeconds
-		local previousAttackerCFrame = root.CFrame
-		local previousTargetPositions: { [Player]: Vector3 } = {}
-		local bladeParts = getSwordHitboxParts(tool)
-		local previousPartCFrames: { [BasePart]: CFrame } = {}
-		for _, bladePart in ipairs(bladeParts) do
-			previousPartCFrames[bladePart] = bladePart.CFrame
-		end
-		while os.clock() <= activeUntil and tool.Parent == character do
-			RunService.RenderStepped:Wait()
-			local target = findPredictedTarget(
-				tool,
-				character,
-				previousAttackerCFrame,
-				root.CFrame,
-				previousTargetPositions,
-				bladeParts,
-				previousPartCFrames,
-				profile
-			)
-			if target and target.Character then
-				local predictedAt = workspace:GetServerTimeNow()
-				combatPredictionBus:Fire(
-					"PredictedImpact",
-					target.Character,
-					profile.vfx,
-					sequence
-				)
-				combatEvent:FireServer("SwingPrediction", {
-					sequence = sequence,
-					clientTime = predictedAt,
-					targetUserId = target.UserId,
-				})
-				return
-			end
-
-			previousAttackerCFrame = root.CFrame
+	state.hitStopToken += 1
+	local token = state.hitStopToken
+	state.track:AdjustSpeed(0)
+	task.delay(math.clamp(configuredSeconds, 0, 0.08), function()
+		if not state.finished and state.hitStopToken == token and state.track.IsPlaying then
+			state.track:AdjustSpeed(state.profile.swing.animationSpeed)
 		end
 	end)
 end
 
-local function unbindTool(tool: Tool)
-	local connections = bindings[tool]
-	if not connections then
+local function openContactWindow(state: SwingState)
+	if state.finished or state.windowOpen or activeSwing ~= state then
 		return
 	end
 
-	for _, connection in ipairs(connections) do
+	local bladeParts = getSwordHitboxParts(state.tool)
+	if #bladeParts == 0 then
+		finishSwing(state)
+		return
+	end
+
+	state.windowOpen = true
+	playSlashSound(state.tool)
+	setTrailEnabled(state.tool, true)
+
+	local previousPartCFrames: { [BasePart]: CFrame } = {}
+	for _, bladePart in ipairs(bladeParts) do
+		previousPartCFrames[bladePart] = bladePart.CFrame
+	end
+
+	task.spawn(function()
+		local activeUntil = os.clock() + math.max(0.05, state.profile.swing.activeWindowSeconds)
+		while state.windowOpen
+			and not state.hitReported
+			and not state.finished
+			and activeSwing == state
+			and state.tool.Parent == state.character
+			and os.clock() <= activeUntil do
+			RunService.RenderStepped:Wait()
+			local target = findBladeContact(state, bladeParts, previousPartCFrames)
+			if target and target.Character then
+				state.hitReported = true
+				applyHitStop(state)
+				combatPresentationBus:Fire(
+					"LocalImpact",
+					target.Character,
+					state.profile.vfx,
+					state.sequence
+				)
+				combatEvent:FireServer("HitReport", {
+					sequence = state.sequence,
+					targetUserId = target.UserId,
+				})
+			end
+		end
+		state.windowOpen = false
+	end)
+end
+
+local function getOrCreateSwingTrack(tool: Tool, binding: ToolBinding, profile: any): AnimationTrack?
+	if binding.track then
+		return binding.track
+	end
+
+	local character = localPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+	local animationId = profile.swing.animationId
+	if not (animator and type(animationId) == "string" and animationId ~= "") then
+		return nil
+	end
+
+	local animation = Instance.new("Animation")
+	animation.AnimationId = animationId
+	local loaded, track = pcall(function()
+		return animator:LoadAnimation(animation)
+	end)
+	animation:Destroy()
+	if not loaded or not track then
+		return nil
+	end
+
+	track.Priority = Enum.AnimationPriority.Action
+	binding.track = track
+	return track
+end
+
+local function startSwing(tool: Tool)
+	local character = localPlayer.Character
+	local binding = bindings[tool]
+	local _, profile = weaponsData.GetProfile(tool)
+	if not (character and binding and profile and tool.Parent == character) then
+		return
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid
+		or humanoid.Health <= 0
+		or humanoid.PlatformStand
+		or humanoid:GetState() == Enum.HumanoidStateType.Physics then
+		return
+	end
+
+	local now = os.clock()
+	if now < nextLocalSwingAt then
+		return
+	end
+
+	local track = getOrCreateSwingTrack(tool, binding, profile)
+	if not track then
+		return
+	end
+
+	if activeSwing then
+		finishSwing(activeSwing)
+	end
+
+	nextLocalSwingAt = now + profile.swing.cooldownSeconds
+	nextSwingSequence += 1
+	local state: SwingState = {
+		tool = tool,
+		character = character,
+		profile = profile,
+		sequence = nextSwingSequence,
+		track = track,
+		windowOpen = false,
+		hitReported = false,
+		finished = false,
+		hitStopToken = 0,
+		connections = {},
+	}
+	activeSwing = state
+
+	table.insert(state.connections, track:GetMarkerReachedSignal("Begin"):Connect(function()
+		openContactWindow(state)
+	end))
+	table.insert(state.connections, track:GetMarkerReachedSignal("End"):Connect(function()
+		finishSwing(state)
+	end))
+	table.insert(state.connections, track.Stopped:Connect(function()
+		finishSwing(state)
+	end))
+
+	track:Play(0.05, 1, profile.swing.animationSpeed)
+
+	-- Authored markers are preferred. This fallback keeps combat usable if an animation
+	-- is replaced without markers, while still tying contact to a visible swing.
+	task.delay(math.min(0.1, profile.swing.activeWindowSeconds * 0.4), function()
+		openContactWindow(state)
+	end)
+	task.delay(profile.swing.activeWindowSeconds + 0.5, function()
+		finishSwing(state)
+	end)
+end
+
+local function unbindTool(tool: Tool)
+	local binding = bindings[tool]
+	if not binding then
+		return
+	end
+
+	if activeSwing and activeSwing.tool == tool then
+		finishSwing(activeSwing)
+	end
+	for _, connection in ipairs(binding.connections) do
 		connection:Disconnect()
+	end
+	if binding.track then
+		binding.track:Stop(0)
+		binding.track:Destroy()
 	end
 	bindings[tool] = nil
 end
 
--- Tool animations remain local presentation. The client may report one predicted target,
--- but the server independently validates its history and remains the only impact authority.
 local function bindMeleeTool(tool: Tool)
 	if bindings[tool] or not weaponsData.IsMeleeTool(tool) then
 		return
 	end
 
-	local connections = {}
-	connections[1] = tool.Activated:Connect(function()
-		requestSwing(tool)
-	end)
-	connections[2] = tool.AncestryChanged:Connect(function(_, parent)
+	local binding: ToolBinding = {
+		connections = {},
+		track = nil,
+	}
+	bindings[tool] = binding
+	setTrailEnabled(tool, false)
+
+	table.insert(binding.connections, tool.Activated:Connect(function()
+		startSwing(tool)
+	end))
+	table.insert(binding.connections, tool.AncestryChanged:Connect(function(_, parent)
 		if parent == nil then
 			unbindTool(tool)
 		end
-	end)
-	bindings[tool] = connections
+	end))
+
+	local sound = getSlashSound(tool)
+	if sound then
+		task.spawn(function()
+			pcall(function()
+				ContentProvider:PreloadAsync({ sound })
+			end)
+		end)
+	end
 end
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then
-		return
-	end
-
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch
-		or input.KeyCode == Enum.KeyCode.ButtonR2 then
-		requestSwing(getEquippedMeleeTool())
-	end
-end)
-
--- Rebind on every spawn. Only recognised melee tools get an input listener, so future
--- shields, consumables, and utility tools cannot hijack this controller or error because
--- they lack a Handle, Animation, or Hitbox.
 CharacterUtil.OnCharacter(function(character)
 	if localPlayer.Character ~= character then
 		return

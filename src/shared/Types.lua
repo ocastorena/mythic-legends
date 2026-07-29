@@ -43,31 +43,27 @@ export type MythlingDef = {
 
 export type WeaponSwing = {
 	cooldownSeconds: number,
-	impactDelaySeconds: number,
+	animationId: string,
+	animationSpeed: number,
 	activeWindowSeconds: number,
-	maxRewindSeconds: number,
+	hitStopSeconds: number,
 }
 
 export type WeaponTarget = {
 	maxTargets: number,
 	reachStuds: number,
-	arcDegrees: number,
-	maxVerticalDifference: number,
+	serverToleranceStuds: number,
 	requireLineOfSight: boolean,
 }
 
 export type WeaponImpact = {
 	reactionMode: string,
-	preservePlayerOwnership: boolean,
 	tumbleAngularSpeed: number,
 	launchControlSeconds: number,
-	knockbackAckTimeoutSeconds: number,
 	planarDeltaV: number,
 	verticalDeltaV: number,
 	ragdollMaxSeconds: number,
 	ragdollLandingRecoverySeconds: number,
-	hitImmunitySeconds: number,
-	serverOwnershipSeconds: number,
 }
 
 export type WeaponImpactSound = {

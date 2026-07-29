@@ -2,26 +2,31 @@
 
 ## 1. Product vision
 
-**Mythic Legends** is a mobile-first Roblox creature-collection, base-production, and competitive arena game. Players win Mythlings through a public king-of-the-hill capture arena, assign them to elemental shrines at their bases, collect produced resources, craft arena equipment and consumables, and upgrade their shrines.
+**Mythic Legends** is a mobile-first Roblox creature-collection and base-progression game where players compete in a shared arena to capture mythological companions called Mythlings, assign them to elemental shrines, and grow their base and roster through crafting and evolution.
 
-The intended visual style is bright, readable, low-poly fantasy: a circular public arena sits at the center of a sky-island world, surrounded by highly distinct elemental landmarks. The supplied concept art is visual direction, not a requirement to reproduce every depicted creature or structure.
+The game is designed first for landscape mobile play, with keyboard and gamepad support. Its intended audience is family-friendly Roblox Kids/Select players. The visual direction is bright, readable, low-poly fantasy: a circular public arena sits at the center of a sky-island world, surrounded by highly distinct elemental landmarks. The supplied concept art is visual direction, not a requirement to reproduce every depicted creature or structure.
 
 ## 2. Launch scope
 
 ### Included in the current MVP
 
 - Central-arena Mythling capture through king-of-the-hill contests.
+- Non-lethal positional player combat using weapons, shields, Stamina, knockback, and temporary knockback immunity.
 - Elemental player bases and upgradeable shrines.
 - Online and offline shrine production.
+- Resource collection, inventory capacity, duplicate Mythling selling, Gold, and Base/Shrine upgrades.
 - Mythling levels, evolutions, and one rolled Passive Trait per acquired Mythling.
 - Crafting Stations with queued, time-based recipes for arena weapons, shields, and approved consumables.
 - Shop purchases and shrine upgrades paid for with gold and required resources.
-- Developer-run live events.
-- Limited player-initiated Divine Intervention events for players with a verified Event Caller entitlement.
 
-### Explicitly excluded
+### Not part of the game
 
 - Eggs, summoning, gacha, and Elemental Prism capture items.
+
+### Post-launch concepts
+
+- Divine Intervention live events, including developer-run events, Event Caller access, and all-server events.
+- Rare-resource Lucky Yield outcomes.
 - A separate health/damage-based PvP brawl mode, matchmaking, rankings, and ranked rewards.
 - Mythling treats, health, and attack until a separate progression design is approved.
 
@@ -45,6 +50,7 @@ Arena capture is launch PvP, but it is **non-lethal positional PvP**: the goal i
 | Gold | The primary currency, earned principally from selling duplicate Mythlings and spent in shops and upgrades. |
 | Weapon | Arena equipment that applies positional knockback. |
 | Shield | Arena equipment that protects against or reduces positional knockback. |
+| Equipment | The inventory category for weapons, including shields. |
 | Crafting Station | A base building that runs a level-limited queue of time-based crafting jobs. |
 | Hotbar | The player's six equipment slots, including the default weapon and shield. |
 | Stamina | A player resource consumed by arena weapon actions and by shield impacts; it recovers gradually over time. |
@@ -57,6 +63,8 @@ Do not use *forge*, *altar*, or *pet* as alternative names for shrines or Mythli
 
 The only launch elements are **Fire, Water, Earth, Air, Light, and Dark**. Every Mythling and Shrine has exactly one element. A Mythling can be assigned only to a shrine with the same element.
 
+Mythling Fusion is a post-launch system. It may create dual-element Mythlings, but it does not change the one-element rule for the first release.
+
 ### Rarities
 
 Rarities are ordered from lowest to highest:
@@ -67,7 +75,9 @@ Rarities are ordered from lowest to highest:
 4. Mythical
 5. Divine
 
-Rarity affects content balance and presentation only as specified in content configuration. It must not imply a different element.
+Rarity affects capture and spawn odds, configured base Yield and Luck ranges, visual presentation, and the weighted Passive Trait pool. It does not imply a different element.
+
+The first release has no cosmetic Mythling variants. Every gameplay-relevant or visual transformation is represented by a distinct evolved Mythling form.
 
 ### Visual language
 
@@ -82,12 +92,24 @@ The central arena must remain visually readable on mobile. Launch tuning should 
 
 ## 5. Mobile controls and accessibility
 
-- **Left thumb:** Roblox movement thumbstick and a stationary Interact/Utility button.
-- **Right thumb:** follow-camera drag and a primary arena-action button for equipped weapon or shield actions.
+### Player start and flow
+
+Players spawn at their own Base. From there, they may immediately enter the Arena to capture Mythlings or manage their Base, Shrines, and Crafting Stations through nearby Proximity Prompts. The first-release player flow does not require a fixed tutorial sequence.
+
+### Controls
+
+- Launch movement uses only Roblox's standard walking and jumping. There is no sprint, dash, crouch, climbing ability, or other movement action.
+- The game uses Roblox's default third-person follow camera. There is no camera lock or aim mode at launch.
+- **Mobile:** the left thumb controls movement; the right side controls camera drag and the primary arena action for the selected hotbar equipment.
+- **Keyboard:** number keys `1` through `6` select the corresponding Hotbar slot.
+- **Gamepad:** D-pad left and right cycle Hotbar selection; the primary action button uses the selected equipment.
+- Players may leave every Hotbar slot empty or equip up to six weapons or items. Shields are weapons for Hotbar purposes.
+
 - Every new player receives a plain wooden sword and wooden shield. The player hotbar has six equipment slots.
 - The Hotbar is displayed along the bottom of the screen, consistent with familiar Roblox inventory placement.
-- Arena actions must be reachable while moving and must not require precise taps on a Mythling.
 - The HUD provides Inventory and Shop buttons. Players access Base, Shrine, and Crafting Station interactions through nearby Proximity Prompts.
+- Gold, the six-slot Hotbar, Inventory button, and Shop button are always visible. Stamina is visible only while the player is in the Arena.
+- Capture progress is displayed as a world-space meter above the contested Mythling. Arena actions must be reachable while moving and must not require precise taps on a Mythling.
 - All important capture state is communicated through legible ring, progress, and ownership indicators; color is never the only signal.
 - Live events must respect Reduce Motion and sound settings. Reduce Motion replaces screen shake and flashing with static, non-flashing notifications.
 
@@ -100,7 +122,7 @@ The central arena must remain visually readable on mobile. Launch tuning should 
 3. A player whose Mythling inventory has available space may build their own capture meter while inside the Capture Ring. A player with full Mythling inventory cannot begin or gain capture progress for that Mythling.
 4. A player's meter increases at `CaptureProgressPerSecond` while that player is inside the ring.
 5. A player's meter decays at `CaptureDecayPerSecond` while that player is outside the ring.
-6. Arena weapons consume Stamina and can knock competing players out of a Capture Ring. Shields greatly reduce knockback, but an incoming shield impact consumes Stamina.
+6. Arena weapons consume Stamina and can knock competing players out of a Capture Ring. An active Shield absorbs a hit by consuming Stamina, sliding its user back slightly, and granting temporary knockback immunity.
 7. The first player whose meter reaches 100% captures the Mythling. The server grants that Mythling to the winner, removes the contested spawn, and clears all other progress for that contest.
 8. An unclaimed Mythling despawns after its configured lifetime.
 
@@ -109,10 +131,62 @@ The central arena must remain visually readable on mobile. Launch tuning should 
 - Each Mythling is an independent contest; capture progress is never shared between players or between Mythlings.
 - The Arena spawn system must select a different valid position or delay a spawn rather than create an overlapping Capture Ring.
 - Mythling inventory capacity is checked by the server before capture progress begins and again before capture is awarded.
-- The server is authoritative for player position, Capture Ring membership, progress, weapon/shield effects, winner selection, and rewards.
-- Arena combat does not deal damage or cause player death. Knockback, ragdoll, and configured elemental effects create the positional disruption used in Capture Ring contests.
-- The client may display predicted feedback, but it may never award a Mythling or determine a winner.
-- Capture progress, ring radius, spawn frequency, active-spawn cap, despawn time, knockback strength, shield behavior, and equipment cooldowns are balance configuration—not hard-coded client values.
+- The server is authoritative for Capture Ring membership, capture progress, winner selection, inventory changes, and rewards. MVP sword contact uses the client-reported architecture defined below.
+- Arena combat does not deal damage or cause player death. Knockback, Shield behavior, and temporary knockback immunity create the positional disruption used in Capture Ring contests.
+- A combat client may report a sword target and present immediate feedback, but it may never change capture progress, award a Mythling, determine a winner, or grant any inventory or economy result.
+- Capture progress, ring radius, spawn frequency, active-spawn cap, despawn time, knockback strength, shield behavior, and equipment cooldowns are shared balance configuration—not independently hard-coded in client controllers.
+
+### MVP player combat system
+
+Launch combat is Arena-only and non-lethal. A player has one selected Hotbar item at a time: a selected weapon can attack, while a selected Shield can protect. Launch weapons and Shields are non-elemental material tiers, including wood, copper, steel, and future configured material tiers. Elemental weapons and effects are post-launch content.
+
+The launch sword uses a deliberately client-reported melee architecture. This is an accepted MVP tradeoff: responsive, visually accurate combat in live servers is more important than making sword contact fully exploit-resistant. The server validates the report before relaying the reaction and remains authoritative wherever combat affects capture state, ownership, rewards, inventory, or the economy.
+
+#### Attacking client
+
+1. The equipped Tool's activation is the only source of a sword swing. A separate global input listener must not create an additional attack.
+2. The client plays the visible swing animation and opens its contact window from animation markers, with a configured timing fallback when an animation lacks those markers. A player with insufficient Stamina cannot begin a weapon action.
+3. During that window, the client sweeps the visible sword blade through interpolated positions between rendered frames. Contact is based on the blade geometry, not a large character-centered cone.
+4. The client excludes its own character and selects at most one eligible target: the target with the closest valid blade contact. Optional line-of-sight filtering may reject contact through solid geometry.
+5. On first valid contact, the attacker immediately presents the configured hit effect, sound, trail, and brief animation hit-stop. It then sends exactly one `HitReport` containing a monotonically increasing swing sequence and the selected target's user ID.
+6. A swing that finds no blade contact sends no hit report. Walking near another player without activating the sword must never produce a hit.
+
+#### Server validation and relay
+
+The server does not independently scan an arc, rewind player positions, replace the reported target, or manufacture an alternative hit. It either accepts the reported attacker-target pair or rejects it.
+
+Before accepting a `HitReport`, the server verifies:
+
+- The attacker has the reported supported melee weapon selected.
+- The attacker and reported target are distinct playable characters.
+- Both characters satisfy the Arena-only rule for that weapon.
+- The swing sequence is newer than the attacker's last accepted sequence.
+- The configured weapon cooldown has elapsed.
+- The attacker has sufficient Stamina and the target is not temporarily knockback-immune.
+- The reported characters are within the weapon's configured reach plus a bounded server-tolerance distance.
+
+On acceptance, the server deducts Stamina, assigns an idempotent hit ID, resolves the configured launch values, records the target's temporary knockback immunity, relays the launch to the target client, and broadcasts the confirmed impact presentation. The server never applies health damage.
+
+#### Target client and presentation
+
+- The target client applies the relayed launch with a short eased force curve rather than a delayed velocity spike. Hit IDs prevent the same launch from being applied twice.
+- Temporary knockback immunity starts after an accepted hit and prevents further knockback until its configured duration ends.
+- The attacker's locally rendered impact suppresses its duplicate server broadcast. Other clients render the server-confirmed impact.
+- Visual and audio presentation is cosmetic. Failure to render an effect must not change hit validation, capture progress, or temporary knockback immunity.
+
+#### Shield actions
+
+- A Shield is a weapon for Hotbar purposes and must be the player's selected item to activate it.
+- One Shield-action press toggles the Shield active or inactive.
+- While a Shield is active, its player cannot move.
+- With sufficient Stamina, an active Shield absorbs an incoming weapon hit. It drains Stamina, slides the Shield user back slightly, and grants temporary knockback immunity.
+- A Shield with insufficient Stamina provides no protection; the incoming hit is handled as an unblocked hit.
+
+#### Security boundary
+
+Because the attacking client chooses the target, an exploit can fabricate plausible sword reports within the server's distance, cooldown, selected-equipment, Stamina, immunity, and Arena checks. This risk is accepted for the MVP and must be revisited if competitive stakes increase. Lightweight rate monitoring and server telemetry may be added without restoring an independent server hit scan.
+
+The client-reported exception ends at the positional combat reaction. Capture Ring membership, capture meters, contest resolution, Mythling awards, Stamina consumption, shield eligibility, persistent progression, and all rewards remain server-authoritative.
 
 ## 7. Bases, shrines, and production
 
@@ -150,7 +224,7 @@ This is a **rare resource variant**, not a new element. It must use the Shrine's
 
 ### Mythling progression and Passive Traits
 
-Each Mythling has a current form, a level, XP, an individually saved Luck value, and one Passive Trait rolled when it is acquired. The current form's immutable base statistics come from Mythling metadata; only the Mythling's lightweight mutable state is saved to the player document.
+Each Mythling has a current form, a level, XP, an individually saved Luck value, and exactly one Passive Trait rolled when it is acquired. The current form's immutable base statistics come from Mythling metadata; only the Mythling's lightweight mutable state is saved to the player document.
 
 - **Yield** starts from the current form's configured base Yield and increases through level-based configuration.
 - **XP** is earned while a Mythling is assigned to and working in a Shrine. XP is awarded from server-authoritative production batches.
@@ -167,7 +241,7 @@ Traits are production-focused only. Trait effects must be server-authoritative a
 | Insomniac | This Mythling contributes 20% more Yield while its owner is offline. |
 | Lucky | Adds 3 percentage points to this Mythling's base Luck before combined Shrine Luck is calculated. |
 
-Traits are selected from one universal, element-agnostic weighted pool. Traits must define their trigger, eligibility, and numerical effect. Do not let client-side code select, roll, or apply a trait.
+Traits are selected from universal, element-agnostic weighted pools. The selected pool and its weights are determined by Mythling rarity. Traits must define their trigger, eligibility, and numerical effect. Do not let client-side code select, roll, or apply a trait.
 
 ## 8. Crafting, shop, and economy
 
@@ -193,7 +267,7 @@ Players may cancel a Crafting Job at any time for a full refund of every resourc
 
 ### Inventory capacity and overflow
 
-Every inventory category has a configured capacity. A player cannot receive a Mythling, item, weapon, resource, currency, or other inventory entry when its destination inventory has no available space.
+The first-release inventory categories are Gold, Resources, Items, Mythlings, Equipment (weapons and shields), and Crafting Jobs. Every inventory category has a configured capacity. A player cannot receive an entry when its destination inventory has no available space.
 
 - A player at Mythling capacity cannot begin or gain Capture Ring progress. The server sends an `InventoryFull` warning that identifies Mythlings as the blocked inventory category.
 - A proximity pickup is not collected when the recipient's relevant inventory is full. It remains available according to that pickup's normal despawn and claim rules.
@@ -317,8 +391,10 @@ The server validates every client request that changes inventory, currency, equi
 16. A Mythling earns XP only from verified Shrine production, caps at level 100, and retains its Passive Trait and element after evolution.
 17. An Event Caller must own the Game Pass and satisfy the 30-minute cooldown; dedicated-music events cannot overlap another dedicated-music event.
 18. A player at Mythling capacity cannot gain Capture Ring progress, and any blocked pickup, collection, or crafting start produces an inventory-capacity warning without granting the item.
-19. Arena weapons and shield impacts consume Stamina; Arena combat uses knockback, ragdoll, and elemental effects but never player health or death.
+19. Arena weapons and shield impacts consume Stamina; Arena combat uses knockback, Shield behavior, and temporary knockback immunity, but never player health or death. Elemental weapon effects are post-launch.
 20. All Passive Traits affect production only, and cancelling a Crafting Job refunds all of its spent resources and Gold.
+21. A sword swing can report at most one target selected by visible blade contact; proximity without Tool activation cannot produce a hit, and the server cannot substitute an independently selected target.
+22. An accepted sword report produces immediate attacker feedback and one idempotent target-client launch while capture progress, contest resolution, and rewards remain server-authoritative.
 
 ## 12. Open decisions for later design passes
 

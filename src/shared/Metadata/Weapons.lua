@@ -20,24 +20,18 @@ local Weapons = {
 
 			swing = {
 				cooldownSeconds = 0.72,
-				-- Start validation as soon as the server receives the swing. Delaying here
-				-- adds network latency a second time and makes close moving targets feel missed.
-				impactDelaySeconds = 0,
-				-- Sample the short arc across several physics frames so moving players are
-				-- not judged by one snapshot. The hitbox itself remains deliberately tight.
+				animationId = "rbxassetid://126682224103556",
+				animationSpeed = 2,
 				activeWindowSeconds = 0.22,
-				-- The server may rewind only this bounded amount when validating a
-				-- timestamped client prediction against server-recorded transforms.
-				maxRewindSeconds = 0.3,
+				hitStopSeconds = 0.045,
 			},
 
 			target = {
 				maxTargets = 1,
-				-- A deliberately tight forward sector: close to the temporary placeholder's authored
-				-- 2 x 2 x 3 contact volume, with only a small server-side forgiveness margin.
+				-- The client uses the authored blade geometry. Reach is only a loose server
+				-- sanity check, with enough tolerance for normal live-server replication delay.
 				reachStuds = 5.25,
-				arcDegrees = 90,
-				maxVerticalDifference = 4,
+				serverToleranceStuds = 6,
 				requireLineOfSight = true,
 			},
 
@@ -45,15 +39,9 @@ local Weapons = {
 				-- Light swords use a rigid launch/air-tumble instead of splitting the
 				-- avatar into a floor-bouncing multi-body ragdoll.
 				reactionMode = "Knockdown",
-				preservePlayerOwnership = true,
 				tumbleAngularSpeed = 5.5,
-				-- Hold one deterministic velocity briefly on the target's owning client.
+				-- The target's owning client eases toward this launch velocity.
 				launchControlSeconds = 0.1,
-				-- Reliable acknowledgement prevents a high-latency hit from receiving
-				-- both a client launch and a server fallback launch.
-				knockbackAckTimeoutSeconds = 0.4,
-				-- Velocity changes, not raw physical force. The server mass-scales this
-				-- before applying it so every character receives the intended launch.
 				-- This is a compact starter-sword pop: enough vertical lift to clearly
 				-- leave the ground, without turning one hit into an arena clear.
 				planarDeltaV = 56,
@@ -62,8 +50,6 @@ local Weapons = {
 				-- maximum is only a failsafe for a player who misses the arena entirely.
 				ragdollMaxSeconds = 3.5,
 				ragdollLandingRecoverySeconds = 0.2,
-				hitImmunitySeconds = 1.1,
-				serverOwnershipSeconds = 0.8,
 			},
 
 			vfx = {
