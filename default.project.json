@@ -3,6 +3,11 @@
   "tree": {
     "$className": "DataModel",
 
+    "ReplicatedFirst": {
+      "$className": "ReplicatedFirst",
+      "$path": "src/client/ReplicatedFirst"
+    },
+
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "Metadata": {
