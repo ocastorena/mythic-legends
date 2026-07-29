@@ -30,10 +30,15 @@ type PooledImpactSound = {
 	token: number,
 }
 
+type LocalHitPresentation = {
+	character: Model,
+	kind: "Impact" | "ShieldImpact",
+}
+
 local activeAirTrails: { [Model]: AirTrailState } = {}
 local nextTrailToken = 0
 local impactSoundPools: { [string]: { PooledImpactSound } } = {}
-local locallyRenderedHits: { [number]: Model } = {}
+local locallyRenderedHits: { [number]: LocalHitPresentation } = {}
 
 local HIT_TEXTURE = "rbxasset://textures/particles/sparkles_main.dds"
 local IMPACT_RING_TEXTURE = "rbxassetid://1266170131"
@@ -427,20 +432,33 @@ end
 combatPresentationBus.Event:Connect(function(
 	action: string,
 	character: Model,
-	config: any,
+	presentation: any,
 	sequence: number
 )
-	if action ~= "LocalImpact"
-		or type(sequence) ~= "number"
+	if type(sequence) ~= "number"
 		or not (character and character:IsA("Model")) then
 		return
 	end
 
-	locallyRenderedHits[sequence] = character
-	playImpactSound(character, config)
-	playHitBurst(character, config)
+	local kind: "Impact" | "ShieldImpact"
+	if action == "LocalImpact" then
+		kind = "Impact"
+		playImpactSound(character, presentation)
+		playHitBurst(character, presentation)
+	elseif action == "LocalShieldImpact" and presentation and presentation:IsA("Tool") then
+		kind = "ShieldImpact"
+		playShieldBurst(character, presentation)
+	else
+		return
+	end
+
+	local localPresentation: LocalHitPresentation = {
+		character = character,
+		kind = kind,
+	}
+	locallyRenderedHits[sequence] = localPresentation
 	task.delay(LOCAL_HIT_MEMORY_SECONDS, function()
-		if locallyRenderedHits[sequence] == character then
+		if locallyRenderedHits[sequence] == localPresentation then
 			locallyRenderedHits[sequence] = nil
 		end
 	end)
@@ -513,7 +531,18 @@ combatVfxEvent.OnClientEvent:Connect(function(action: string, payload: any)
 	end
 	if action == "ShieldImpact" then
 		local shield = payload.shield
-		playShieldBurst(character, if shield and shield:IsA("Tool") then shield else nil)
+		local sequence = payload.sequence
+		local localPresentation = type(sequence) == "number" and locallyRenderedHits[sequence] or nil
+		local wasLocallyRendered = payload.attackerUserId == localPlayer.UserId
+			and localPresentation ~= nil
+			and localPresentation.character == character
+			and localPresentation.kind == "ShieldImpact"
+		if localPresentation and localPresentation.character == character then
+			locallyRenderedHits[sequence] = nil
+		end
+		if not wasLocallyRendered then
+			playShieldBurst(character, if shield and shield:IsA("Tool") then shield else nil)
+		end
 		return
 	end
 
@@ -522,10 +551,12 @@ combatVfxEvent.OnClientEvent:Connect(function(action: string, payload: any)
 	end
 
 	local sequence = payload.sequence
+	local localPresentation = type(sequence) == "number" and locallyRenderedHits[sequence] or nil
 	local wasLocallyRendered = payload.attackerUserId == localPlayer.UserId
-		and type(sequence) == "number"
-		and locallyRenderedHits[sequence] == character
-	if wasLocallyRendered then
+		and localPresentation ~= nil
+		and localPresentation.character == character
+		and localPresentation.kind == "Impact"
+	if localPresentation and localPresentation.character == character then
 		locallyRenderedHits[sequence] = nil
 	end
 

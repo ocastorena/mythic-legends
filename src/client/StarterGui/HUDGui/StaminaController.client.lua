@@ -10,56 +10,31 @@ local ThemeUtil = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild(
 local player = Players.LocalPlayer
 local screenGui = script.Parent
 
+-- Keep the stamina indicator aligned with the fixed six-slot hotbar. The meter is a
+-- quiet progress strip rather than another piece of HUD chrome, so it has no label,
+-- padding, or outline competing with the item slots.
+local HOTBAR_WIDTH = 6 * ThemeUtil.Metric.hotbarSlot + 5 * ThemeUtil.Metric.hotbarGap
+
 local container = Instance.new("Frame")
 container.Name = "StaminaMeter"
 container.AnchorPoint = Vector2.new(0.5, 1)
-container.Position = UDim2.new(0.5, 0, 1, -86)
-container.Size = UDim2.fromOffset(224, 24)
-container.BackgroundColor3 = ThemeUtil.Surface.panel.color
-container.BackgroundTransparency = ThemeUtil.Surface.panel.transparency
+container.Position = UDim2.new(0.5, 0, 1, -68)
+container.Size = UDim2.fromOffset(HOTBAR_WIDTH, 8)
+container.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+container.BackgroundTransparency = 0.75
 container.BorderSizePixel = 0
+container.ClipsDescendants = true
 container.Visible = false
 container.Parent = screenGui
-ThemeUtil.corner(container, ThemeUtil.Radius.pill)
-
-local padding = Instance.new("UIPadding")
-padding.PaddingTop = UDim.new(0, 4)
-padding.PaddingBottom = UDim.new(0, 4)
-padding.PaddingLeft = UDim.new(0, 5)
-padding.PaddingRight = UDim.new(0, 5)
-padding.Parent = container
-
-local trough = Instance.new("Frame")
-trough.Name = "Trough"
-trough.Size = UDim2.fromScale(1, 1)
-trough.BackgroundColor3 = ThemeUtil.Surface.trough.color
-trough.BackgroundTransparency = ThemeUtil.Surface.trough.transparency
-trough.BorderSizePixel = 0
-trough.ClipsDescendants = true
-trough.Parent = container
-ThemeUtil.corner(trough, ThemeUtil.Radius.pill)
+ThemeUtil.corner(container, 4)
 
 local fill = Instance.new("Frame")
 fill.Name = "Fill"
 fill.Size = UDim2.fromScale(1, 1)
-fill.BackgroundColor3 = ThemeUtil.Accent.cyan
+fill.BackgroundColor3 = Color3.fromRGB(0, 255, 90)
 fill.BorderSizePixel = 0
-fill.Parent = trough
-ThemeUtil.corner(fill, ThemeUtil.Radius.pill)
-
-local label = Instance.new("TextLabel")
-label.Name = "Label"
-label.Size = UDim2.fromScale(1, 1)
-label.BackgroundTransparency = 1
-label.BorderSizePixel = 0
-label.FontFace = ThemeUtil.Font.extraBold
-label.Text = "STAMINA"
-label.TextColor3 = ThemeUtil.Text.strong
-label.TextSize = 11
-label.TextStrokeColor3 = Color3.fromRGB(20, 20, 22)
-label.TextStrokeTransparency = 0.45
-label.ZIndex = fill.ZIndex + 1
-label.Parent = trough
+fill.Parent = container
+ThemeUtil.corner(fill, 4)
 
 local cachedArena: BasePart? = nil
 local function getArena(): BasePart?
@@ -88,7 +63,6 @@ local function update()
 	end
 
 	fill.Size = UDim2.fromScale(math.clamp(stamina / maximum, 0, 1), 1)
-	label.Text = string.format("STAMINA  %d", math.floor(stamina + 0.5))
 end
 
 player:GetAttributeChangedSignal("CombatStamina"):Connect(update)

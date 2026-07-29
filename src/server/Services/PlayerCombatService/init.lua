@@ -11,6 +11,7 @@ local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
 local ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
+local CombatGeometry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CombatGeometry"))
 local CombatState = require(script.CombatState)
 local KnockdownUtil = require(script.KnockdownUtil)
 
@@ -21,9 +22,17 @@ local CombatEvent: RemoteEvent? = nil
 local CombatVfxEvent: RemoteEvent? = nil
 local Arena: BasePart? = nil
 
-local nextHitAt: { [number]: number } = {}
+type AuthorizedSwing = {
+	sequence: number,
+	tool: Tool,
+	expiresAt: number,
+}
+
+local nextSwingAt: { [number]: number } = {}
 local nextShieldToggleAt: { [number]: number } = {}
+local lastSwingSequence: { [number]: number } = {}
 local lastHitSequence: { [number]: number } = {}
+local authorizedSwings: { [number]: AuthorizedSwing } = {}
 local recoveryUntil: { [number]: number } = {}
 local recoveryTokens: { [number]: number } = {}
 local nextHitId = 0
@@ -226,6 +235,86 @@ local function applyShieldImpact(
 	end
 end
 
+local function canShieldBlock(
+	attackerRoot: BasePart,
+	targetRoot: BasePart,
+	shield: any
+): boolean
+	local blockArcDegrees = getConfiguredNumber(shield.blockArcDegrees, 110, 0, 360)
+	return CombatGeometry.IsPositionInsideFacingArc(
+		targetRoot.Position,
+		targetRoot.CFrame.LookVector,
+		attackerRoot.Position,
+		blockArcDegrees
+	)
+end
+
+local function deactivateDepletedShield(player: Player, shield: any)
+	local cooldownSeconds = getConfiguredNumber(
+		shield.depletedCooldownSeconds,
+		0.5,
+		0,
+		5
+	)
+	nextShieldToggleAt[player.UserId] = math.max(
+		nextShieldToggleAt[player.UserId] or 0,
+		os.clock() + cooldownSeconds
+	)
+	CombatState.SetShieldActive(player, nil, false)
+end
+
+local function handleMeleeSwing(player: Player, payload: any)
+	if type(payload) ~= "table" then
+		return
+	end
+
+	local sequence = payload.sequence
+	if type(sequence) ~= "number"
+		or sequence % 1 ~= 0
+		or sequence < 1
+		or sequence > MAX_SEQUENCE then
+		return
+	end
+
+	local character, _, root = getAliveCharacter(player)
+	if not (character and root) then
+		return
+	end
+
+	local tool, profile = getEquippedCombatTool(character, "Melee")
+	if not (tool and profile and type(profile.swing) == "table") then
+		return
+	end
+
+	local now = os.clock()
+	if sequence <= (lastSwingSequence[player.UserId] or 0)
+		or now < (nextSwingAt[player.UserId] or 0)
+		or now < (recoveryUntil[player.UserId] or 0) then
+		return
+	end
+	if profile.arenaOnly ~= false
+		and not ArenaBounds.Contains(Arena, root.Position, profile.arenaHeightAllowanceStuds) then
+		return
+	end
+
+	local staminaCost = getConfiguredNumber(profile.staminaCost, 0, 0, 1000)
+	if not CombatState.TrySpendStamina(player, staminaCost) then
+		return
+	end
+
+	local cooldownSeconds = getConfiguredNumber(profile.swing.cooldownSeconds, 0.72, 0.05, 5)
+	local contactSeconds = getConfiguredNumber(profile.swing.activeWindowSeconds, 0.22, 0.01, 2)
+	lastSwingSequence[player.UserId] = sequence
+	nextSwingAt[player.UserId] = now + cooldownSeconds
+	authorizedSwings[player.UserId] = {
+		sequence = sequence,
+		tool = tool,
+		-- Allow normal live-server transit after the visible contact window. Starting a
+		-- newer swing replaces this authorization, so only the latest swing can report.
+		expiresAt = now + contactSeconds + 0.75,
+	}
+end
+
 local function handleHitReport(player: Player, payload: any)
 	if type(payload) ~= "table" then
 		return
@@ -253,14 +342,18 @@ local function handleHitReport(player: Player, payload: any)
 		return
 	end
 
-	local _, profile = getEquippedCombatTool(attackerCharacter, "Melee")
-	if not profile then
+	local tool, profile = getEquippedCombatTool(attackerCharacter, "Melee")
+	if not (tool and profile) then
 		return
 	end
 
 	local now = os.clock()
-	if sequence <= (lastHitSequence[player.UserId] or 0)
-		or now < (nextHitAt[player.UserId] or 0)
+	local authorizedSwing = authorizedSwings[player.UserId]
+	if not authorizedSwing
+		or authorizedSwing.sequence ~= sequence
+		or authorizedSwing.tool ~= tool
+		or now > authorizedSwing.expiresAt
+		or sequence <= (lastHitSequence[player.UserId] or 0)
 		or now < (recoveryUntil[player.UserId] or 0)
 		or CombatState.IsImmune(target, now) then
 		return
@@ -280,13 +373,8 @@ local function handleHitReport(player: Player, payload: any)
 		return
 	end
 
-	local attackStaminaCost = getConfiguredNumber(profile.staminaCost, 0, 0, 1000)
-	if not CombatState.TrySpendStamina(player, attackStaminaCost) then
-		return
-	end
-
 	lastHitSequence[player.UserId] = sequence
-	nextHitAt[player.UserId] = now + math.max(0.05, profile.swing.cooldownSeconds)
+	authorizedSwings[player.UserId] = nil
 	CombatState.GrantImmunity(target, getImmunitySeconds())
 
 	local shieldTool = CombatState.GetShieldTool(target)
@@ -298,7 +386,11 @@ local function handleHitReport(player: Player, payload: any)
 			or math.huge
 		if shieldProfile
 			and shieldProfile.combatKind == "Shield"
-			and CombatState.TrySpendStamina(target, shieldCost) then
+			and type(shield) == "table"
+			and canShieldBlock(attackerRoot, targetRoot, shield) then
+			-- A final block may spend less than the full cost. Reaching zero lowers
+			-- the shield immediately and starts its longer depletion cooldown.
+			local remainingStamina = CombatState.SpendStaminaUpTo(target, shieldCost)
 			applyShieldImpact(
 				player,
 				attackerRoot,
@@ -309,6 +401,9 @@ local function handleHitReport(player: Player, payload: any)
 				shieldProfile,
 				sequence
 			)
+			if remainingStamina <= EPSILON then
+				deactivateDepletedShield(target, shield)
+			end
 			return
 		end
 	end
@@ -345,13 +440,18 @@ local function handleShieldToggle(player: Player, payload: any)
 	if now < (nextShieldToggleAt[player.UserId] or 0) then
 		return
 	end
+	if CombatState.GetStamina(player) <= EPSILON then
+		return
+	end
 	nextShieldToggleAt[player.UserId] = now
 		+ getConfiguredNumber(profile.shield.toggleCooldownSeconds, 0.2, 0.05, 2)
 	CombatState.SetShieldActive(player, tool, true)
 end
 
 local function handleCombatEvent(player: Player, action: string?, payload: any)
-	if action == "HitReport" then
+	if action == "MeleeSwing" then
+		handleMeleeSwing(player, payload)
+	elseif action == "HitReport" then
 		handleHitReport(player, payload)
 	elseif action == "ShieldToggle" then
 		handleShieldToggle(player, payload)
@@ -359,9 +459,11 @@ local function handleCombatEvent(player: Player, action: string?, payload: any)
 end
 
 local function clearPlayerCombatState(player: Player, character: Model?)
-	nextHitAt[player.UserId] = nil
+	nextSwingAt[player.UserId] = nil
 	nextShieldToggleAt[player.UserId] = nil
+	lastSwingSequence[player.UserId] = nil
 	lastHitSequence[player.UserId] = nil
+	authorizedSwings[player.UserId] = nil
 	recoveryUntil[player.UserId] = nil
 	recoveryTokens[player.UserId] = nil
 	CombatState.SetShieldActive(player, nil, false)

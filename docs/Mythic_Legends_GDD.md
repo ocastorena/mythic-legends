@@ -150,27 +150,26 @@ The launch sword uses a deliberately client-reported melee architecture. This is
 #### Attacking client
 
 1. The equipped Tool's activation is the only source of a sword swing. A separate global input listener must not create an additional attack.
-2. The client plays the visible swing animation and opens its contact window from animation markers, with a configured timing fallback when an animation lacks those markers. A player with insufficient Stamina cannot begin a weapon action.
+2. The client sends one `MeleeSwing` activation with a monotonically increasing sequence, immediately plays the visible swing animation, and opens its contact window from animation markers, with a configured timing fallback when an animation lacks those markers. A player with insufficient Stamina cannot begin a weapon action.
 3. During that window, the client sweeps the visible sword blade through interpolated positions between rendered frames. Contact is based on the blade geometry, not a large character-centered cone.
 4. The client excludes its own character and selects at most one eligible target: the target with the closest valid blade contact. Optional line-of-sight filtering may reject contact through solid geometry.
-5. On first valid contact, the attacker immediately presents the configured hit effect, sound, trail, and brief animation hit-stop. It then sends exactly one `HitReport` containing a monotonically increasing swing sequence and the selected target's user ID.
-6. A swing that finds no blade contact sends no hit report. Walking near another player without activating the sword must never produce a hit.
+5. On first valid contact, the attacker immediately presents the configured hit effect, sound, trail, and brief animation hit-stop. It then sends exactly one `HitReport` containing the activation's swing sequence and the selected target's user ID.
+6. A swing that finds no blade contact sends no hit report, but its activation still consumes the weapon's configured Stamina cost. Walking near another player without activating the sword must never produce a hit.
 
 #### Server validation and relay
 
-The server does not independently scan an arc, rewind player positions, replace the reported target, or manufacture an alternative hit. It either accepts the reported attacker-target pair or rejects it.
+The server does not independently scan an arc, rewind player positions, replace the reported target, or manufacture an alternative hit. It first validates each `MeleeSwing`, deducts its configured Stamina cost whether the swing later hits or misses, starts the weapon cooldown, and records a short-lived authorization for that sequence. It then either accepts a matching reported attacker-target pair or rejects it.
 
 Before accepting a `HitReport`, the server verifies:
 
 - The attacker has the reported supported melee weapon selected.
 - The attacker and reported target are distinct playable characters.
 - Both characters satisfy the Arena-only rule for that weapon.
-- The swing sequence is newer than the attacker's last accepted sequence.
-- The configured weapon cooldown has elapsed.
-- The attacker has sufficient Stamina and the target is not temporarily knockback-immune.
+- The swing sequence matches the attacker's latest unconsumed server-authorized activation.
+- The authorization has not expired and the target is not temporarily knockback-immune.
 - The reported characters are within the weapon's configured reach plus a bounded server-tolerance distance.
 
-On acceptance, the server deducts Stamina, assigns an idempotent hit ID, resolves the configured launch values, records the target's temporary knockback immunity, relays the launch to the target client, and broadcasts the confirmed impact presentation. The server never applies health damage.
+On acceptance, the server consumes the authorization without deducting Stamina a second time, assigns an idempotent hit ID, resolves the configured launch values, records the target's temporary knockback immunity, relays the launch to the target client, and broadcasts the confirmed impact presentation. The server never applies health damage.
 
 #### Target client and presentation
 
@@ -424,7 +423,7 @@ The server validates every client request that changes inventory, currency, equi
 12. Capture Rings do not overlap, and the Arena spawn system does not create an overlapping contest.
 13. A Mythling earns separately configured XP only from verified Shrine production, caps at level 100, and retains its Passive Trait and element after an Inventory-menu evolution validated by the server.
 14. A player at Mythling capacity cannot gain Capture Ring progress, and any blocked pickup, collection, or crafting start produces an inventory-capacity warning without granting the item.
-15. Arena weapons and shield impacts consume Stamina; Arena combat uses knockback, Shield behavior, and temporary knockback immunity, but never player health or death. Elemental weapon effects are post-launch.
+15. Every activated Arena weapon attack consumes its configured Stamina cost even when it misses, while shield impacts consume their configured Stamina cost; Arena combat uses knockback, Shield behavior, and temporary knockback immunity, but never player health or death. Elemental weapon effects are post-launch.
 16. All Passive Traits affect production only, and cancelling a Crafting Job refunds all of its spent resources and Gold.
 17. A sword swing can report at most one target selected by visible blade contact; proximity without Tool activation cannot produce a hit, and the server cannot substitute an independently selected target.
 18. An accepted sword report produces immediate attacker feedback and one idempotent target-client launch while capture progress, contest resolution, and rewards remain server-authoritative.

@@ -84,9 +84,25 @@ export type WeaponVfx = {
 
 export type ShieldProfile = {
 	toggleCooldownSeconds: number,
+	depletedCooldownSeconds: number,
 	impactStaminaCost: number,
+	blockArcDegrees: number,
 	slidePlanarDeltaV: number,
 	slideControlSeconds: number,
+	pose: {
+		blendSeconds: number,
+		ikSmoothTime: number,
+		passiveHandTarget: CFrame,
+		passiveElbowPole: CFrame,
+		passiveGripOffset: CFrame,
+		guardHandTarget: CFrame,
+		guardElbowPole: CFrame,
+		frontFootTarget: CFrame,
+		frontKneePole: CFrame,
+		kneelingFootTarget: CFrame,
+		kneelingKneePole: CFrame,
+		crouchRootOffset: CFrame,
+	}?,
 }
 
 export type WeaponProfile = {

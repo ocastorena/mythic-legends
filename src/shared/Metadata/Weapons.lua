@@ -94,9 +94,42 @@ local Weapons = {
 
 			shield = {
 				toggleCooldownSeconds = 0.2,
+				depletedCooldownSeconds = 0.5,
 				impactStaminaCost = 30,
-				slidePlanarDeltaV = 16,
+				-- Blocking covers a narrow frontal cone; side and rear swings bypass it.
+				blockArcDegrees = 110,
+				slidePlanarDeltaV = 28,
 				slideControlSeconds = 0.1,
+
+				pose = {
+					blendSeconds = 0.08,
+					ikSmoothTime = 0.04,
+					-- Targets and poles are relative to HumanoidRootPart.
+					passiveHandTarget = CFrame.new(1.35, -0.65, 0.1),
+					passiveElbowPole = CFrame.new(2.4, 0.2, -0.2),
+					passiveGripOffset = CFrame.Angles(math.rad(-90), math.rad(180), math.rad(180))
+						* CFrame.Angles(math.rad(-20), 0, 0),
+
+					-- Flip around the grip axis in guard so the shield's authored top is
+					-- vertical while the arm IK keeps it positioned in front of the body.
+					guardGripOffset = CFrame.Angles(math.rad(180), 0, 0),
+					guardHandTarget = CFrame.new(0.7, 0.05, -1.05)
+						* CFrame.Angles(math.rad(-180), math.rad(-105), 0),
+					guardElbowPole = CFrame.new(1.8, 0.35, -0.65),
+
+					-- The right leg plants forward with its shin upright. The left foot
+					-- reaches behind the body so its knee can settle onto the floor.
+					frontFootTarget = CFrame.new(0.55, -2.7, -0.9),
+					frontKneePole = CFrame.new(0.7, -1.3, -2),
+					kneelingFootTarget = CFrame.new(-0.55, -2.6, 1.45),
+					kneelingKneePole = CFrame.new(-0.7, -3, -0.45),
+
+					-- The root moves visually while leg IK creates the kneeling stance.
+					-- Humanoid.HipHeight stays unchanged, so the avatar does not sink
+					-- into the arena or alter its physical ground clearance.
+					crouchRootOffset = CFrame.new(0, -0.78, 0)
+						* CFrame.Angles(math.rad(-5), 0, 0),
+				},
 			},
 		},
 	},

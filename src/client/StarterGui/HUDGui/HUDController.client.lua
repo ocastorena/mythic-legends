@@ -26,17 +26,8 @@ local WalletStore = require(Client:WaitForChild("Currency"):WaitForChild("Wallet
 local INVENTORY_ICON = "rbxassetid://135273755533681"
 local RUNIES_ICON = "rbxassetid://112895221053745"
 
--- Awaiting an image asset. Creator Store icons are all published as *Decal* assets, which
--- ImageLabel.Image will not render -- ten free shopping-bag decals were tried and every one
--- came back blank while this place's own uploaded icons load fine. A GUI needs an Image
--- asset, which in practice means uploading the art to this account.
---
--- Whatever goes here must be a flat white glyph, since ImageColor3 multiplies and a black
--- or multi-tone icon would ignore SHOP_TINT.
-local SHOP_ICON = ""
-
--- Fill colour for the shop glyph, from the HUD design's shop button. Change this one line
--- to recolour the icon; nothing else reads it.
+-- The shop glyph is assembled from GUI primitives below, avoiding an external image asset
+-- while keeping the icon crisp and recolourable at every HUD scale.
 local SHOP_TINT = Color3.fromHex("00ff69")
 
 -- Gap between cluster discs. Their diameter is not a constant: it is measured off
@@ -159,7 +150,54 @@ end
 -- Cluster order follows the design: Settings · Inventory · Shop. Settings is left out
 -- because nothing in this game answers it yet.
 local openButton = clusterButton("OpenButton", INVENTORY_ICON, ThemeUtil.Accent.gold, 1)
-local shopButton = clusterButton("ShopButton", SHOP_ICON, SHOP_TINT, 2)
+local shopButton = clusterButton("ShopButton", "", nil, 2)
+
+--- Adds a compact shopping-bag glyph without relying on an uploaded image asset.
+local function addShopGlyph(button: GuiButton)
+	local glyph = Instance.new("Frame")
+	glyph.Name = "ShopIcon"
+	glyph.AnchorPoint = Vector2.new(0.5, 0.5)
+	glyph.Position = UDim2.fromScale(0.5, 0.53)
+	glyph.Size = UDim2.fromScale(0.72, 0.64)
+	glyph.BackgroundTransparency = 1
+	glyph.Parent = button
+
+	local body = Instance.new("Frame")
+	body.Name = "Bag"
+	body.AnchorPoint = Vector2.new(0.5, 1)
+	body.Position = UDim2.fromScale(0.5, 1)
+	body.Size = UDim2.fromScale(1, 0.72)
+	body.BackgroundColor3 = SHOP_TINT
+	body.BorderSizePixel = 0
+	body.ZIndex = 3
+	body.Parent = glyph
+
+	local bodyCorner = Instance.new("UICorner")
+	bodyCorner.CornerRadius = UDim.new(0.18, 0)
+	bodyCorner.Parent = body
+
+	local handle = Instance.new("Frame")
+	handle.Name = "Handle"
+	handle.AnchorPoint = Vector2.new(0.5, 0)
+	handle.Position = UDim2.fromScale(0.5, 0)
+	handle.Size = UDim2.fromScale(0.5, 0.5)
+	handle.BackgroundTransparency = 1
+	handle.BorderSizePixel = 0
+	handle.ZIndex = 2
+	handle.Parent = glyph
+
+	local handleCorner = Instance.new("UICorner")
+	handleCorner.CornerRadius = UDim.new(0.5, 0)
+	handleCorner.Parent = handle
+
+	local handleStroke = Instance.new("UIStroke")
+	handleStroke.Color = SHOP_TINT
+	handleStroke.Thickness = 2
+	handleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	handleStroke.Parent = handle
+end
+
+addShopGlyph(shopButton)
 
 --------------------------------------------------------------------------------
 -- Coin pill (§08)

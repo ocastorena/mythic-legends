@@ -13,6 +13,9 @@
         "ArenaBounds": {
           "$path": "src/shared/ArenaBounds.lua"
         },
+        "CombatGeometry": {
+          "$path": "src/shared/CombatGeometry.lua"
+        },
         "Types": {
           "$path": "src/shared/Types.lua"
         }

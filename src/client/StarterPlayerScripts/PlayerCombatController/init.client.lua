@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 local CharacterUtil = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("Character"):WaitForChild("CharacterUtil"))
 local combatPresentationBus = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("CombatPresentationBus"))
 local ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
+local CombatGeometry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CombatGeometry"))
 local weaponsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
 
 local combatEvent: RemoteEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CombatEvent")
@@ -129,6 +130,48 @@ local function hasLocalLineOfSight(attackerCharacter: Model, targetCharacter: Mo
 	params.IgnoreWater = true
 	local obstruction = workspace:Raycast(origin, direction, params)
 	return obstruction == nil or obstruction.Instance:IsDescendantOf(targetCharacter)
+end
+
+local function getPredictedBlockingShield(
+	attackerCharacter: Model,
+	target: Player
+): Tool?
+	if target:GetAttribute("ShieldActive") ~= true then
+		return nil
+	end
+
+	local targetCharacter = target.Character
+	local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
+	local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+	if not (attackerRoot and attackerRoot:IsA("BasePart")
+		and targetRoot and targetRoot:IsA("BasePart")
+		and targetCharacter) then
+		return nil
+	end
+
+	for _, child in ipairs(targetCharacter:GetChildren()) do
+		if child:IsA("Tool") then
+			local _, profile = weaponsData.GetProfile(child)
+			local shield = profile and profile.shield
+			if profile
+				and profile.combatKind == "Shield"
+				and type(shield) == "table" then
+				local configuredArc = shield.blockArcDegrees
+				local blockArcDegrees = if type(configuredArc) == "number"
+					then math.clamp(configuredArc, 0, 360)
+					else 110
+				if CombatGeometry.IsPositionInsideFacingArc(
+					targetRoot.Position,
+					targetRoot.CFrame.LookVector,
+					attackerRoot.Position,
+					blockArcDegrees
+				) then
+					return child
+				end
+			end
+		end
+	end
+	return nil
 end
 
 local function findBladeContact(
@@ -283,12 +326,22 @@ local function openContactWindow(state: SwingState)
 			if target and target.Character then
 				state.hitReported = true
 				applyHitStop(state)
-				combatPresentationBus:Fire(
-					"LocalImpact",
-					target.Character,
-					state.profile.vfx,
-					state.sequence
-				)
+				local blockingShield = getPredictedBlockingShield(state.character, target)
+				if blockingShield then
+					combatPresentationBus:Fire(
+						"LocalShieldImpact",
+						target.Character,
+						blockingShield,
+						state.sequence
+					)
+				else
+					combatPresentationBus:Fire(
+						"LocalImpact",
+						target.Character,
+						state.profile.vfx,
+						state.sequence
+					)
+				end
 				combatEvent:FireServer("HitReport", {
 					sequence = state.sequence,
 					targetUserId = target.UserId,
@@ -375,6 +428,13 @@ local function startSwing(tool: Tool)
 		connections = {},
 	}
 	activeSwing = state
+
+	-- The server charges this activation immediately. A later HitReport only consumes
+	-- the matching authorization, so a miss still spends Stamina and a hit is not charged
+	-- twice.
+	combatEvent:FireServer("MeleeSwing", {
+		sequence = state.sequence,
+	})
 
 	table.insert(state.connections, track:GetMarkerReachedSignal("Begin"):Connect(function()
 		openContactWindow(state)

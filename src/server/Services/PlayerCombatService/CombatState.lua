@@ -37,7 +37,9 @@ local function setShieldPresentation(tool: Tool?, active: boolean)
 	tool:SetAttribute(SHIELD_ACTIVE_ATTRIBUTE, active)
 	local highlight = tool:FindFirstChild("ShieldActiveHighlight", true)
 	if highlight and highlight:IsA("Highlight") then
-		highlight.Enabled = active
+		-- Guard state is communicated by the pose. Keep the persistent outline off;
+		-- the short ShieldImpactFlash still communicates a successful block.
+		highlight.Enabled = false
 	end
 end
 
@@ -142,6 +144,21 @@ function CombatState.TrySpendStamina(player: Player, amount: number): boolean
 	state.stamina = math.max(0, state.stamina - cost)
 	player:SetAttribute(STAMINA_ATTRIBUTE, state.stamina)
 	return true
+end
+
+function CombatState.SpendStaminaUpTo(player: Player, amount: number): number
+	local state = getState(player)
+	refreshStamina(player, state, os.clock())
+	local spent = math.min(state.stamina, math.max(0, amount))
+	state.stamina = math.max(0, state.stamina - spent)
+	player:SetAttribute(STAMINA_ATTRIBUTE, state.stamina)
+	return state.stamina
+end
+
+function CombatState.GetStamina(player: Player): number
+	local state = getState(player)
+	refreshStamina(player, state, os.clock())
+	return state.stamina
 end
 
 function CombatState.IsImmune(player: Player, now: number?): boolean
