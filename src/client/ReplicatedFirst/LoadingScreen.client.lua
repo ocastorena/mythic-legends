@@ -7,7 +7,7 @@ local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 
-local LOAD_TIMEOUT_SECONDS = 20
+local LOAD_TIMEOUT_SECONDS = 30
 local MIN_DISPLAY_SECONDS = 1.5
 local STREAM_TIMEOUT_SECONDS = 6
 local PRELOAD_BATCH_SIZE = 12
@@ -70,7 +70,7 @@ troughCorner.Parent = progressTrough
 local progressFill = Instance.new("Frame")
 progressFill.Name = "Fill"
 progressFill.Size = UDim2.fromScale(0, 1)
-progressFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+progressFill.BackgroundColor3 = Color3.fromRGB(74, 163, 255)
 progressFill.BorderSizePixel = 0
 progressFill.Parent = progressTrough
 
@@ -119,17 +119,38 @@ local function criticalWorldReady(): boolean
 	local arenaStructure = map:FindFirstChild("ArenaStructure")
 	local arenaBridges = map:FindFirstChild("ArenaBridges")
 	local arena = map:FindFirstChild("Arena")
+	local arenaPlate = map:FindFirstChild("ArenaPlate")
+	local arenaFloorPattern = map:FindFirstChild("ArenaFloorPattern")
+	local floatingIsland = map:FindFirstChild("FloatingIsland")
 	local baseIslands = map:FindFirstChild("BaseIslands")
-	if not (arenaStructure and arenaBridges and arena and baseIslands) then
+	if not (
+		arenaStructure
+		and arenaBridges
+		and arena
+		and arenaPlate
+		and arenaFloorPattern
+		and floatingIsland
+		and baseIslands
+	) then
 		return false
 	end
-	if #arenaStructure:GetDescendants() == 0 or #arenaBridges:GetDescendants() == 0 then
+	if
+		#arenaStructure:GetDescendants() < 781
+		or #arenaBridges:GetDescendants() < 384
+		or #arenaFloorPattern:GetDescendants() < 66
+		or #floatingIsland:GetDescendants() < 67
+	then
 		return false
 	end
 
 	for index = 0, 7 do
 		local island = baseIslands:FindFirstChild("BaseIsland" .. index)
-		if not (island and island:IsA("Model") and island:FindFirstChild("Grass")) then
+		if not (
+			island
+			and island:IsA("Model")
+			and island:FindFirstChild("Grass")
+			and #island:GetDescendants() >= 16
+		) then
 			return false
 		end
 	end
@@ -232,6 +253,22 @@ local function appendPreloadables(target: { Instance }, seen: { [Instance]: bool
 	end
 end
 
+local function appendGeometry(target: { Instance }, seen: { [Instance]: boolean }, root: Instance?)
+	if not root then
+		return
+	end
+	if root:IsA("BasePart") and not seen[root] then
+		seen[root] = true
+		table.insert(target, root)
+	end
+	for _, instance in root:GetDescendants() do
+		if instance:IsA("BasePart") and not seen[instance] then
+			seen[instance] = true
+			table.insert(target, instance)
+		end
+	end
+end
+
 local function assetRoots(): { Instance }
 	local roots: { Instance } = {
 		workspace,
@@ -285,6 +322,26 @@ local function collectAssets(): { Instance }
 	local seen: { [Instance]: boolean } = {}
 	for _, root in ipairs(assetRoots()) do
 		appendPreloadables(assets, seen, root)
+	end
+
+	-- CSG arena geometry is represented by IntersectOperation/UnionOperation instances,
+	-- not MeshParts. Include every core BasePart explicitly so PreloadAsync waits on their
+	-- render data as well as external textures and meshes.
+	local map = workspace:FindFirstChild("Map")
+	if map then
+		appendGeometry(assets, seen, map:FindFirstChild("Arena"))
+		appendGeometry(assets, seen, map:FindFirstChild("ArenaPlate"))
+		appendGeometry(assets, seen, map:FindFirstChild("ArenaFloorPattern"))
+		appendGeometry(assets, seen, map:FindFirstChild("ArenaStructure"))
+		appendGeometry(assets, seen, map:FindFirstChild("ArenaBridges"))
+		appendGeometry(assets, seen, map:FindFirstChild("FloatingIsland"))
+
+		local baseIslands = map:FindFirstChild("BaseIslands")
+		if baseIslands then
+			for index = 0, 7 do
+				appendGeometry(assets, seen, baseIslands:FindFirstChild("BaseIsland" .. index))
+			end
+		end
 	end
 	return assets
 end
@@ -361,5 +418,8 @@ task.spawn(function()
 	waitForAssetPopulation(3)
 	setProgress(0.55)
 	preloadAssets(collectAssets(), 0.55)
+	-- Give the renderer a brief quiet window to upload the completed CSG geometry before
+	-- exposing the world. Preload completion alone can precede the first rendered frame.
+	task.wait(1)
 	dismiss()
 end)
