@@ -16,7 +16,7 @@ The game is designed first for landscape mobile play, with keyboard and gamepad 
 - Online and offline shrine production.
 - Resource collection, inventory capacity, duplicate Mythling selling, Gold, and Base/Shrine upgrades.
 - Mythling levels, evolutions, and one rolled Passive Trait per acquired Mythling.
-- Crafting Stations with queued, time-based recipes for arena weapons, shields, and approved consumables.
+- Crafting Stations with queued, time-based recipes for arena weapons, shields, and combat consumables.
 - Shop purchases and shrine upgrades paid for with gold and required resources.
 
 ### Not part of the game
@@ -25,7 +25,7 @@ The game is designed first for landscape mobile play, with keyboard and gamepad 
 
 ### Post-launch concepts
 
-- Divine Intervention live events, including developer-run events, Event Caller access, and all-server events.
+- Divine Intervention live events.
 - Rare-resource Lucky Yield outcomes.
 - A separate health/damage-based PvP brawl mode, matchmaking, rankings, and ranked rewards.
 - Mythling treats, health, and attack until a separate progression design is approved.
@@ -117,24 +117,29 @@ Players spawn at their own Base. From there, they may immediately enter the Aren
 
 ### Capture flow
 
-1. Wild Mythlings spawn in the central Arena.
+1. Wild Mythlings spawn in the central Arena as stationary idle targets. They play configured idle animation but do not roam or move their Capture Ring at launch.
 2. Each spawned Mythling creates one visible Capture Ring around itself. Capture Rings must never overlap.
 3. A player whose Mythling inventory has available space may build their own capture meter while inside the Capture Ring. A player with full Mythling inventory cannot begin or gain capture progress for that Mythling.
-4. A player's meter increases at `CaptureProgressPerSecond` while that player is inside the ring.
-5. A player's meter decays at `CaptureDecayPerSecond` while that player is outside the ring.
+4. A player's meter increases at the spawned Mythling's configured `captureProgressPerSecond` while that player is inside the ring.
+5. A player's meter decays at the spawned Mythling's configured `captureDecayPerSecond` while that player is outside the ring.
 6. Arena weapons consume Stamina and can knock competing players out of a Capture Ring. An active Shield absorbs a hit by consuming Stamina, sliding its user back slightly, and granting temporary knockback immunity.
 7. The first player whose meter reaches 100% captures the Mythling. The server grants that Mythling to the winner, removes the contested spawn, and clears all other progress for that contest.
-8. An unclaimed Mythling despawns after its configured lifetime.
+8. An unclaimed Mythling despawns after its configured lifetime. Its despawn clears every player's capture progress for that contest.
+9. After a Mythling is captured or despawns, the Arena spawn system creates a replacement as needed to maintain its configured active-spawn cap.
 
 ### Arena rules
 
 - Each Mythling is an independent contest; capture progress is never shared between players or between Mythlings.
+- Capture progress and decay are defined per Mythling in metadata, allowing each Mythling to have its own capture difficulty. Rarity may inform that tuning but does not prescribe a universal formula.
+- The Arena chooses replacement Mythlings from a rarity-weighted metadata pool; rarity is the primary spawn-selection weight.
+- A player who disconnects during a contest immediately loses all of their progress for every active Capture Ring.
+- If a player reaches Mythling capacity while they have active capture progress, the server immediately clears that progress and displays the inventory-capacity warning.
 - The Arena spawn system must select a different valid position or delay a spawn rather than create an overlapping Capture Ring.
 - Mythling inventory capacity is checked by the server before capture progress begins and again before capture is awarded.
 - The server is authoritative for Capture Ring membership, capture progress, winner selection, inventory changes, and rewards. MVP sword contact uses the client-reported architecture defined below.
 - Arena combat does not deal damage or cause player death. Knockback, Shield behavior, and temporary knockback immunity create the positional disruption used in Capture Ring contests.
 - A combat client may report a sword target and present immediate feedback, but it may never change capture progress, award a Mythling, determine a winner, or grant any inventory or economy result.
-- Capture progress, ring radius, spawn frequency, active-spawn cap, despawn time, knockback strength, shield behavior, and equipment cooldowns are shared balance configuration—not independently hard-coded in client controllers.
+- Capture rates, ring radius, spawn frequency, active-spawn cap, despawn time, knockback strength, shield behavior, and equipment cooldowns are shared balance configuration—not independently hard-coded in client controllers.
 
 ### MVP player combat system
 
@@ -197,8 +202,10 @@ The client-reported exception ends at the positional combat reaction. Capture Ri
 - A Shrine has an upgradeable level, a maximum number of slots, and one shared storage capacity.
 - Each occupied Shrine Slot adds the assigned Mythling's Yield and Luck to that Shrine.
 - A Shrine upgrade may increase its slot count, shared storage capacity, and configured production multiplier.
+- Players choose which element Shrine(s) to build. There is no one-Shrine-per-element rule; duplicate-element Shrines are allowed when the player's configured Base/build capacity permits them.
+- A Shrine's Proximity Prompt opens its Shrine menu. Players use that menu to assign eligible Mythlings to open slots or remove assigned Mythlings.
 
-Every new player starts with a Base, no Shrines, no Mythlings, no resources, and a configured amount of Gold. Shrines are added through Base upgrades; the player must be able to buy or unlock their first Shrine using the starting state.
+Every new player starts with a Base, no Shrines, no Mythlings, no resources, and a configured amount of Gold. The Base's Proximity Prompt opens its build/upgrade menu, where players buy Shrines and Crafting Stations. Base upgrades grant additional configured build slots for Shrines or Crafting Stations. The player must be able to buy or unlock their first Shrine using the starting state.
 
 The Shrine owns the produced resource. Mythlings provide the speed and Lucky Yield chance; they do not independently decide which resource the Shrine produces.
 
@@ -209,7 +216,7 @@ Total Yield Per Hour = sum(assigned Mythling Effective Yield) × Shrine Producti
 Total Luck Chance = min(sum(assigned Mythling Effective Luck), Shrine Luck Cap)
 ```
 
-Production is calculated in fixed, server-authoritative batches. While a shrine has available storage capacity, each batch adds its normal output. The shrine makes one Lucky Yield roll per batch using `Total Luck Chance`.
+Production is calculated in fixed, server-authoritative batches. While a shrine has available storage capacity, each batch adds its normal output. The shrine makes one Lucky Yield roll per batch using `Total Luck Chance`. The Shrine menu is also the player-facing place to inspect its stored output and use an explicit Collect action.
 
 - At launch, a successful Lucky Yield roll doubles that batch's normal resource output.
 - Production accrues while the player is offline.
@@ -227,10 +234,11 @@ This is a **rare resource variant**, not a new element. It must use the Shrine's
 Each Mythling has a current form, a level, XP, an individually saved Luck value, and exactly one Passive Trait rolled when it is acquired. The current form's immutable base statistics come from Mythling metadata; only the Mythling's lightweight mutable state is saved to the player document.
 
 - **Yield** starts from the current form's configured base Yield and increases through level-based configuration.
-- **XP** is earned while a Mythling is assigned to and working in a Shrine. XP is awarded from server-authoritative production batches.
+- **XP** is earned while a Mythling is assigned to and working in a Shrine. Each completed server-authoritative production batch awards a separately configured XP amount; XP is not calculated from the resources produced.
 - The level cap is 100. Each level applies the same small, configurable Yield percentage increase to that Mythling's current form base Yield.
-- **Evolution** replaces the Mythling's current form with a different Mythling definition. The evolved form has its own configured base Yield and other base statistics.
-- Evolution requires reaching that Mythling form's configured target level. It never changes the Mythling's element, and its Passive Trait persists.
+- **Evolution** replaces the Mythling's current form with its one configured evolution-target Mythling definition. The evolved form has its own configured base Yield and other base statistics.
+- Evolution requires reaching that Mythling form's configured target level. It is free and immediate, never changes the Mythling's element, and preserves its Passive Trait.
+- A player initiates an eligible evolution from that Mythling's Inventory-menu entry. The server validates ownership, target level, and the form's single configured evolution target before changing `mythlingId`.
 - **Luck** is an individually saved Mythling stat. Trait and level effects modify it into Effective Luck before the Shrine combines it with the other assigned Mythlings' Luck.
 - A Mythling's Passive Trait applies only while the Mythling is assigned to an eligible Shrine, unless the Trait definition explicitly says otherwise.
 
@@ -247,7 +255,7 @@ Traits are selected from universal, element-agnostic weighted pools. The selecte
 
 ### Crafting
 
-Crafting Stations use Shrine resources to create approved weapons, shields, and consumables. All recipes are time-based Crafting Jobs. A Crafting Station's level determines its maximum job-queue capacity. Every recipe must define:
+Crafting Stations are not owned at the start of the game; a player must build one through the Base build/upgrade menu before starting recipes. A Crafting Station's Proximity Prompt opens its crafting menu. Crafting Stations use Shrine resources to create approved weapons, shields, and combat consumables. All recipes are time-based Crafting Jobs. A Crafting Station's level determines its maximum job-queue capacity. Every recipe must define:
 
 - `itemId` and category.
 - Required resource quantities and required gold, if any.
@@ -258,16 +266,28 @@ Crafting Stations use Shrine resources to create approved weapons, shields, and 
 
 Players may cancel a Crafting Job at any time for a full refund of every resource and Gold amount spent to start that job. Crafting is server-authoritative: the server verifies the recipe, affordability, unlock state, inventory capacity, queue capacity, cancellation/refund behavior, and result before deducting resources or granting an item.
 
+Crafting Jobs continue and complete while their owner is offline. The server records the job timing and resolves completion on a server tick, player join, or Crafting Station interaction; the output space reserved when the job began remains reserved until the job is completed or cancelled.
+
+### Combat consumables
+
+First-release consumables are temporary combat buffs only. A player must equip a consumable to a Hotbar slot and activate it in the Arena to consume it. Consumables may provide configured combat-stat boosts and their timed effects stack. Each consumable definition must provide a duration and configurable stack cap. The server validates the selected inventory entry, Arena eligibility, and stack cap; it consumes the item and owns the active-buff and expiry state. Production and crafting consumables are not part of the first release.
+
 ### Gold and duplication
 
 - Selling duplicate Mythlings is the main early-game source of Gold.
-- Gold is spent in the shop and as part of Shrine upgrades.
+- Selling is initiated from a selected Inventory-menu entry, not from the Shop. The Shop is for purchases and upgrades.
+- Every sellable inventory definition declares its sell eligibility and Gold value in metadata. Entries not marked sellable have no Sell action.
+- A player may choose the quantity to sell from a stackable entry. An equipped, assigned, or queued entry must be unequipped, unassigned, or cancelled before it can be sold.
+- Mythlings may be sold even when they are the player's last owned copy of that Mythling; there is no automatic final-copy protection.
+- The server validates ownership, sell eligibility, stack quantity, and dependency state, then removes the entry and grants Gold as one atomic transaction.
+- Gold is spent in the Shop and as part of Shrine upgrades.
 - Shrine upgrades also require the relevant configured resources.
+- The Shop sells upgrades that increase the maximum slot count of individual inventory tabs.
 - A player must be able to capture a first Mythling without Gold.
 
 ### Inventory capacity and overflow
 
-The first-release inventory categories are Gold, Resources, Items, Mythlings, Equipment (weapons and shields), and Crafting Jobs. Every inventory category has a configured capacity. A player cannot receive an entry when its destination inventory has no available space.
+The first-release inventory tabs are Resources, Items, Mythlings, Equipment (weapons and shields), and Crafting Jobs. Each tab has a configured maximum number of inventory slots. Resources and stackable Items combine into stacks by type; each metadata definition supplies that stack's maximum quantity. Gold is a separate, uncapped balance and does not occupy an inventory slot. A player cannot receive an entry when its destination tab has no available slot or compatible stack space.
 
 - A player at Mythling capacity cannot begin or gain Capture Ring progress. The server sends an `InventoryFull` warning that identifies Mythlings as the blocked inventory category.
 - A proximity pickup is not collected when the recipient's relevant inventory is full. It remains available according to that pickup's normal despawn and claim rules.
@@ -279,69 +299,71 @@ The first-release inventory categories are Gold, Resources, Items, Mythlings, Eq
 
 ### Divine Intervention
 
-**Divine Intervention** is the in-world name for high-energy, mythology-themed live events. Each event represents a god or mythological force showing its power, such as *Thor's Tempest*, *Poseidon's Deluge*, or *Hades' Eclipse*. The individual event name, rewards, effects, and presentation are configuration-driven.
+**Divine Intervention** is the working name for post-launch, mythology-themed live events in which gods or mythological forces visibly affect a server. Examples may include *Thor's Tempest*, *Poseidon's Deluge*, or *Hades' Eclipse*.
 
-Events can be started in two ways:
-
-- **Scheduled events:** each server's `EventSchedulerService` independently selects one eligible event at random from a configured pool every hour.
-- **Manual events:** players with the Event Caller Game Pass may start only caller-enabled events in their current server, no more than once every 30 minutes. The experience owner has additional controls to start an event in either their current server or all live servers.
-
-### Event permissions and scope
-
-| Role | Allowed activation scope | Allowed actions |
-| --- | --- | --- |
-| Scheduler | Its current server | Starts only configured scheduled events. |
-| Event Caller | Their current server only | Starts only caller-enabled event definitions; one call per 30-minute cooldown. |
-| Experience owner | Their current server or all live servers | Starts owner-only and caller-enabled events; may spawn a configured Mythling with explicitly selected rolled Luck and Passive Trait values. |
-
-The owner role belongs to one configured Roblox `OwnerUserId`, stored in private server configuration. Event Caller Game Pass ownership and each caller's 30-minute cooldown are tracked separately from the owner role and validated server-side without trusting a client flag.
-
-All event commands and owner overrides are server-side only. The client cannot supply an event ID, scope, Mythling ID, Luck, Trait, or reward value that bypasses the server's role, entitlement, allowlist, and content validation.
-
-An owner Mythling spawn may choose a valid `mythlingId`, a valid individually rolled Luck value, and a valid `traitId`. It cannot override immutable base statistics such as element, rarity, visuals, or base Yield; those always resolve from the selected Mythling metadata. If a player wins the spawned Mythling, the selected Luck and Trait are saved on that owned Mythling entry.
-
-### Event effects and rewards
-
-An event may combine one or more configured effects:
-
-- Spawn specific Mythlings, including temporary increases to rare-spawn odds.
-- Add resource, currency, item, or weapon pickups to the Arena.
-- Change Capture Ring conditions, such as ring size, capture speed, decay speed, or temporary environmental hazards.
-- Grant temporary player or Shrine boosts.
-- Grant permanent rewards, including Mythlings, rare Traits, and rare resources, only through configured and validated reward paths.
-- Apply approved lighting, particles, special effects, sounds, and music.
-
-Mythling rewards remain contested: players must win the spawned Mythling through the normal Capture Ring rules. Item, weapon, resource, and currency pickups are proximity-collected by walking over them. The server validates each collection, enforces a per-pickup claim policy, and prevents duplicate rewards.
-
-Every event definition must declare its event name, enabled roles, activation scope, selection weight, duration, cooldown, scheduled eligibility, reward table, pickup rules, Mythling spawn table, Capture Ring modifiers, and presentation assets. Presentation effects run client-side, are optional, and must honor sound and Reduce Motion settings. Audio assets must be approved for use in the experience.
-
-### Scheduler and cross-server behavior
-
-`EventSchedulerService` runs on the server and selects only eligible, off-cooldown events. It must record an event instance ID, start/end time, and resolved reward/spawn configuration so every client in that server sees the same event state.
-
-Scheduled events are independent per server. Players who join after an event begins receive the active event state and may participate normally until the event ends, subject to the same capture, pickup, and claim rules as other players.
-
-All-server owner events require a server-to-server broadcast with an idempotent event instance ID. Each receiving server validates the owner-issued command and starts the same configured event exactly once. An Event Caller may never use an all-server scope, start an owner-only event, or set a Mythling's rolled Luck or Passive Trait.
-
-Events may overlap. Events with dedicated music are mutually exclusive with other dedicated-music events; the Event Scheduler and manual activation controls must reject or defer a conflicting music event. Non-music presentation effects must use an explicit priority and cleanup rule so they restore the previous lighting and environment state when their event ends.
+This system is **not part of the first release and is not ready for implementation**. Its event types, scheduling, permissions, monetization, rewards, server scope, Mythling-spawn controls, pickup behavior, presentation, and accessibility rules must be designed and approved in a later GDD revision. First-release systems must not depend on Divine Intervention or reserve implementation work for it beyond using data-driven content patterns.
 
 ## 10. Content and technical contracts
+
+### Runtime architecture
+
+The first release uses the existing Rojo project structure and Roblox `DataStore` persistence through `DataService`.
+
+- **Server services** own validation, authoritative simulation, mutations, persistence requests, and grants. New gameplay domains follow the existing `ServerScriptService/Services` service pattern and are initialized by `Bootstrap`.
+- **Client controllers** own input, UI, local animation, sound, VFX, and rendering of server-confirmed state. They cannot mutate persistent player data, Arena ownership, capture state, or economy state.
+- **Shared metadata** is version-controlled Luau content under `src/shared/Metadata`. It contains static definitions and balance values only; it must never be written by a client at runtime.
+- **DataService** owns one versioned mutable player document per Roblox user ID. It loads, migrates, caches, retries, autosaves, and safely flushes that document. Game services request mutations through DataService rather than independently writing a DataStore.
+- **Combat is the stated exception.** Its client-reported, server-validated relay and immediate local presentation remain exactly as defined in [MVP player combat system](#mvp-player-combat-system). This architecture must not be changed by the general UI synchronization rule below.
+
+### Client/server state synchronization
+
+For every system other than the documented combat exception, clients send an intent request and wait for a server-confirmed result before changing authoritative UI state.
+
+1. The client may immediately show input feedback and a pending/loading state.
+2. The server validates the request against the cached player document, metadata, runtime eligibility, capacity, affordability, and permissions.
+3. The server performs the mutation as a duplicate-safe transaction, marks the player document dirty through DataService, and returns or replicates the authoritative result.
+4. The client updates inventory, Gold, Shrine output, Crafting Jobs, capture state, equipment, Stamina, and buffs only from that confirmed result.
+5. A rejection leaves the authoritative state unchanged and supplies a player-facing reason when appropriate, such as `InventoryFull`, insufficient Gold/resources, invalid selection, unavailable capacity, or not-in-Arena.
+
+Capture meters, Stamina, active Shield state, temporary knockback immunity, active combat buffs, and active Arena contests are server-owned runtime state. They are not persistent; they clear on disconnect or server shutdown unless a later approved design explicitly changes that rule.
 
 ### Content configuration
 
 Content and balance data must be separate from game logic and versioned. At minimum, configuration defines:
 
-- Mythling: `id`, display name, element, rarity, visual assets, form-specific base Yield, level-scaling data, evolution targets, and lore.
+- Mythling: `id`, display name, element, rarity, visual assets, form-specific base Yield, level-scaling data, one optional evolution target, lore, and sell eligibility/value.
 - Trait: `id`, acquisition weight, trigger, eligibility, numerical effect, and evolution-persistence behavior.
 - Shrine: element, output resource, base storage, slot count by level, production multiplier by level, Luck cap, upgrade costs.
-- Resource: id, element, display information, crafting uses, sell/buy values, and optional rare variant.
-- Arena spawn: eligible Mythlings, rarity weights, ring radius, active cap, lifetime, and progress rates.
-- Item and recipe: effect, crafting costs, unlocks, cooldowns, knockback/protection behavior.
-- Live event: mythology-themed name, enabled roles, caller eligibility, scope, selection weight, schedule eligibility, duration, cooldown, reward/pickup tables, Mythling-spawn overrides, Capture Ring modifiers, and accessibility-safe presentation profile.
+- Base: build-slot grants by upgrade, eligible structures, and upgrade costs.
+- Crafting Station: queue capacity by level, eligible recipe groups, and upgrade/build costs.
+- Resource: id, element, display information, crafting uses, sell eligibility/value, buy value, stack limit, and optional rare variant.
+- Arena spawn: eligible stationary Mythlings, rarity-weighted selection pool, ring radius, active cap, lifetime, and per-Mythling capture-progress and decay rates.
+- Item and recipe: effect, crafting costs, unlocks, cooldowns, knockback/protection behavior, temporary combat-buff duration and stack cap where applicable, stack limit, and sell eligibility/value.
+- Inventory upgrade: tab affected, slot increase, price, and eligibility.
 
 ### Player save data
 
 The persistent player document stores lightweight, mutable player state. It references static metadata by ID rather than duplicating names, descriptions, models, recipes, visual assets, or immutable base statistics.
+
+At minimum, the target document shape is:
+
+```text
+version
+profile                 -- user/profile timestamps and approved flags only
+currency.gold           -- uncapped mutable Gold balance
+resources[resourceId]   -- quantity only; stack rules come from Resource metadata
+items[itemIdOrInstanceId] -- itemId, quantity or approved unique mutable state
+equipment[instanceId]   -- itemId and approved unique mutable state
+hotbar[1..6]            -- optional references to owned item/equipment entries
+mythlings[instanceId]   -- owned Mythling schema below
+base                    -- Base upgrade state and built-structure records
+craftingJobs[jobId]     -- active/queued Crafting Job schema below
+unlocks                 -- approved progression/unlock flags
+```
+
+`base` saves only player-specific state. Each built Shrine record contains a unique `id`, its static `shrineId`, current level, stored output quantity, last production-accrual time, and assigned Mythling instance IDs by slot. Each built Crafting Station record contains a unique `id`, its static `craftingStationId`, and current level. Its element, resource output, capacities, slot grants, and costs are resolved from metadata.
+
+Each active or queued Crafting Job contains a unique `id`, `recipeId`, `craftingStationId`, `resultItemId`, status, start time, completion time, and the reserved output destination. Costs are deducted only once at job start; result and timing IDs/timestamps are stored so a later metadata balance change cannot alter a job already in progress.
 
 An owned Mythling entry must contain at least:
 
@@ -359,52 +381,63 @@ assignedSlotId     -- optional
 
 Evolution updates `mythlingId` to the evolved form's metadata ID. The saved entry stays small while the game resolves the current form's base Yield and other immutable data from metadata.
 
+### Data ownership matrix
+
+| Game data | Metadata (static, version-controlled) | DataService player document (mutable) | Runtime-only server state |
+| --- | --- | --- | --- |
+| Mythling form | `mythlingId`, name, element, rarity, visuals, base Yield/Luck ranges, level scaling, Trait weights, fixed evolution target, Arena eligibility and capture tuning | Owned instance ID, current `mythlingId`, level, XP, rolled Luck, `traitId`, acquisition/assignment data | Spawned contest, per-player capture meters, despawn timing |
+| Passive Trait | `traitId`, eligibility, rarity-pool weight, trigger, numerical effect | Owned Mythling's `traitId` only | Applied production modifier when eligible |
+| Resource | `resourceId`, element, display data, stack limit, sell value, crafting use | Quantity by `resourceId` | World pickup/claim state, if introduced in an approved system |
+| Item, weapon, Shield, combat consumable | `itemId`, category, visuals, effect, stack limit, sell eligibility/value, recipe, cooldown, buff duration/stack cap | Stack or owned-instance quantity; Hotbar references; approved unique mutable state | Equipped selection, cooldowns, active temporary buffs, Shield state |
+| Gold | None beyond balance presentation/configuration | Uncapped `currency.gold` balance | None |
+| Base | Upgrade definitions, build-slot grants, costs, eligible structures | Base upgrade state and constructed-structure records | Spawned Base model references |
+| Shrine | `shrineId`, element, output resource, capacities, slots, multipliers, upgrade costs | Instance ID, level, stored output, last accrual time, assigned Mythling IDs | Current production resolution during accrual/collection |
+| Crafting Station | `craftingStationId`, queue capacity by level, costs, eligible recipes | Instance ID and level | Current menu/session references |
+| Recipe and Crafting Job | `recipeId`, inputs, Gold cost, result, duration, unlock requirement | Job ID, recipe/station IDs, status, start/completion time, reserved output | Completion scheduling while a server is live |
+| Arena spawn rules | Rarity-weighted pool, active cap, positions, lifetime, capture rates | None | Active spawned Mythlings and Capture Rings |
+| Player combat | Weapon/Shields/consumable tuning and animation/VFX references | Equipment ownership and Hotbar assignment only | Stamina, hit sequence/recent hit IDs, immunity, cooldowns, active Shield, knockback and combat buffs |
+
 Other inventory entries follow the same rule: store an instance ID, a metadata ID, and only mutable state such as quantity, durability, acquisition data, equipped state, or unique rolled values.
 
 The player document must also contain:
 - Base and Shrine state, including levels, slots, stored resources, and last production-accrual time.
 - Resource and Gold balances.
 - Crafted equipment and consumables.
-- Event Caller Game Pass ownership and the caller's most recent event-call time.
 - Unlock and tutorial flags.
 - A schema version and forward-only migrations.
 
-The server validates every client request that changes inventory, currency, equipment, production, capture, or event rewards. Persistence must use bounded document sizes, retry handling, periodic saves, safe failure behavior, and schema migrations; it cannot assume DataStore limits or network calls never fail.
+The server validates every client request that changes inventory, currency, equipment, production, or capture. Persistence must use bounded document sizes, retry handling, periodic saves, safe failure behavior, and schema migrations; it cannot assume DataStore limits or network calls never fail.
 
 ## 11. Acceptance criteria
 
-1. A player standing in a Mythling's Capture Ring gains only their own capture progress; leaving the ring causes that progress to decay.
-2. The server awards exactly one Mythling to the first verified player to reach 100% capture progress.
+1. A player standing in a stationary Mythling's Capture Ring gains only their own Mythling-configured capture progress; leaving the ring causes that progress to decay, while disconnecting or reaching Mythling capacity resets it immediately.
+2. The server awards exactly one Mythling to the first verified player to reach 100% capture progress, clears progress when a contest expires, and replenishes captured or expired Mythlings to the configured active-spawn cap.
 3. A Mythling cannot be assigned to a Shrine with a different element.
 4. Multiple matching Mythlings in one Shrine increase its combined Effective Yield and combined Effective Luck.
 5. Production continues while the player is offline, cannot exceed Shrine capacity, and produces the same result regardless of client device or frame rate.
 6. A Lucky Yield roll doubles normal output at launch and is calculated by the server.
-7. Crafting, selling, upgrades, and event rewards cannot be granted by a client without a valid server-side affordability and eligibility check.
+7. Crafting, selling, and upgrades cannot be granted by a client without a valid server-side affordability and eligibility check.
 8. No launch UI or game system offers eggs, summons, gacha, or Elemental Prisms.
 9. An acquired Mythling has one server-rolled Passive Trait, and that Trait cannot be supplied or changed by a client request.
 10. A Mythling evolution resolves its new base statistics through its evolved Mythling metadata ID rather than duplicating those base statistics into the player save.
-11. A scheduled Divine Intervention event starts only from an eligible, off-cooldown event definition and exposes the same server-verified event state to every player in that server.
-12. An Event Caller cannot start an owner-only or all-server event, nor override a Mythling's rolled Luck or Passive Trait; only an owner-issued all-server command can activate the same configured event across live servers.
-13. A player joining an active event receives its verified current state and may participate until it ends.
-14. A new player has a Base, no Shrine/Mythling/resources, a configured Gold grant, a wooden sword, and a wooden shield.
-15. Capture Rings do not overlap, and the Arena spawn system does not create an overlapping contest.
-16. A Mythling earns XP only from verified Shrine production, caps at level 100, and retains its Passive Trait and element after evolution.
-17. An Event Caller must own the Game Pass and satisfy the 30-minute cooldown; dedicated-music events cannot overlap another dedicated-music event.
-18. A player at Mythling capacity cannot gain Capture Ring progress, and any blocked pickup, collection, or crafting start produces an inventory-capacity warning without granting the item.
-19. Arena weapons and shield impacts consume Stamina; Arena combat uses knockback, Shield behavior, and temporary knockback immunity, but never player health or death. Elemental weapon effects are post-launch.
-20. All Passive Traits affect production only, and cancelling a Crafting Job refunds all of its spent resources and Gold.
-21. A sword swing can report at most one target selected by visible blade contact; proximity without Tool activation cannot produce a hit, and the server cannot substitute an independently selected target.
-22. An accepted sword report produces immediate attacker feedback and one idempotent target-client launch while capture progress, contest resolution, and rewards remain server-authoritative.
+11. A new player has a Base, no Shrine/Mythling/resources, a configured Gold grant, a wooden sword, and a wooden shield.
+12. Capture Rings do not overlap, and the Arena spawn system does not create an overlapping contest.
+13. A Mythling earns separately configured XP only from verified Shrine production, caps at level 100, and retains its Passive Trait and element after an Inventory-menu evolution validated by the server.
+14. A player at Mythling capacity cannot gain Capture Ring progress, and any blocked pickup, collection, or crafting start produces an inventory-capacity warning without granting the item.
+15. Arena weapons and shield impacts consume Stamina; Arena combat uses knockback, Shield behavior, and temporary knockback immunity, but never player health or death. Elemental weapon effects are post-launch.
+16. All Passive Traits affect production only, and cancelling a Crafting Job refunds all of its spent resources and Gold.
+17. A sword swing can report at most one target selected by visible blade contact; proximity without Tool activation cannot produce a hit, and the server cannot substitute an independently selected target.
+18. An accepted sword report produces immediate attacker feedback and one idempotent target-client launch while capture progress, contest resolution, and rewards remain server-authoritative.
+19. An Inventory sale validates the selected entry's ownership, metadata eligibility, quantity, and dependency state before atomically removing it and granting Gold; Mythling sales have no automatic final-copy protection.
+20. A combat consumable can be consumed only from a selected Hotbar slot in the Arena; the server applies and expires its temporary stacked effect.
 
 ## 12. Open decisions for later design passes
 
-- Exact starting-Gold amount, first-Shrine cost/unlock, Base upgrade path, and Crafting Station unlock path.
+- Exact starting-Gold amount, first-Shrine cost/unlock, Base-upgrade costs, and Crafting Station build costs/unlocks.
 - Numerical balance for spawn rates, capture/decay rates, Yield, Luck, capacities, upgrades, prices, and recipes.
 - Weapon and shield catalogue, effects, cooldowns, six-slot hotbar equip/loadout rules, Stamina costs, regeneration rate, and maximum Stamina.
 - Exact shop inventory and non-duplicate Gold sources, if needed after playtesting.
 - XP requirements, exact per-level Yield percentage, evolution target levels, and trait acquisition weights.
 - Mythling treats, combat health/attack, and a separate brawl/PvP mode.
 - Rare-resource recipes, scarcity, storage-unit costs, and enabled Lucky Yield outcome when that extension ships.
-- Event selection weights and the exact behavior when a server's hourly scheduled-event time arrives with no eligible event or no players.
-- Event Caller Game Pass price, caller-enabled event catalogue, and behavior when a caller attempts to start an event while another event is active.
 - Inventory capacity values by category and the permitted player actions for creating space.
