@@ -193,6 +193,58 @@ local function playHitBurst(character: Model, config: any)
 	destroyAfter(flash, 0.18)
 end
 
+local function playShieldBurst(character: Model, shield: Tool?)
+	local effectPart = if shield then shield:FindFirstChild("ShieldFace", true) else nil
+	if not (effectPart and effectPart:IsA("BasePart")) then
+		effectPart = getEffectPart(character)
+	end
+	if not effectPart then
+		return
+	end
+
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "ShieldImpactBurst"
+	attachment.Parent = effectPart
+
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Name = "ShieldImpactSparks"
+	emitter.Texture = HIT_TEXTURE
+	emitter.Rate = 0
+	emitter.Lifetime = NumberRange.new(0.25, 0.45)
+	emitter.Speed = NumberRange.new(7, 12)
+	emitter.Drag = 6
+	emitter.SpreadAngle = Vector2.new(160, 160)
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.RotSpeed = NumberRange.new(-120, 120)
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.32),
+		NumberSequenceKeypoint.new(1, 0.05),
+	})
+	emitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 218, 105), Color3.fromRGB(118, 225, 255))
+	emitter.LightEmission = 1
+	emitter.LightInfluence = 0
+	emitter.LockedToPart = false
+	emitter.Parent = attachment
+	emitter:Emit(22)
+
+	local flash = Instance.new("Highlight")
+	flash.Name = "ShieldImpactFlash"
+	flash.Adornee = shield or character
+	flash.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	flash.FillColor = Color3.fromRGB(255, 205, 72)
+	flash.FillTransparency = 0.7
+	flash.OutlineColor = Color3.fromRGB(135, 229, 255)
+	flash.OutlineTransparency = 0.05
+	flash.Parent = character
+
+	destroyAfter(attachment, 0.7)
+	destroyAfter(flash, 0.16)
+end
+
 local function acquireImpactSound(soundId: string): PooledImpactSound?
 	local pool = impactSoundPools[soundId]
 	if not pool then
@@ -405,6 +457,7 @@ combatVfxEvent.OnClientEvent:Connect(function(action: string, payload: any)
 		local angularVelocity = payload.angularVelocity
 		local hitId = payload.hitId
 		local launchDurationSeconds = payload.launchDurationSeconds
+		local preserveControl = payload.preserveControl == true
 		if character ~= localPlayer.Character
 			or typeof(launchVelocity) ~= "Vector3"
 			or typeof(angularVelocity) ~= "Vector3"
@@ -418,7 +471,8 @@ combatVfxEvent.OnClientEvent:Connect(function(action: string, payload: any)
 			hitId,
 			launchVelocity,
 			angularVelocity,
-			launchDurationSeconds
+			launchDurationSeconds,
+			preserveControl
 		)
 		return
 	end
@@ -455,6 +509,11 @@ combatVfxEvent.OnClientEvent:Connect(function(action: string, payload: any)
 	end
 	if action == "Landed" then
 		stopAirTrail(character, nil, true)
+		return
+	end
+	if action == "ShieldImpact" then
+		local shield = payload.shield
+		playShieldBurst(character, if shield and shield:IsA("Tool") then shield else nil)
 		return
 	end
 

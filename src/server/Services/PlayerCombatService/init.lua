@@ -3,11 +3,15 @@
 -- checks, then relays the positional effect without independently choosing another target.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
+local ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
+local CombatState = require(script.CombatState)
 local KnockdownUtil = require(script.KnockdownUtil)
 
 local log = LogUtil.For("PlayerCombatService")
@@ -18,6 +22,7 @@ local CombatVfxEvent: RemoteEvent? = nil
 local Arena: BasePart? = nil
 
 local nextHitAt: { [number]: number } = {}
+local nextShieldToggleAt: { [number]: number } = {}
 local lastHitSequence: { [number]: number } = {}
 local recoveryUntil: { [number]: number } = {}
 local recoveryTokens: { [number]: number } = {}
@@ -26,6 +31,7 @@ local nextHitId = 0
 local EPSILON = 0.001
 local MAX_SEQUENCE = 2147483647
 local MAX_SERVER_TOLERANCE_STUDS = 12
+local STATE_STEP_SECONDS = 0.1
 
 local function getAliveCharacter(player: Player): (Model?, Humanoid?, BasePart?)
 	local character = player.Character
@@ -41,31 +47,18 @@ local function getAliveCharacter(player: Player): (Model?, Humanoid?, BasePart?)
 	return character, humanoid, root
 end
 
-local function isInsideArena(position: Vector3, heightAllowanceStuds: number?): boolean
-	if not Arena then
-		return false
-	end
-
-	local localPosition = Arena.CFrame:PointToObjectSpace(position)
-	local radius = math.max(Arena.Size.X, Arena.Size.Z) * 0.5
-	local horizontalDistance = Vector2.new(localPosition.X, localPosition.Z).Magnitude
-	local heightAllowance = type(heightAllowanceStuds) == "number" and math.max(0, heightAllowanceStuds) or 0
-	return horizontalDistance <= radius
-		and math.abs(localPosition.Y) <= Arena.Size.Y * 0.5 + heightAllowance
-end
-
 local function getPlanarDirection(vector: Vector3, fallback: Vector3): Vector3
 	local planar = Vector3.new(vector.X, 0, vector.Z)
 	return if planar.Magnitude > EPSILON then planar.Unit else fallback
 end
 
-local function getEquippedMeleeTool(character: Model): (Tool?, any?)
+local function getEquippedCombatTool(character: Model, combatKind: string): (Tool?, any?)
 	local equippedTool: Tool? = nil
 	local equippedProfile = nil
 	for _, child in ipairs(character:GetChildren()) do
 		if child:IsA("Tool") then
 			local _, profile = WeaponsData.GetProfile(child)
-			if profile and profile.combatKind == "Melee" then
+			if profile and profile.combatKind == combatKind then
 				if equippedTool then
 					return nil, nil
 				end
@@ -75,6 +68,23 @@ local function getEquippedMeleeTool(character: Model): (Tool?, any?)
 		end
 	end
 	return equippedTool, equippedProfile
+end
+
+local function getConfiguredNumber(value: any, fallback: number, minimum: number, maximum: number): number
+	if type(value) ~= "number" or value ~= value then
+		return fallback
+	end
+	return math.clamp(value, minimum, maximum)
+end
+
+local function getImmunitySeconds(): number
+	local combat = WeaponsData and WeaponsData.Combat
+	return getConfiguredNumber(
+		type(combat) == "table" and combat.knockbackImmunitySeconds or nil,
+		0.65,
+		0,
+		5
+	)
 end
 
 local function sendRecovered(target: Player, character: Model, hitId: number)
@@ -180,6 +190,42 @@ local function applyImpact(
 	end)
 end
 
+local function applyShieldImpact(
+	attacker: Player,
+	attackerRoot: BasePart,
+	target: Player,
+	targetCharacter: Model,
+	targetRoot: BasePart,
+	shieldTool: Tool,
+	shieldProfile: any,
+	sequence: number
+)
+	local shield = shieldProfile.shield
+	local attackerForward = getPlanarDirection(attackerRoot.CFrame.LookVector, Vector3.new(0, 0, -1))
+	local direction = getPlanarDirection(targetRoot.Position - attackerRoot.Position, attackerForward)
+	local slideVelocity = direction
+		* getConfiguredNumber(shield.slidePlanarDeltaV, 16, 0, 60)
+	local controlSeconds = getConfiguredNumber(shield.slideControlSeconds, 0.1, 0.08, 0.25)
+
+	nextHitId += 1
+	if CombatVfxEvent then
+		CombatVfxEvent:FireClient(target, "ApplyKnockback", {
+			character = targetCharacter,
+			hitId = nextHitId,
+			launchVelocity = slideVelocity,
+			angularVelocity = Vector3.zero,
+			launchDurationSeconds = controlSeconds,
+			preserveControl = true,
+		})
+		CombatVfxEvent:FireAllClients("ShieldImpact", {
+			character = targetCharacter,
+			shield = shieldTool,
+			attackerUserId = attacker.UserId,
+			sequence = sequence,
+		})
+	end
+end
+
 local function handleHitReport(player: Player, payload: any)
 	if type(payload) ~= "table" then
 		return
@@ -207,7 +253,7 @@ local function handleHitReport(player: Player, payload: any)
 		return
 	end
 
-	local _, profile = getEquippedMeleeTool(attackerCharacter)
+	local _, profile = getEquippedCombatTool(attackerCharacter, "Melee")
 	if not profile then
 		return
 	end
@@ -215,13 +261,14 @@ local function handleHitReport(player: Player, payload: any)
 	local now = os.clock()
 	if sequence <= (lastHitSequence[player.UserId] or 0)
 		or now < (nextHitAt[player.UserId] or 0)
-		or now < (recoveryUntil[player.UserId] or 0) then
+		or now < (recoveryUntil[player.UserId] or 0)
+		or CombatState.IsImmune(target, now) then
 		return
 	end
 
 	if profile.arenaOnly ~= false
-		and (not isInsideArena(attackerRoot.Position, profile.arenaHeightAllowanceStuds)
-			or not isInsideArena(targetRoot.Position, profile.arenaHeightAllowanceStuds)) then
+		and (not ArenaBounds.Contains(Arena, attackerRoot.Position, profile.arenaHeightAllowanceStuds)
+			or not ArenaBounds.Contains(Arena, targetRoot.Position, profile.arenaHeightAllowanceStuds)) then
 		return
 	end
 
@@ -233,24 +280,109 @@ local function handleHitReport(player: Player, payload: any)
 		return
 	end
 
+	local attackStaminaCost = getConfiguredNumber(profile.staminaCost, 0, 0, 1000)
+	if not CombatState.TrySpendStamina(player, attackStaminaCost) then
+		return
+	end
+
 	lastHitSequence[player.UserId] = sequence
 	nextHitAt[player.UserId] = now + math.max(0.05, profile.swing.cooldownSeconds)
+	CombatState.GrantImmunity(target, getImmunitySeconds())
+
+	local shieldTool = CombatState.GetShieldTool(target)
+	if shieldTool and shieldTool.Parent == targetCharacter then
+		local _, shieldProfile = WeaponsData.GetProfile(shieldTool)
+		local shield = shieldProfile and shieldProfile.shield
+		local shieldCost = type(shield) == "table"
+			and getConfiguredNumber(shield.impactStaminaCost, 0, 0, 1000)
+			or math.huge
+		if shieldProfile
+			and shieldProfile.combatKind == "Shield"
+			and CombatState.TrySpendStamina(target, shieldCost) then
+			applyShieldImpact(
+				player,
+				attackerRoot,
+				target,
+				targetCharacter,
+				targetRoot,
+				shieldTool,
+				shieldProfile,
+				sequence
+			)
+			return
+		end
+	end
+
 	applyImpact(player, attackerRoot, target, targetCharacter, targetRoot, profile, sequence)
+end
+
+local function handleShieldToggle(player: Player, payload: any)
+	if type(payload) ~= "table" or type(payload.active) ~= "boolean" then
+		return
+	end
+
+	local active = payload.active
+	if not active then
+		CombatState.SetShieldActive(player, nil, false)
+		return
+	end
+
+	local character, humanoid, root = getAliveCharacter(player)
+	if not (character and humanoid and root) then
+		return
+	end
+
+	local tool, profile = getEquippedCombatTool(character, "Shield")
+	if not (tool and profile and type(profile.shield) == "table") then
+		return
+	end
+	if profile.arenaOnly ~= false
+		and not ArenaBounds.Contains(Arena, root.Position, profile.arenaHeightAllowanceStuds) then
+		return
+	end
+
+	local now = os.clock()
+	if now < (nextShieldToggleAt[player.UserId] or 0) then
+		return
+	end
+	nextShieldToggleAt[player.UserId] = now
+		+ getConfiguredNumber(profile.shield.toggleCooldownSeconds, 0.2, 0.05, 2)
+	CombatState.SetShieldActive(player, tool, true)
 end
 
 local function handleCombatEvent(player: Player, action: string?, payload: any)
 	if action == "HitReport" then
 		handleHitReport(player, payload)
+	elseif action == "ShieldToggle" then
+		handleShieldToggle(player, payload)
 	end
 end
 
 local function clearPlayerCombatState(player: Player, character: Model?)
 	nextHitAt[player.UserId] = nil
+	nextShieldToggleAt[player.UserId] = nil
 	lastHitSequence[player.UserId] = nil
 	recoveryUntil[player.UserId] = nil
 	recoveryTokens[player.UserId] = nil
+	CombatState.SetShieldActive(player, nil, false)
 	if character then
 		KnockdownUtil.Stop(character, nil, true)
+	end
+end
+
+local function maintainPlayerState(player: Player, now: number)
+	CombatState.Step(player, now)
+	local shieldTool = CombatState.GetShieldTool(player)
+	if not shieldTool then
+		return
+	end
+
+	local character, _, root = getAliveCharacter(player)
+	local _, profile = WeaponsData.GetProfile(shieldTool)
+	if not (character and root and shieldTool.Parent == character and profile and profile.combatKind == "Shield")
+		or (profile.arenaOnly ~= false
+			and not ArenaBounds.Contains(Arena, root.Position, profile.arenaHeightAllowanceStuds)) then
+		CombatState.SetShieldActive(player, nil, false)
 	end
 end
 
@@ -261,10 +393,12 @@ function PlayerCombatService.Init(context: any)
 	CombatEvent = context.Remotes.CombatEvent
 	CombatVfxEvent = context.Remotes.CombatVfxEvent
 	Arena = context.Instances.Arena
+	CombatState.Configure(WeaponsData.Combat)
 
 	CombatEvent.OnServerEvent:Connect(handleCombatEvent)
 
 	PlayerUtil.OnPlayer(function(player)
+		CombatState.AddPlayer(player)
 		player.CharacterRemoving:Connect(function(character)
 			clearPlayerCombatState(player, character)
 		end)
@@ -272,6 +406,20 @@ function PlayerCombatService.Init(context: any)
 
 	Players.PlayerRemoving:Connect(function(player)
 		clearPlayerCombatState(player, player.Character)
+		CombatState.RemovePlayer(player)
+	end)
+
+	local accumulated = 0
+	RunService.Heartbeat:Connect(function(deltaTime)
+		accumulated += deltaTime
+		if accumulated < STATE_STEP_SECONDS then
+			return
+		end
+		accumulated = 0
+		local now = os.clock()
+		for _, player in ipairs(Players:GetPlayers()) do
+			maintainPlayerState(player, now)
+		end
 	end)
 
 	log.info("Initialized")

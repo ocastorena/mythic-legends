@@ -27,7 +27,8 @@ function ClientKnockbackController.Apply(
 	hitId: number,
 	launchVelocity: Vector3,
 	angularVelocity: Vector3,
-	durationSeconds: number
+	durationSeconds: number,
+	preserveControl: boolean?
 ): boolean
 	if seenHitIds[hitId] then
 		return true
@@ -59,9 +60,11 @@ function ClientKnockbackController.Apply(
 	local token = nextToken
 	activeTokens[character] = token
 
-	humanoid.AutoRotate = false
-	humanoid.PlatformStand = true
-	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+	if not preserveControl then
+		humanoid.AutoRotate = false
+		humanoid.PlatformStand = true
+		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+	end
 
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "CombatLaunchAttachment"

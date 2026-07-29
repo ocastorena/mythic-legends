@@ -1,9 +1,18 @@
 -- ReplicatedStorage/Metadata/Weapons
 local Weapons = {
+	Combat = {
+		stamina = {
+			maximum = 100,
+			regenPerSecond = 18,
+		},
+		knockbackImmunitySeconds = 0.65,
+	},
+
 	-- Prefer WeaponId = "wooden_sword" on authored Tools. These aliases preserve the
 	-- temporary presentation asset and common display-name variants during migration.
 	ToolAliases = {
 		bat = "wooden_sword",
+		woodenshield = "wooden_shield",
 		woodensword = "wooden_sword",
 	},
 
@@ -17,6 +26,7 @@ local Weapons = {
 			weaponFamily = "Sword",
 			arenaOnly = true,
 			arenaHeightAllowanceStuds = 12,
+			staminaCost = 20,
 
 			swing = {
 				cooldownSeconds = 0.72,
@@ -71,6 +81,24 @@ local Weapons = {
 				airTrailBurstParticles = 8,
 			},
 		},
+
+		wooden_shield = {
+			displayName = "Wooden Shield",
+			rarity = "Common",
+			thumbnail = "",
+			description = "A sturdy starter shield. Toggle it to brace in place, absorb a hit, and slide back a short distance.",
+			combatKind = "Shield",
+			weaponFamily = "Shield",
+			arenaOnly = true,
+			arenaHeightAllowanceStuds = 12,
+
+			shield = {
+				toggleCooldownSeconds = 0.2,
+				impactStaminaCost = 30,
+				slidePlanarDeltaV = 16,
+				slideControlSeconds = 0.1,
+			},
+		},
 	},
 }
 
@@ -107,6 +135,16 @@ end
 function Weapons.IsMeleeTool(tool: Tool): boolean
 	local _, profile = Weapons.GetProfile(tool)
 	return profile ~= nil and profile.combatKind == "Melee"
+end
+
+function Weapons.IsShieldTool(tool: Tool): boolean
+	local _, profile = Weapons.GetProfile(tool)
+	return profile ~= nil and profile.combatKind == "Shield"
+end
+
+function Weapons.IsCombatTool(tool: Tool): boolean
+	local _, profile = Weapons.GetProfile(tool)
+	return profile ~= nil and (profile.combatKind == "Melee" or profile.combatKind == "Shield")
 end
 
 return Weapons

@@ -23,6 +23,7 @@ local CardListUtil = require(Ui:WaitForChild("CardListUtil"))
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
 local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
+local WeaponPreviewUtil = require(Ui:WaitForChild("WeaponPreviewUtil"))
 local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
 local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
 local WeaponsMeta = require(ReplicatedStorage.Metadata.Weapons)
@@ -356,13 +357,22 @@ local function weaponThumbnail(profile, entry): string
 	return entry.textureId or ""
 end
 
+local function setWeaponPreview(imageLabel: ImageLabel, profile, entry)
+	local thumbnail = weaponThumbnail(profile, entry)
+	WeaponPreviewUtil.Clear(imageLabel)
+	imageLabel.Image = thumbnail
+	if thumbnail == "" then
+		WeaponPreviewUtil.Render(imageLabel, entry.previewTool)
+	end
+end
+
 local weaponList = CardListUtil.new({
 	template = weaponsCardTemplate,
 	parent = weaponsFrame,
 	setHighlight = setRingHighlight,
 	decorate = function(card, id, entry)
 		local profile = WeaponsMeta.Profiles[id]
-		card:WaitForChild("2dPreview").Image = weaponThumbnail(profile, entry)
+		setWeaponPreview(card:WaitForChild("2dPreview"), profile, entry)
 		card.QuantityLabel.Text = entry.quantity > 1 and `x{entry.quantity}` or ""
 		card:SetAttribute("Rarity", profile.rarity or "Common")
 		PanelUtil.setCellRing(card, profile.rarity or "Common", false)
@@ -372,9 +382,9 @@ local weaponList = CardListUtil.new({
 		local profile = WeaponsMeta.Profiles[id]
 		local rarity = profile.rarity or "Common"
 		weaponInfo.NameLabel.Text = profile.displayName or titleCase(id)
-		weaponInfo.Art.Image = weaponThumbnail(profile, entry)
+		setWeaponPreview(weaponInfo.Art, profile, entry)
 		weaponInfo.ElementIcon.BackgroundColor3 = ThemeUtil.rarityColor(rarity)
-		weaponInfo.ElementIcon.Image = weaponThumbnail(profile, entry)
+		setWeaponPreview(weaponInfo.ElementIcon, profile, entry)
 		PanelUtil.setHeroRarity(weaponInfo, rarity)
 		weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.swing.cooldownSeconds)
 		weaponInfo.Stats[1].Label.Text = "Swing Cooldown"
@@ -666,11 +676,15 @@ local function collectWeapons()
 							quantity = 0,
 							equipped = false,
 							textureId = child.TextureId,
+							previewTool = child,
 						}
 						weapons[id] = entry
 					end
 					entry.quantity += 1
 					entry.equipped = entry.equipped or equipped
+					if equipped or not entry.previewTool.Parent then
+						entry.previewTool = child
+					end
 					if entry.textureId == "" then
 						entry.textureId = child.TextureId
 					end

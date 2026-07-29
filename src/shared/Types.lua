@@ -82,6 +82,13 @@ export type WeaponVfx = {
 	airTrailBurstParticles: number,
 }
 
+export type ShieldProfile = {
+	toggleCooldownSeconds: number,
+	impactStaminaCost: number,
+	slidePlanarDeltaV: number,
+	slideControlSeconds: number,
+}
+
 export type WeaponProfile = {
 	displayName: string,
 	rarity: string,
@@ -91,18 +98,29 @@ export type WeaponProfile = {
 	weaponFamily: string,
 	arenaOnly: boolean?,
 	arenaHeightAllowanceStuds: number?,
-	swing: WeaponSwing,
-	target: WeaponTarget,
-	impact: WeaponImpact,
+	staminaCost: number?,
+	swing: WeaponSwing?,
+	target: WeaponTarget?,
+	impact: WeaponImpact?,
+	shield: ShieldProfile?,
 	vfx: WeaponVfx?,
 }
 
 export type WeaponsMetadata = {
+	Combat: {
+		stamina: {
+			maximum: number,
+			regenPerSecond: number,
+		},
+		knockbackImmunitySeconds: number,
+	},
 	ToolAliases: { [string]: string },
 	Profiles: { [string]: WeaponProfile },
 	GetId: (Tool) -> string?,
 	GetProfile: (Tool) -> (string?, WeaponProfile?),
 	IsMeleeTool: (Tool) -> boolean,
+	IsShieldTool: (Tool) -> boolean,
+	IsCombatTool: (Tool) -> boolean,
 }
 
 -- The player document held by DataService.

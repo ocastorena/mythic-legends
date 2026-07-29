@@ -31,7 +31,9 @@ local Ui = Client:WaitForChild("Ui")
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
+local WeaponPreviewUtil = require(Ui:WaitForChild("WeaponPreviewUtil"))
 local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("CharacterUtil"))
+local WeaponsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
 
 -- Six slots, all of them on screen whether or not they hold anything. Roblox's hotbar is
 -- ten deep and hides the empties; a fixed six reads as a deliberate loadout rather than a
@@ -142,9 +144,8 @@ local function createSlot(index: number): Slot
 	local ring = ThemeUtil.ring(button, ThemeUtil.Accent.gold, 2)
 	ring.Transparency = 1
 
-	-- The tool's own TextureId, when it has one. Roblox's hotbar falls back to the tool
-	-- name and so does this: the Wooden Sword in StarterPack ships with an empty TextureId, so the
-	-- fallback is the path this game actually takes today, not a rare edge case.
+	-- Weapon metadata or the Tool's TextureId supplies authored 2D art. When both are empty,
+	-- WeaponPreviewUtil renders the actual Tool model and the initials remain a final fallback.
 	local icon = Instance.new("ImageLabel")
 	icon.Name = "Icon"
 	icon.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -231,19 +232,31 @@ local function bindSlot(slot: Slot, tool: Tool?)
 	slot.tool = tool
 
 	if not tool then
+		WeaponPreviewUtil.Clear(slot.icon)
+		slot.icon.Image = ""
 		slot.icon.Visible = false
 		slot.label.Visible = false
 		paintSlot(slot)
 		return
 	end
 
-	local texture = tool.TextureId
+	local _, profile = WeaponsMeta.GetProfile(tool)
+	local metadataThumbnail = profile and profile.thumbnail
+	local texture = if type(metadataThumbnail) == "string" and metadataThumbnail ~= ""
+		then metadataThumbnail
+		else tool.TextureId
+	WeaponPreviewUtil.Clear(slot.icon)
 	if texture ~= "" then
 		slot.icon.Image = texture
 		slot.icon.Visible = true
 		slot.label.Visible = false
+	elseif WeaponPreviewUtil.Render(slot.icon, tool) then
+		slot.icon.Image = ""
+		slot.icon.Visible = true
+		slot.label.Visible = false
 	else
 		-- Two letters is what fits legibly in a 44px slot at this weight.
+		slot.icon.Image = ""
 		slot.icon.Visible = false
 		slot.label.Text = string.upper(string.sub(tool.Name, 1, 2))
 		slot.label.Visible = true

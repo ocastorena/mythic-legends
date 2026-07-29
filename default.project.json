@@ -10,6 +10,9 @@
       },
       "Shared": {
         "$className": "Folder",
+        "ArenaBounds": {
+          "$path": "src/shared/ArenaBounds.lua"
+        },
         "Types": {
           "$path": "src/shared/Types.lua"
         }

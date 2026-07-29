@@ -9,6 +9,7 @@ local RunService = game:GetService("RunService")
 
 local CharacterUtil = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("Character"):WaitForChild("CharacterUtil"))
 local combatPresentationBus = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("CombatPresentationBus"))
+local ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
 local weaponsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
 
 local combatEvent: RemoteEvent = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CombatEvent")
@@ -25,6 +26,7 @@ type SwingState = {
 	profile: any,
 	sequence: number,
 	track: AnimationTrack,
+	contactWindowStarted: boolean,
 	windowOpen: boolean,
 	hitReported: boolean,
 	finished: boolean,
@@ -36,10 +38,42 @@ local bindings: { [Tool]: ToolBinding } = {}
 local activeSwing: SwingState? = nil
 local nextLocalSwingAt = 0
 local nextSwingSequence = 0
+local cachedArena: BasePart? = nil
 
 local BLADE_SWEEP_SAMPLES = 6
 local MAX_OVERLAP_PARTS = 100
 local HITBOX_PADDING = Vector3.new(0.1, 0.1, 0.1)
+
+local function hasEnoughStamina(cost: any): boolean
+	if type(cost) ~= "number" or cost <= 0 then
+		return true
+	end
+
+	local stamina = localPlayer:GetAttribute("CombatStamina")
+	return type(stamina) ~= "number" or stamina + 0.001 >= cost
+end
+
+local function getArena(): BasePart?
+	if cachedArena and cachedArena.Parent then
+		return cachedArena
+	end
+
+	local map = workspace:FindFirstChild("Map")
+	local arena = map and map:FindFirstChild("Arena")
+	cachedArena = if arena and arena:IsA("BasePart") then arena else nil
+	return cachedArena
+end
+
+local function isCharacterInCombatArea(character: Model, profile: any): boolean
+	if profile.arenaOnly == false then
+		return true
+	end
+
+	local root = character:FindFirstChild("HumanoidRootPart")
+	return root ~= nil
+		and root:IsA("BasePart")
+		and ArenaBounds.Contains(getArena(), root.Position, profile.arenaHeightAllowanceStuds)
+end
 
 local function getPlayerFromDescendant(instance: Instance): Player?
 	local ancestor: Instance? = instance
@@ -135,10 +169,11 @@ local function findBladeContact(
 	for target, score in pairs(candidateScores) do
 		local targetCharacter = target.Character
 		local humanoid = targetCharacter and targetCharacter:FindFirstChildOfClass("Humanoid")
-		if humanoid
-			and humanoid.Health > 0
-			and targetCharacter
-			and score < bestScore
+			if humanoid
+				and humanoid.Health > 0
+				and targetCharacter
+				and isCharacterInCombatArea(targetCharacter, state.profile)
+				and score < bestScore
 			and (not state.profile.target.requireLineOfSight
 				or hasLocalLineOfSight(state.character, targetCharacter)) then
 			bestTarget = target
@@ -211,10 +246,14 @@ local function applyHitStop(state: SwingState)
 end
 
 local function openContactWindow(state: SwingState)
-	if state.finished or state.windowOpen or activeSwing ~= state then
+	if state.finished
+		or state.contactWindowStarted
+		or activeSwing ~= state
+		or not isCharacterInCombatArea(state.character, state.profile) then
 		return
 	end
 
+	state.contactWindowStarted = true
 	local bladeParts = getSwordHitboxParts(state.tool)
 	if #bladeParts == 0 then
 		finishSwing(state)
@@ -237,6 +276,7 @@ local function openContactWindow(state: SwingState)
 			and not state.finished
 			and activeSwing == state
 			and state.tool.Parent == state.character
+			and isCharacterInCombatArea(state.character, state.profile)
 			and os.clock() <= activeUntil do
 			RunService.RenderStepped:Wait()
 			local target = findBladeContact(state, bladeParts, previousPartCFrames)
@@ -299,7 +339,9 @@ local function startSwing(tool: Tool)
 	if not humanoid
 		or humanoid.Health <= 0
 		or humanoid.PlatformStand
-		or humanoid:GetState() == Enum.HumanoidStateType.Physics then
+		or humanoid:GetState() == Enum.HumanoidStateType.Physics
+		or not hasEnoughStamina(profile.staminaCost)
+		or not isCharacterInCombatArea(character, profile) then
 		return
 	end
 
@@ -325,6 +367,7 @@ local function startSwing(tool: Tool)
 		profile = profile,
 		sequence = nextSwingSequence,
 		track = track,
+		contactWindowStarted = false,
 		windowOpen = false,
 		hitReported = false,
 		finished = false,
@@ -374,8 +417,19 @@ local function unbindTool(tool: Tool)
 	bindings[tool] = nil
 end
 
-local function bindMeleeTool(tool: Tool)
-	if bindings[tool] or not weaponsData.IsMeleeTool(tool) then
+local function toggleShield(tool: Tool, profile: any)
+	local character = localPlayer.Character
+	if not (character and tool.Parent == character and isCharacterInCombatArea(character, profile)) then
+		return
+	end
+
+	combatEvent:FireServer("ShieldToggle", {
+		active = localPlayer:GetAttribute("ShieldActive") ~= true,
+	})
+end
+
+local function bindCombatTool(tool: Tool)
+	if bindings[tool] or not weaponsData.IsCombatTool(tool) then
 		return
 	end
 
@@ -387,7 +441,23 @@ local function bindMeleeTool(tool: Tool)
 	setTrailEnabled(tool, false)
 
 	table.insert(binding.connections, tool.Activated:Connect(function()
-		startSwing(tool)
+		local _, profile = weaponsData.GetProfile(tool)
+		if not profile then
+			return
+		end
+		if profile.combatKind == "Melee" then
+			startSwing(tool)
+		elseif profile.combatKind == "Shield" then
+			toggleShield(tool, profile)
+		end
+	end))
+	table.insert(binding.connections, tool.Unequipped:Connect(function()
+		local _, profile = weaponsData.GetProfile(tool)
+		if profile and profile.combatKind == "Shield" and localPlayer:GetAttribute("ShieldActive") == true then
+			combatEvent:FireServer("ShieldToggle", {
+				active = false,
+			})
+		end
 	end))
 	table.insert(binding.connections, tool.AncestryChanged:Connect(function(_, parent)
 		if parent == nil then
@@ -412,13 +482,13 @@ CharacterUtil.OnCharacter(function(character)
 
 	character.ChildAdded:Connect(function(child)
 		if child:IsA("Tool") then
-			bindMeleeTool(child)
+			bindCombatTool(child)
 		end
 	end)
 
 	for _, existing in ipairs(character:GetChildren()) do
 		if existing:IsA("Tool") then
-			bindMeleeTool(existing)
+			bindCombatTool(existing)
 		end
 	end
 end)
