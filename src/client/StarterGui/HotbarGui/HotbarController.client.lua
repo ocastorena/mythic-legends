@@ -286,6 +286,10 @@ end
 --- Equips the slot's tool, or stows it if it is already out. Roblox's hotbar toggles on a
 --- second press of the same key and this matches.
 local function activateSlot(index: number)
+	if ModalUtil.AnyOpen() then
+		return
+	end
+
 	local slot = slots[index]
 	local tool = slot and slot.tool
 	if not tool then
@@ -303,6 +307,15 @@ local function activateSlot(index: number)
 		humanoid:EquipTool(tool)
 	end
 end
+
+-- A modal panel owns pointer, touch, keyboard and gamepad input while open. Keyboard
+-- activation is also guarded below, while Interactable prevents pointer/touch selection
+-- from reaching individual slots behind the panel.
+ModalUtil.OnChanged(function(anyPanelOpen)
+	for _, slot in ipairs(slots) do
+		slot.button.Interactable = not anyPanelOpen
+	end
+end)
 
 for index, slot in ipairs(slots) do
 	ButtonUtil.hookClick(slot.button, function()

@@ -53,6 +53,15 @@
         "$ignoreUnknownInstances": true,
         "$path": "src/client/StarterGui/InventoryGui"
       },
+      "ShopGui": {
+        "$className": "ScreenGui",
+        "$ignoreUnknownInstances": true,
+        "$path": "src/client/StarterGui/ShopGui",
+        "$properties": {
+          "Enabled": false,
+          "ResetOnSpawn": false
+        }
+      },
       "StandGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,

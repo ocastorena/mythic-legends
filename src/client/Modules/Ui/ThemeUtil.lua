@@ -38,8 +38,9 @@ ThemeUtil.Surface = {
 	scrim = surface("0a1222", 0.45),
 	-- Lore/confirm modals sit above a panel, so they are nearly opaque.
 	modal = surface("181a20", 0.98),
-	-- Grid cells and other inset fills.
-	cell = surface("ffffff", 0.08),
+	-- Grid cards: a distinct slate well so transparent 3D previews separate from the panel.
+	cell = surface("252c3a", 0.96),
+	cellSelected = surface("30394a", 0.98),
 	-- An empty grid slot: the same inset, weaker.
 	cellEmpty = surface("ffffff", 0.04),
 	-- A locked grid cell reads as a hole rather than a fill.
@@ -317,6 +318,8 @@ end
 local PANEL_MARGIN = 8
 -- On a phone the card only keeps a margin at the top, clear of Roblox's bar.
 local PANEL_TOP_MARGIN = 4
+-- Match the physical bottom gap used by the custom hotbar.
+local PANEL_PHONE_BOTTOM_MARGIN = ThemeUtil.Platform.topbarEdgePadding
 -- The doc's fixed card height, kept as-is for tablet and desktop.
 local PANEL_HEIGHT = 470
 
@@ -342,7 +345,12 @@ function ThemeUtil.panelSize(viewport: Vector2): UDim2
 
 	if ThemeUtil.isPhone(viewport) then
 		local insets = ThemeUtil.safeInsets()
-		return UDim2.new(1, -(insets.left + insets.right), 1, -(insets.top + PANEL_TOP_MARGIN))
+		return UDim2.new(
+			1,
+			-(insets.left + insets.right),
+			1,
+			-(insets.top + PANEL_TOP_MARGIN + PANEL_PHONE_BOTTOM_MARGIN)
+		)
 	end
 
 	-- Never taller than the usable area: the doc's fixed height overflows on short-but-not-
@@ -355,15 +363,18 @@ end
 --- Where the panel card sits inside its ScreenGui.
 ---
 --- Phones bottom-anchor it so it runs flush to the physical bottom edge and spend their one
---- margin at the top, where Roblox's bar is. Larger screens centre it, as the design canvas
---- shows, which is what looks right once the card no longer fills the view.
+-- margin at the top, where Roblox's bar is. Larger screens centre between the bottom of
+-- Roblox's top HUD and the top of the hotbar rather than against the whole remaining canvas.
 function ThemeUtil.panelPlacement(viewport: Vector2): (Vector2, UDim2)
 	-- Pinned to the left safe edge rather than centred, so an asymmetric inset (a notch on
 	-- one side in landscape) still lands the card inside the safe band.
 	if ThemeUtil.isPhone(viewport) then
-		return Vector2.new(0, 1), UDim2.new(0, ThemeUtil.safeInsets().left, 1, 0)
+		return Vector2.new(0, 1),
+			UDim2.new(0, ThemeUtil.safeInsets().left, 1, -PANEL_PHONE_BOTTOM_MARGIN)
 	end
-	return Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+
+	local hotbarHeight = ThemeUtil.Metric.hotbarSlot + ThemeUtil.Platform.topbarEdgePadding
+	return Vector2.new(0.5, 0.5), UDim2.new(0.5, 0, 0.5, -hotbarHeight / 2)
 end
 
 --- What the device reserves around the screen: notch/rounded corners at the sides, the home
@@ -457,11 +468,17 @@ end
 
 --- Width of the details column, and the cap on its 16:9 hero frame.
 function ThemeUtil.detailWidth(viewport: Vector2): number
-	return viewport.Y < 500 and 264 or 300
+	if viewport.Y < 500 then
+		return 264
+	end
+	return viewport.X >= 1300 and 400 or 300
 end
 
 function ThemeUtil.artMaxHeight(viewport: Vector2): number
-	return viewport.Y < 500 and 134 or 150
+	if viewport.Y < 500 then
+		return 134
+	end
+	return viewport.X >= 1300 and 195 or 150
 end
 
 --------------------------------------------------------------------------------

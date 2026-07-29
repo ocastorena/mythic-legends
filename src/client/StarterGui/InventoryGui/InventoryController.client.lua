@@ -21,6 +21,7 @@ local Ui = ReplicatedStorage:WaitForChild("Client"):WaitForChild("Ui")
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local CardListUtil = require(Ui:WaitForChild("CardListUtil"))
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
+local MythlingPreviewUtil = require(Ui:WaitForChild("MythlingPreviewUtil"))
 local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
 local WeaponPreviewUtil = require(Ui:WaitForChild("WeaponPreviewUtil"))
@@ -84,6 +85,9 @@ local panel = PanelUtil.panel({
 	parent = inventoryGui,
 	title = "Inventory",
 	titleIcon = INVENTORY_ICON,
+	-- This asset contains more transparent margin than the Shop icon, so its image box
+	-- must be larger for both header glyphs to have the same apparent size.
+	titleIconSize = 34,
 	tabs = { "Mythlings", "Weapons", "Items", "Resources" },
 	size = inventoryPanelSize,
 	-- No coin pill here. §08 puts one in every panel header, but the HUD's pill stays lit
@@ -273,6 +277,7 @@ local function clearMythlingInfo()
 	mythlingInfo.NameLabel.Text = ""
 	mythlingInfo.RarityLabel.Text = ""
 	mythlingInfo.Art.Image = ""
+	MythlingPreviewUtil.Clear(mythlingInfo.Art)
 	for _, stat in ipairs(mythlingInfo.Stats) do
 		stat.Value.Text = "—"
 		stat.Label.Text = ""
@@ -285,7 +290,10 @@ local mythlingList = CardListUtil.new({
 	setHighlight = setRingHighlight,
 	decorate = function(card, _id, entry)
 		local metadata = MythlingsData[entry.typeId]
-		card:WaitForChild("2dPreview").Image = metadata.variants[entry.variantId].thumbnail
+		local variant = metadata.variants[entry.variantId]
+		local preview = card:WaitForChild("2dPreview")
+		preview.Image = ""
+		MythlingPreviewUtil.Render(preview, variant.model, entry.variantId)
 		-- Read back by setRingHighlight, which only receives the card.
 		card:SetAttribute("Rarity", metadata.rarity)
 		PanelUtil.setCellRing(card, metadata.rarity, false)
@@ -299,9 +307,11 @@ local mythlingList = CardListUtil.new({
 	onSelect = function(_id, entry)
 		local metadata = MythlingsData[entry.typeId]
 		local resource = ResourcesMeta[metadata.production.resourceId]
+		local variant = metadata.variants[entry.variantId]
 
 		mythlingInfo.NameLabel.Text = metadata.displayName
-		mythlingInfo.Art.Image = metadata.variants[entry.variantId].thumbnail
+		mythlingInfo.Art.Image = ""
+		MythlingPreviewUtil.Render(mythlingInfo.Art, variant.model, entry.variantId)
 		PanelUtil.setHeroRarity(mythlingInfo, metadata.rarity)
 
 		-- This game has no elements; a mythling's identity colour is the resource it
@@ -386,12 +396,27 @@ local weaponList = CardListUtil.new({
 		weaponInfo.ElementIcon.BackgroundColor3 = ThemeUtil.rarityColor(rarity)
 		setWeaponPreview(weaponInfo.ElementIcon, profile, entry)
 		PanelUtil.setHeroRarity(weaponInfo, rarity)
-		weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.swing.cooldownSeconds)
-		weaponInfo.Stats[1].Label.Text = "Swing Cooldown"
-		weaponInfo.Stats[2].Value.Text = string.format("%.2f", profile.target.reachStuds)
-		weaponInfo.Stats[2].Label.Text = "Reach (studs)"
-		weaponInfo.Stats[3].Value.Text = tostring(profile.impact.planarDeltaV)
-		weaponInfo.Stats[3].Label.Text = "Knockback"
+
+		if profile.combatKind == "Shield" and profile.shield then
+			weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.shield.toggleCooldownSeconds or 0)
+			weaponInfo.Stats[1].Label.Text = "Toggle Cooldown"
+			weaponInfo.Stats[2].Value.Text = string.format("%.0f°", profile.shield.blockArcDegrees or 0)
+			weaponInfo.Stats[2].Label.Text = "Block Arc"
+			weaponInfo.Stats[3].Value.Text = tostring(profile.shield.slidePlanarDeltaV or 0)
+			weaponInfo.Stats[3].Label.Text = "Block Slide"
+		elseif profile.swing and profile.target and profile.impact then
+			weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.swing.cooldownSeconds or 0)
+			weaponInfo.Stats[1].Label.Text = "Swing Cooldown"
+			weaponInfo.Stats[2].Value.Text = string.format("%.2f", profile.target.reachStuds or 0)
+			weaponInfo.Stats[2].Label.Text = "Reach (studs)"
+			weaponInfo.Stats[3].Value.Text = tostring(profile.impact.planarDeltaV or 0)
+			weaponInfo.Stats[3].Label.Text = "Knockback"
+		else
+			for _, stat in ipairs(weaponInfo.Stats) do
+				stat.Value.Text = "—"
+				stat.Label.Text = ""
+			end
+		end
 	end,
 })
 
@@ -752,12 +777,15 @@ PanelUtil.rescaleText(inventoryGui, panel.Root)
 -- another GUI, and anything else that wants the inventory open just sets this flag.
 inventoryGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if inventoryGui.Enabled then
+		-- Claim the shared backdrop before any yielding server requests. During a direct
+		-- Shop -> Inventory handoff, delaying this until after data refresh briefly left
+		-- ModalUtil with no owners and flashed the world for one frame.
+		ModalUtil.Open(PANEL_NAME)
 		mythlingList:Replace(MythlingsRequest:InvokeServer("GetMythlings"))
 		weaponList:Replace(collectWeapons())
 		itemList:Replace(InventoryRequest:InvokeServer("GetItems"))
 		resourceList:Replace(ResourcesRequest:InvokeServer("GetResources"))
 		selectTab(mythlingsTab)
-		ModalUtil.Open(PANEL_NAME)
 	else
 		loreModal:Close()
 		closeConfirmDeleteModal()

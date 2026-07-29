@@ -52,7 +52,8 @@ Arena capture is launch PvP, but it is **non-lethal positional PvP**: the goal i
 | Shield | Arena equipment that protects against or reduces positional knockback. |
 | Equipment | The inventory category for weapons, including shields. |
 | Crafting Station | A base building that runs a level-limited queue of time-based crafting jobs. |
-| Hotbar | The player's six equipment slots, including the default weapon and shield. |
+| Combat Loadout | The player's separately equipped Primary Weapon and Shield. |
+| Hotbar | The player's six slots for combat consumables and future approved items; it does not hold weapons or Shields. |
 | Stamina | A player resource consumed by arena weapon actions and by shield impacts; it recovers gradually over time. |
 
 Do not use *forge*, *altar*, or *pet* as alternative names for shrines or Mythlings in player-facing text.
@@ -100,15 +101,17 @@ Players spawn at their own Base. From there, they may immediately enter the Aren
 
 - Launch movement uses only Roblox's standard walking and jumping. There is no sprint, dash, crouch, climbing ability, or other movement action.
 - The game uses Roblox's default third-person follow camera. There is no camera lock or aim mode at launch.
-- **Mobile:** the left thumb controls movement; the right side controls camera drag and the primary arena action for the selected hotbar equipment.
-- **Keyboard:** number keys `1` through `6` select the corresponding Hotbar slot.
-- **Gamepad:** D-pad left and right cycle Hotbar selection; the primary action button uses the selected equipment.
-- Players may leave every Hotbar slot empty or equip up to six weapons or items. Shields are weapons for Hotbar purposes.
+- **Mobile:** the left thumb controls movement; the right side controls camera drag, a dedicated Attack button, and a dedicated Shield button.
+- **Keyboard/mouse:** primary attack uses the normal weapon input; a dedicated Shield input toggles the equipped Shield. Number keys `1` through `6` select the corresponding Hotbar slot.
+- **Gamepad:** right trigger attacks with the equipped Primary Weapon; left trigger toggles the equipped Shield; D-pad left and right cycle Hotbar selection.
+- The Combat Loadout has one Primary Weapon slot and one Shield slot. Players choose these in the Inventory menu; Combat Loadout equipment never occupies a Hotbar slot.
+- Both Combat Loadout items are visibly equipped on the player character while in the Arena. Outside the Arena, they remain equipped in saved state but their character models are hidden and their actions are unavailable.
+- Players may leave every Hotbar slot empty or equip up to six combat consumables or future approved items. Hotbar selection never changes the equipped Primary Weapon or Shield.
 
-- Every new player receives a plain wooden sword and wooden shield. The player hotbar has six equipment slots.
+- Every new player receives a plain wooden sword and wooden shield in their Combat Loadout. The Hotbar has six item slots.
 - The Hotbar is displayed along the bottom of the screen, consistent with familiar Roblox inventory placement.
 - The HUD provides Inventory and Shop buttons. Players access Base, Shrine, and Crafting Station interactions through nearby Proximity Prompts.
-- Gold, the six-slot Hotbar, Inventory button, and Shop button are always visible. Stamina is visible only while the player is in the Arena.
+- Gold, the six-slot Hotbar, Inventory button, and Shop button are always visible. Arena UI also exposes the dedicated Attack and Shield controls; Stamina is visible only while the player is in the Arena.
 - Capture progress is displayed as a world-space meter above the contested Mythling. Arena actions must be reachable while moving and must not require precise taps on a Mythling.
 - All important capture state is communicated through legible ring, progress, and ownership indicators; color is never the only signal.
 - Live events must respect Reduce Motion and sound settings. Reduce Motion replaces screen shake and flashing with static, non-flashing notifications.
@@ -143,7 +146,9 @@ Players spawn at their own Base. From there, they may immediately enter the Aren
 
 ### MVP player combat system
 
-Launch combat is Arena-only and non-lethal. A player has one selected Hotbar item at a time: a selected weapon can attack, while a selected Shield can protect. Launch weapons and Shields are non-elemental material tiers, including wood, copper, steel, and future configured material tiers. Elemental weapons and effects are post-launch content.
+Launch combat is Arena-only and non-lethal. A player attacks with their equipped Primary Weapon and may independently toggle their equipped Shield; neither occupies a Hotbar slot. Launch weapons and Shields are non-elemental material tiers, including wood, copper, steel, and future configured material tiers. Elemental weapons and effects are post-launch content.
+
+Entering the Arena displays the player's equipped Primary Weapon and Shield on their character and enables their Arena actions. Leaving the Arena hides both models and disables weapon activation and Shield toggling without changing the saved Combat Loadout.
 
 The launch sword uses a deliberately client-reported melee architecture. This is an accepted MVP tradeoff: responsive, visually accurate combat in live servers is more important than making sword contact fully exploit-resistant. The server validates the report before relaying the reaction and remains authoritative wherever combat affects capture state, ownership, rewards, inventory, or the economy.
 
@@ -162,7 +167,7 @@ The server does not independently scan an arc, rewind player positions, replace 
 
 Before accepting a `HitReport`, the server verifies:
 
-- The attacker has the reported supported melee weapon selected.
+- The attacker owns the reported supported melee weapon and has it equipped as their Primary Weapon in the Combat Loadout.
 - The attacker and reported target are distinct playable characters.
 - Both characters satisfy the Arena-only rule for that weapon.
 - The swing sequence matches the attacker's latest unconsumed server-authorized activation.
@@ -180,7 +185,7 @@ On acceptance, the server consumes the authorization without deducting Stamina a
 
 #### Shield actions
 
-- A Shield is a weapon for Hotbar purposes and must be the player's selected item to activate it.
+- A Shield is separately equipped in the Shield slot of the Combat Loadout and may be toggled without changing Hotbar selection.
 - One Shield-action press toggles the Shield active or inactive.
 - While a Shield is active, its player cannot move.
 - With sufficient Stamina, an active Shield absorbs an incoming weapon hit. It drains Stamina, slides the Shield user back slightly, and grants temporary knockback immunity.
@@ -188,7 +193,7 @@ On acceptance, the server consumes the authorization without deducting Stamina a
 
 #### Security boundary
 
-Because the attacking client chooses the target, an exploit can fabricate plausible sword reports within the server's distance, cooldown, selected-equipment, Stamina, immunity, and Arena checks. This risk is accepted for the MVP and must be revisited if competitive stakes increase. Lightweight rate monitoring and server telemetry may be added without restoring an independent server hit scan.
+Because the attacking client chooses the target, an exploit can fabricate plausible sword reports within the server's distance, cooldown, Combat Loadout, Stamina, immunity, and Arena checks. This risk is accepted for the MVP and must be revisited if competitive stakes increase. Lightweight rate monitoring and server telemetry may be added without restoring an independent server hit scan.
 
 The client-reported exception ends at the positional combat reaction. Capture Ring membership, capture meters, contest resolution, Mythling awards, Stamina consumption, shield eligibility, persistent progression, and all rewards remain server-authoritative.
 
@@ -276,7 +281,7 @@ First-release consumables are temporary combat buffs only. A player must equip a
 - Selling duplicate Mythlings is the main early-game source of Gold.
 - Selling is initiated from a selected Inventory-menu entry, not from the Shop. The Shop is for purchases and upgrades.
 - Every sellable inventory definition declares its sell eligibility and Gold value in metadata. Entries not marked sellable have no Sell action.
-- A player may choose the quantity to sell from a stackable entry. An equipped, assigned, or queued entry must be unequipped, unassigned, or cancelled before it can be sold.
+- A player may choose the quantity to sell from a stackable entry. An entry equipped in the Combat Loadout or Hotbar, assigned to a Shrine, or queued in crafting must be unequipped, unassigned, or cancelled before it can be sold.
 - Mythlings may be sold even when they are the player's last owned copy of that Mythling; there is no automatic final-copy protection.
 - The server validates ownership, sell eligibility, stack quantity, and dependency state, then removes the entry and grants Gold as one atomic transaction.
 - Gold is spent in the Shop and as part of Shrine upgrades.
@@ -353,7 +358,8 @@ currency.gold           -- uncapped mutable Gold balance
 resources[resourceId]   -- quantity only; stack rules come from Resource metadata
 items[itemIdOrInstanceId] -- itemId, quantity or approved unique mutable state
 equipment[instanceId]   -- itemId and approved unique mutable state
-hotbar[1..6]            -- optional references to owned item/equipment entries
+combatLoadout           -- optional primaryWeaponInstanceId and shieldInstanceId
+hotbar[1..6]            -- optional references to owned consumable/future-item entries
 mythlings[instanceId]   -- owned Mythling schema below
 base                    -- Base upgrade state and built-structure records
 craftingJobs[jobId]     -- active/queued Crafting Job schema below
@@ -387,14 +393,14 @@ Evolution updates `mythlingId` to the evolved form's metadata ID. The saved entr
 | Mythling form | `mythlingId`, name, element, rarity, visuals, base Yield/Luck ranges, level scaling, Trait weights, fixed evolution target, Arena eligibility and capture tuning | Owned instance ID, current `mythlingId`, level, XP, rolled Luck, `traitId`, acquisition/assignment data | Spawned contest, per-player capture meters, despawn timing |
 | Passive Trait | `traitId`, eligibility, rarity-pool weight, trigger, numerical effect | Owned Mythling's `traitId` only | Applied production modifier when eligible |
 | Resource | `resourceId`, element, display data, stack limit, sell value, crafting use | Quantity by `resourceId` | World pickup/claim state, if introduced in an approved system |
-| Item, weapon, Shield, combat consumable | `itemId`, category, visuals, effect, stack limit, sell eligibility/value, recipe, cooldown, buff duration/stack cap | Stack or owned-instance quantity; Hotbar references; approved unique mutable state | Equipped selection, cooldowns, active temporary buffs, Shield state |
+| Item, weapon, Shield, combat consumable | `itemId`, category, visuals, effect, stack limit, sell eligibility/value, recipe, cooldown, buff duration/stack cap | Stack or owned-instance quantity; Combat Loadout and Hotbar references; approved unique mutable state | Equipped selection, cooldowns, active temporary buffs, Shield state |
 | Gold | None beyond balance presentation/configuration | Uncapped `currency.gold` balance | None |
 | Base | Upgrade definitions, build-slot grants, costs, eligible structures | Base upgrade state and constructed-structure records | Spawned Base model references |
 | Shrine | `shrineId`, element, output resource, capacities, slots, multipliers, upgrade costs | Instance ID, level, stored output, last accrual time, assigned Mythling IDs | Current production resolution during accrual/collection |
 | Crafting Station | `craftingStationId`, queue capacity by level, costs, eligible recipes | Instance ID and level | Current menu/session references |
 | Recipe and Crafting Job | `recipeId`, inputs, Gold cost, result, duration, unlock requirement | Job ID, recipe/station IDs, status, start/completion time, reserved output | Completion scheduling while a server is live |
 | Arena spawn rules | Rarity-weighted pool, active cap, positions, lifetime, capture rates | None | Active spawned Mythlings and Capture Rings |
-| Player combat | Weapon/Shields/consumable tuning and animation/VFX references | Equipment ownership and Hotbar assignment only | Stamina, hit sequence/recent hit IDs, immunity, cooldowns, active Shield, knockback and combat buffs |
+| Player combat | Weapon/Shields/consumable tuning and animation/VFX references | Equipment ownership, Combat Loadout, and Hotbar assignment | Stamina, hit sequence/recent hit IDs, immunity, cooldowns, active Shield, knockback and combat buffs |
 
 Other inventory entries follow the same rule: store an instance ID, a metadata ID, and only mutable state such as quantity, durability, acquisition data, equipped state, or unique rolled values.
 
@@ -429,12 +435,14 @@ The server validates every client request that changes inventory, currency, equi
 18. An accepted sword report produces immediate attacker feedback and one idempotent target-client launch while capture progress, contest resolution, and rewards remain server-authoritative.
 19. An Inventory sale validates the selected entry's ownership, metadata eligibility, quantity, and dependency state before atomically removing it and granting Gold; Mythling sales have no automatic final-copy protection.
 20. A combat consumable can be consumed only from a selected Hotbar slot in the Arena; the server applies and expires its temporary stacked effect.
+21. A player can attack with their equipped Primary Weapon and toggle their equipped Shield without changing Hotbar selection; weapons and Shields never occupy Hotbar slots.
+22. Combat Loadout models are visible and usable only in the Arena; leaving the Arena hides and disables them without unequipping them.
 
 ## 12. Open decisions for later design passes
 
 - Exact starting-Gold amount, first-Shrine cost/unlock, Base-upgrade costs, and Crafting Station build costs/unlocks.
 - Numerical balance for spawn rates, capture/decay rates, Yield, Luck, capacities, upgrades, prices, and recipes.
-- Weapon and shield catalogue, effects, cooldowns, six-slot hotbar equip/loadout rules, Stamina costs, regeneration rate, and maximum Stamina.
+- Weapon and shield catalogue, effects, cooldowns, exact Hotbar-consumable activation bindings, Stamina costs, regeneration rate, and maximum Stamina.
 - Exact shop inventory and non-duplicate Gold sources, if needed after playtesting.
 - XP requirements, exact per-level Yield percentage, evolution target levels, and trait acquisition weights.
 - Mythling treats, combat health/attack, and a separate brawl/PvP mode.

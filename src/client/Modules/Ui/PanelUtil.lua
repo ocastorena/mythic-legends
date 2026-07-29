@@ -336,6 +336,8 @@ export type PanelConfig = {
 	size: ((Vector2) -> UDim2)?,
 	-- Left-hand identity glyph. An image id, or nil for a title-only header.
 	titleIcon: string?,
+	-- Optional image box size for artwork with built-in transparent margins.
+	titleIconSize: number?,
 	-- Draws the glyph as a filled element disc rather than a flat icon (the shrine header).
 	iconColor: Color3?,
 	-- Tab labels, centered in the header. Omit for a panel with no tabs.
@@ -436,7 +438,8 @@ function PanelUtil.panel(config: PanelConfig): Panel
 			ThemeUtil.pill(icon)
 			ThemeUtil.padding(icon, 7, 7, 7, 7)
 		else
-			icon.Size = UDim2.fromOffset(20, 20)
+			local iconSize = config.titleIconSize or 20
+			icon.Size = UDim2.fromOffset(iconSize, iconSize)
 			icon.BackgroundTransparency = 1
 			icon.ImageColor3 = accent
 		end
@@ -594,7 +597,7 @@ function PanelUtil.grid(parent: Instance): ScrollingFrame
 
 	local layout = Instance.new("UIGridLayout")
 	layout.CellPadding = UDim2.fromOffset(Metric.cellGap, Metric.cellGap)
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = scroll
 
@@ -652,6 +655,17 @@ function PanelUtil.cellTemplate(config: CellConfig): ImageButton
 	ThemeUtil.paint(cell, Surface.cell)
 	ThemeUtil.corner(cell, Radius.cell)
 	ThemeUtil.ring(cell, ThemeUtil.Rarity.Fabled, 2)
+
+	-- A restrained top light keeps the dark card from reading as a flat black tile while
+	-- leaving rarity colour exclusively to the ring.
+	local backgroundGradient = Instance.new("UIGradient")
+	backgroundGradient.Name = "BackgroundGradient"
+	backgroundGradient.Rotation = 90
+	backgroundGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(205, 216, 235)),
+	})
+	backgroundGradient.Parent = cell
 
 	-- Kept named 2dPreview: every controller and CardListUtil decorator already sets
 	-- this child's Image.
@@ -727,6 +741,9 @@ end
 function PanelUtil.setCellRing(cell: GuiObject, rarity: string?, selected: boolean, colorOverride: Color3?)
 	local stroke = ThemeUtil.ring(cell, colorOverride or ThemeUtil.rarityColor(rarity), selected and 3 or 2)
 	stroke.Transparency = selected and 0 or 0.53
+	local cardSurface = selected and Surface.cellSelected or Surface.cell
+	cell.BackgroundColor3 = cardSurface.color
+	cell.BackgroundTransparency = cardSurface.transparency
 
 	local existing = cell:FindFirstChild("RingCycle")
 	if not ThemeUtil.isPrismatic(rarity) then
