@@ -10,9 +10,39 @@ local function getFreeSlot(slots: any, maxSlots: number): number?
 	return nil
 end
 
--- A model's pivot is rarely at its lowest point. This is the gap between the two, so a
--- model can be seated on a surface instead of buried in it or floating above it.
-local function getPivotAboveBottom(model: Model): number
+local function getPartBottomY(part: BasePart): number
+	local cf = part.CFrame
+	local size = part.Size
+	local halfHeight = math.abs(cf.XVector.Y) * size.X * 0.5
+		+ math.abs(cf.YVector.Y) * size.Y * 0.5
+		+ math.abs(cf.ZVector.Y) * size.Z * 0.5
+	return cf.Position.Y - halfHeight
+end
+
+-- Utility markers can extend below the visible base and make the platform appear to float.
+-- Use the largest visible footprint as the structural placement surface instead.
+local function getPivotAboveStructuralBottom(model: Model): number
+	local structuralPart: BasePart? = nil
+	local largestFootprint = 0
+
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart")
+			and descendant.Transparency < 1
+			and descendant.Name ~= "Front"
+			and descendant.Name ~= "Spawn"
+		then
+			local footprint = descendant.Size.X * descendant.Size.Z
+			if footprint > largestFootprint then
+				structuralPart = descendant
+				largestFootprint = footprint
+			end
+		end
+	end
+
+	if structuralPart then
+		return model:GetPivot().Position.Y - getPartBottomY(structuralPart)
+	end
+
 	local boundsCF, boundsSize = model:GetBoundingBox()
 	local modelBottomY = boundsCF.Position.Y - boundsSize.Y * 0.5
 	return model:GetPivot().Position.Y - modelBottomY
@@ -42,7 +72,7 @@ local function getSlotPlacement(slotIndex: number, model: Model, baseIslands: Fo
 	end
 
 	local surfaceCenter, surfaceTopY = getIslandSurface(island)
-	local y = surfaceTopY + getPivotAboveBottom(model)
+	local y = surfaceTopY + getPivotAboveStructuralBottom(model)
 
 	local pos = Vector3.new(surfaceCenter.X, y, surfaceCenter.Z)
 	local facing = Vector3.new(arena.Position.X, y, arena.Position.Z)
