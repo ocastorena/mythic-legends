@@ -26,6 +26,8 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LoadingScreen"
 screenGui.DisplayOrder = 10_000
 screenGui.IgnoreGuiInset = true
+screenGui.ScreenInsets = Enum.ScreenInsets.None
+screenGui.ClipToDeviceSafeArea = false
 screenGui.ResetOnSpawn = false
 
 local background = Instance.new("CanvasGroup")
