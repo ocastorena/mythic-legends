@@ -14,6 +14,7 @@ local ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChil
 local CombatGeometry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CombatGeometry"))
 local CombatState = require(script.CombatState)
 local KnockdownUtil = require(script.KnockdownUtil)
+local LoadoutPresentation = require(script.LoadoutPresentation)
 
 local log = LogUtil.For("PlayerCombatService")
 
@@ -29,7 +30,7 @@ type AuthorizedSwing = {
 }
 
 local nextSwingAt: { [number]: number } = {}
-local nextShieldToggleAt: { [number]: number } = {}
+local nextShieldActivationAt: { [number]: number } = {}
 local lastSwingSequence: { [number]: number } = {}
 local lastHitSequence: { [number]: number } = {}
 local authorizedSwings: { [number]: AuthorizedSwing } = {}
@@ -256,8 +257,8 @@ local function deactivateDepletedShield(player: Player, shield: any)
 		0,
 		5
 	)
-	nextShieldToggleAt[player.UserId] = math.max(
-		nextShieldToggleAt[player.UserId] or 0,
+	nextShieldActivationAt[player.UserId] = math.max(
+		nextShieldActivationAt[player.UserId] or 0,
 		os.clock() + cooldownSeconds
 	)
 	CombatState.SetShieldActive(player, nil, false)
@@ -411,7 +412,7 @@ local function handleHitReport(player: Player, payload: any)
 	applyImpact(player, attackerRoot, target, targetCharacter, targetRoot, profile, sequence)
 end
 
-local function handleShieldToggle(player: Player, payload: any)
+local function handleShieldSetActive(player: Player, payload: any)
 	if type(payload) ~= "table" or type(payload.active) ~= "boolean" then
 		return
 	end
@@ -437,14 +438,14 @@ local function handleShieldToggle(player: Player, payload: any)
 	end
 
 	local now = os.clock()
-	if now < (nextShieldToggleAt[player.UserId] or 0) then
+	if now < (nextShieldActivationAt[player.UserId] or 0) then
 		return
 	end
 	if CombatState.GetStamina(player) <= EPSILON then
 		return
 	end
-	nextShieldToggleAt[player.UserId] = now
-		+ getConfiguredNumber(profile.shield.toggleCooldownSeconds, 0.2, 0.05, 2)
+	nextShieldActivationAt[player.UserId] = now
+		+ getConfiguredNumber(profile.shield.activationCooldownSeconds, 0.2, 0.05, 2)
 	CombatState.SetShieldActive(player, tool, true)
 end
 
@@ -453,26 +454,28 @@ local function handleCombatEvent(player: Player, action: string?, payload: any)
 		handleMeleeSwing(player, payload)
 	elseif action == "HitReport" then
 		handleHitReport(player, payload)
-	elseif action == "ShieldToggle" then
-		handleShieldToggle(player, payload)
+	elseif action == "ShieldSetActive" then
+		handleShieldSetActive(player, payload)
 	end
 end
 
 local function clearPlayerCombatState(player: Player, character: Model?)
 	nextSwingAt[player.UserId] = nil
-	nextShieldToggleAt[player.UserId] = nil
+	nextShieldActivationAt[player.UserId] = nil
 	lastSwingSequence[player.UserId] = nil
 	lastHitSequence[player.UserId] = nil
 	authorizedSwings[player.UserId] = nil
 	recoveryUntil[player.UserId] = nil
 	recoveryTokens[player.UserId] = nil
 	CombatState.SetShieldActive(player, nil, false)
+	LoadoutPresentation.Clear(player, character)
 	if character then
 		KnockdownUtil.Stop(character, nil, true)
 	end
 end
 
 local function maintainPlayerState(player: Player, now: number)
+	LoadoutPresentation.Sync(player)
 	CombatState.Step(player, now)
 	local shieldTool = CombatState.GetShieldTool(player)
 	if not shieldTool then
@@ -496,6 +499,7 @@ function PlayerCombatService.Init(context: any)
 	CombatVfxEvent = context.Remotes.CombatVfxEvent
 	Arena = context.Instances.Arena
 	CombatState.Configure(WeaponsData.Combat)
+	LoadoutPresentation.Configure(WeaponsData, Arena)
 
 	CombatEvent.OnServerEvent:Connect(handleCombatEvent)
 

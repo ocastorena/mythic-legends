@@ -17,8 +17,10 @@
 --     white selection ring would be the one thing on screen a player could mistake for
 --     platform UI.
 --
--- Behaviour is otherwise the hotbar it replaces: slots fill in the order tools arrive, the
--- number keys equip and unequip them, and clicking an equipped slot puts the tool away.
+-- Behaviour is otherwise the hotbar it replaces: consumable slots fill in the order tools
+-- arrive, the number keys equip and unequip them, and clicking an equipped slot puts the
+-- tool away. Combat equipment is deliberately excluded; CombatActionController presents
+-- the equipped Primary Weapon and Shield as dedicated actions instead.
 
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -34,6 +36,7 @@ local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
 local WeaponPreviewUtil = require(Ui:WaitForChild("WeaponPreviewUtil"))
 local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("CharacterUtil"))
 local WeaponsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
+local ItemsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Items"))
 
 -- Six slots, all of them on screen whether or not they hold anything. Roblox's hotbar is
 -- ten deep and hides the empties; a fixed six reads as a deliberate loadout rather than a
@@ -122,6 +125,32 @@ type Slot = {
 }
 
 local slots: { Slot } = {}
+
+local function normalizeMetadataId(value: string): string
+	return string.lower(string.gsub(value, "[^%w]", ""))
+end
+
+--- Only combat consumables belong in the Hotbar. Weapons and Shields have dedicated
+--- actions, while materials and currencies stay in Inventory.
+local function isConsumableTool(tool: Tool): boolean
+	if WeaponsMeta.IsCombatTool(tool) then
+		return false
+	end
+
+	local configuredId = tool:GetAttribute("ItemId")
+	local itemId = if type(configuredId) == "string" and configuredId ~= "" then configuredId else tool.Name
+	local normalizedId = normalizeMetadataId(itemId)
+
+	for metadataId, metadata in pairs(ItemsMeta) do
+		if type(metadata) == "table"
+			and normalizeMetadataId(metadataId) == normalizedId
+			and metadata.Type == "Consumable" then
+			return true
+		end
+	end
+
+	return false
+end
 
 --- Builds one round slot. Nothing about it is tool-specific; `bindSlot` fills it in.
 local function createSlot(index: number): Slot
@@ -355,7 +384,7 @@ local function toolsInHand(): { Tool }
 	local character = CharacterUtil.Get()
 	if character then
 		for _, child in ipairs(character:GetChildren()) do
-			if child:IsA("Tool") then
+			if child:IsA("Tool") and isConsumableTool(child) then
 				table.insert(held, child)
 			end
 		end
@@ -368,7 +397,7 @@ local function toolsStowed(): { Tool }
 	local backpack = localPlayer:FindFirstChildOfClass("Backpack")
 	if backpack then
 		for _, child in ipairs(backpack:GetChildren()) do
-			if child:IsA("Tool") then
+			if child:IsA("Tool") and isConsumableTool(child) then
 				table.insert(stowed, child)
 			end
 		end

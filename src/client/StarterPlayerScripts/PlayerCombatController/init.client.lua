@@ -21,12 +21,19 @@ type ToolBinding = {
 	track: AnimationTrack?,
 }
 
+type ProceduralJoint = {
+	joint: Motor6D,
+	baseTransform: CFrame,
+}
+
 type SwingState = {
 	tool: Tool,
 	character: Model,
 	profile: any,
 	sequence: number,
-	track: AnimationTrack,
+	track: AnimationTrack?,
+	proceduralJoints: { ProceduralJoint }?,
+	proceduralGrip: Motor6D?,
 	contactWindowStarted: boolean,
 	windowOpen: boolean,
 	hitReported: boolean,
@@ -44,6 +51,16 @@ local cachedArena: BasePart? = nil
 local BLADE_SWEEP_SAMPLES = 6
 local MAX_OVERLAP_PARTS = 100
 local HITBOX_PADDING = Vector3.new(0.1, 0.1, 0.1)
+local LEFT_SWING_WINDUP = {
+	CFrame.Angles(math.rad(-35), math.rad(-20), math.rad(-55)),
+	CFrame.Angles(math.rad(-65), 0, 0),
+	CFrame.Angles(math.rad(15), math.rad(-15), math.rad(-25)),
+}
+local LEFT_SWING_STRIKE = {
+	CFrame.Angles(math.rad(60), math.rad(15), math.rad(25)),
+	CFrame.Angles(math.rad(-20), 0, 0),
+	CFrame.Angles(math.rad(-20), math.rad(10), math.rad(35)),
+}
 
 local function hasEnoughStamina(cost: any): boolean
 	if type(cost) ~= "number" or cost <= 0 then
@@ -263,6 +280,13 @@ local function finishSwing(state: SwingState)
 	state.windowOpen = false
 	state.hitStopToken += 1
 	setTrailEnabled(state.tool, false)
+	if state.proceduralJoints then
+		for _, jointPose in ipairs(state.proceduralJoints) do
+			if jointPose.joint.Parent then
+				jointPose.joint.Transform = jointPose.baseTransform
+			end
+		end
+	end
 	for _, connection in ipairs(state.connections) do
 		connection:Disconnect()
 	end
@@ -274,16 +298,17 @@ end
 
 local function applyHitStop(state: SwingState)
 	local configuredSeconds = state.profile.swing.hitStopSeconds
-	if type(configuredSeconds) ~= "number" or configuredSeconds <= 0 then
+	local track = state.track
+	if not track or type(configuredSeconds) ~= "number" or configuredSeconds <= 0 then
 		return
 	end
 
 	state.hitStopToken += 1
 	local token = state.hitStopToken
-	state.track:AdjustSpeed(0)
+	track:AdjustSpeed(0)
 	task.delay(math.clamp(configuredSeconds, 0, 0.08), function()
-		if not state.finished and state.hitStopToken == token and state.track.IsPlaying then
-			state.track:AdjustSpeed(state.profile.swing.animationSpeed)
+		if not state.finished and state.hitStopToken == token and track.IsPlaying then
+			track:AdjustSpeed(state.profile.swing.animationSpeed)
 		end
 	end)
 end
@@ -380,6 +405,80 @@ local function getOrCreateSwingTrack(tool: Tool, binding: ToolBinding, profile: 
 	return track
 end
 
+local function getLeftMountedGrip(character: Model, tool: Tool): Motor6D?
+	local handle = tool:FindFirstChild("Handle")
+	local leftHand = character:FindFirstChild("LeftHand")
+	local grip = leftHand and leftHand:FindFirstChild("CombatLoadoutGrip")
+	if not (handle and handle:IsA("BasePart")
+		and grip and grip:IsA("Motor6D")
+		and grip.Part1 == handle) then
+		return nil
+	end
+	return grip
+end
+
+local function smoothStep(alpha: number): number
+	local clamped = math.clamp(alpha, 0, 1)
+	return clamped * clamped * (3 - 2 * clamped)
+end
+
+local function findMotor(character: Model, name: string): Motor6D?
+	local joint = character:FindFirstChild(name, true)
+	return if joint and joint:IsA("Motor6D") then joint else nil
+end
+
+local function startLeftSwingMotion(state: SwingState): number
+	local character = state.character
+	local grip = state.proceduralGrip
+	local shoulder = findMotor(character, "LeftShoulder")
+	local elbow = findMotor(character, "LeftElbow")
+	local wrist = findMotor(character, "LeftWrist")
+	if not (grip and shoulder and elbow and wrist) then
+		return 0
+	end
+
+	local jointPoses: { ProceduralJoint } = {
+		{ joint = shoulder, baseTransform = shoulder.Transform },
+		{ joint = elbow, baseTransform = elbow.Transform },
+		{ joint = wrist, baseTransform = wrist.Transform },
+	}
+	state.proceduralJoints = jointPoses
+
+	local duration = math.max(0.6, state.profile.swing.activeWindowSeconds + 0.32)
+	local startedAt = os.clock()
+	table.insert(state.connections, RunService.PreSimulation:Connect(function()
+		if state.finished or activeSwing ~= state or not grip.Parent then
+			return
+		end
+
+		local alpha = math.clamp((os.clock() - startedAt) / duration, 0, 1)
+		local offsets: { CFrame } = {}
+		if alpha < 0.25 then
+			local phase = smoothStep(alpha / 0.25)
+			for index, windup in ipairs(LEFT_SWING_WINDUP) do
+				offsets[index] = CFrame.identity:Lerp(windup, phase)
+			end
+		elseif alpha < 0.7 then
+			local phase = smoothStep((alpha - 0.25) / 0.45)
+			for index, windup in ipairs(LEFT_SWING_WINDUP) do
+				offsets[index] = windup:Lerp(LEFT_SWING_STRIKE[index], phase)
+			end
+		else
+			local phase = smoothStep((alpha - 0.7) / 0.3)
+			for index, strike in ipairs(LEFT_SWING_STRIKE) do
+				offsets[index] = strike:Lerp(CFrame.identity, phase)
+			end
+		end
+
+		for index, jointPose in ipairs(jointPoses) do
+			if jointPose.joint.Parent then
+				jointPose.joint.Transform = jointPose.baseTransform * offsets[index]
+			end
+		end
+	end))
+	return duration
+end
+
 local function startSwing(tool: Tool)
 	local character = localPlayer.Character
 	local binding = bindings[tool]
@@ -403,8 +502,9 @@ local function startSwing(tool: Tool)
 		return
 	end
 
-	local track = getOrCreateSwingTrack(tool, binding, profile)
-	if not track then
+	local proceduralGrip = getLeftMountedGrip(character, tool)
+	local track = if proceduralGrip then nil else getOrCreateSwingTrack(tool, binding, profile)
+	if not proceduralGrip and not track then
 		return
 	end
 
@@ -420,6 +520,8 @@ local function startSwing(tool: Tool)
 		profile = profile,
 		sequence = nextSwingSequence,
 		track = track,
+		proceduralJoints = nil,
+		proceduralGrip = proceduralGrip,
 		contactWindowStarted = false,
 		windowOpen = false,
 		hitReported = false,
@@ -436,26 +538,36 @@ local function startSwing(tool: Tool)
 		sequence = state.sequence,
 	})
 
-	table.insert(state.connections, track:GetMarkerReachedSignal("Begin"):Connect(function()
-		openContactWindow(state)
-	end))
-	table.insert(state.connections, track:GetMarkerReachedSignal("End"):Connect(function()
-		finishSwing(state)
-	end))
-	table.insert(state.connections, track.Stopped:Connect(function()
-		finishSwing(state)
-	end))
+	if track then
+		table.insert(state.connections, track:GetMarkerReachedSignal("Begin"):Connect(function()
+			openContactWindow(state)
+		end))
+		table.insert(state.connections, track:GetMarkerReachedSignal("End"):Connect(function()
+			finishSwing(state)
+		end))
+		table.insert(state.connections, track.Stopped:Connect(function()
+			finishSwing(state)
+		end))
 
-	track:Play(0.05, 1, profile.swing.animationSpeed)
+		track:Play(0.05, 1, profile.swing.animationSpeed)
 
-	-- Authored markers are preferred. This fallback keeps combat usable if an animation
-	-- is replaced without markers, while still tying contact to a visible swing.
-	task.delay(math.min(0.1, profile.swing.activeWindowSeconds * 0.4), function()
-		openContactWindow(state)
-	end)
-	task.delay(profile.swing.activeWindowSeconds + 0.5, function()
-		finishSwing(state)
-	end)
+		-- Authored markers are preferred. This fallback keeps combat usable if an animation
+		-- is replaced without markers, while still tying contact to a visible swing.
+		task.delay(math.min(0.1, profile.swing.activeWindowSeconds * 0.4), function()
+			openContactWindow(state)
+		end)
+		task.delay(profile.swing.activeWindowSeconds + 0.5, function()
+			finishSwing(state)
+		end)
+	else
+		local motionDuration = startLeftSwingMotion(state)
+		task.delay(motionDuration * 0.25, function()
+			openContactWindow(state)
+		end)
+		task.delay(motionDuration, function()
+			finishSwing(state)
+		end)
+	end
 end
 
 local function unbindTool(tool: Tool)
@@ -477,14 +589,19 @@ local function unbindTool(tool: Tool)
 	bindings[tool] = nil
 end
 
-local function toggleShield(tool: Tool, profile: any)
+local function setShieldActive(tool: Tool, profile: any, active: boolean)
 	local character = localPlayer.Character
 	if not (character and tool.Parent == character and isCharacterInCombatArea(character, profile)) then
+		if not active then
+			combatEvent:FireServer("ShieldSetActive", {
+				active = false,
+			})
+		end
 		return
 	end
 
-	combatEvent:FireServer("ShieldToggle", {
-		active = localPlayer:GetAttribute("ShieldActive") ~= true,
+	combatEvent:FireServer("ShieldSetActive", {
+		active = active,
 	})
 end
 
@@ -508,13 +625,19 @@ local function bindCombatTool(tool: Tool)
 		if profile.combatKind == "Melee" then
 			startSwing(tool)
 		elseif profile.combatKind == "Shield" then
-			toggleShield(tool, profile)
+			setShieldActive(tool, profile, true)
+		end
+	end))
+	table.insert(binding.connections, tool.Deactivated:Connect(function()
+		local _, profile = weaponsData.GetProfile(tool)
+		if profile and profile.combatKind == "Shield" then
+			setShieldActive(tool, profile, false)
 		end
 	end))
 	table.insert(binding.connections, tool.Unequipped:Connect(function()
 		local _, profile = weaponsData.GetProfile(tool)
 		if profile and profile.combatKind == "Shield" and localPlayer:GetAttribute("ShieldActive") == true then
-			combatEvent:FireServer("ShieldToggle", {
+			combatEvent:FireServer("ShieldSetActive", {
 				active = false,
 			})
 		end

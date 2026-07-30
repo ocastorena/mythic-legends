@@ -398,8 +398,8 @@ local weaponList = CardListUtil.new({
 		PanelUtil.setHeroRarity(weaponInfo, rarity)
 
 		if profile.combatKind == "Shield" and profile.shield then
-			weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.shield.toggleCooldownSeconds or 0)
-			weaponInfo.Stats[1].Label.Text = "Toggle Cooldown"
+			weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.shield.activationCooldownSeconds or 0)
+			weaponInfo.Stats[1].Label.Text = "Raise Cooldown"
 			weaponInfo.Stats[2].Value.Text = string.format("%.0f°", profile.shield.blockArcDegrees or 0)
 			weaponInfo.Stats[2].Label.Text = "Block Arc"
 			weaponInfo.Stats[3].Value.Text = tostring(profile.shield.slidePlanarDeltaV or 0)

@@ -83,7 +83,7 @@ export type WeaponVfx = {
 }
 
 export type ShieldProfile = {
-	toggleCooldownSeconds: number,
+	activationCooldownSeconds: number,
 	depletedCooldownSeconds: number,
 	impactStaminaCost: number,
 	blockArcDegrees: number,
@@ -115,6 +115,9 @@ export type WeaponProfile = {
 	arenaOnly: boolean?,
 	arenaHeightAllowanceStuds: number?,
 	staminaCost: number?,
+	presentation: {
+		hand: string,
+	}?,
 	swing: WeaponSwing?,
 	target: WeaponTarget?,
 	impact: WeaponImpact?,

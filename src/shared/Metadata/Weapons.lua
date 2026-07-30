@@ -27,6 +27,9 @@ local Weapons = {
 			arenaOnly = true,
 			arenaHeightAllowanceStuds = 12,
 			staminaCost = 20,
+			presentation = {
+				hand = "LeftHand",
+			},
 
 			swing = {
 				cooldownSeconds = 0.72,
@@ -91,9 +94,12 @@ local Weapons = {
 			weaponFamily = "Shield",
 			arenaOnly = true,
 			arenaHeightAllowanceStuds = 12,
+			presentation = {
+				hand = "RightHand",
+			},
 
 			shield = {
-				toggleCooldownSeconds = 0.2,
+				activationCooldownSeconds = 0.2,
 				depletedCooldownSeconds = 0.5,
 				impactStaminaCost = 30,
 				-- Blocking covers a narrow frontal cone; side and rear swings bypass it.
