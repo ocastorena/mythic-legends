@@ -89,20 +89,6 @@ export type ShieldProfile = {
 	blockArcDegrees: number,
 	slidePlanarDeltaV: number,
 	slideControlSeconds: number,
-	pose: {
-		blendSeconds: number,
-		ikSmoothTime: number,
-		passiveHandTarget: CFrame,
-		passiveElbowPole: CFrame,
-		passiveGripOffset: CFrame,
-		guardHandTarget: CFrame,
-		guardElbowPole: CFrame,
-		frontFootTarget: CFrame,
-		frontKneePole: CFrame,
-		kneelingFootTarget: CFrame,
-		kneelingKneePole: CFrame,
-		crouchRootOffset: CFrame,
-	}?,
 }
 
 export type WeaponProfile = {
@@ -115,9 +101,6 @@ export type WeaponProfile = {
 	arenaOnly: boolean?,
 	arenaHeightAllowanceStuds: number?,
 	staminaCost: number?,
-	presentation: {
-		hand: string,
-	}?,
 	swing: WeaponSwing?,
 	target: WeaponTarget?,
 	impact: WeaponImpact?,

@@ -1,16 +1,14 @@
 -- Server-owned Arena presentation for the Combat Loadout.
 --
 -- Combat Tools live in the Backpack outside the Arena. Inside it, the server moves one
--- Primary Weapon and one Shield into the character and mounts each to its configured hand.
+-- Primary Weapon and one Shield into the character. Roblox owns the standard Tool grip;
+-- authored animations own the character pose.
 -- Keeping both Tools in the character also gives PlayerCombatService an authoritative,
 -- unambiguous definition of the active loadout.
 
 local ArenaBounds = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("ArenaBounds"))
 
 local LoadoutPresentation = {}
-
-local GRIP_NAME = "CombatLoadoutGrip"
-local GRIP_ATTRIBUTE = "CombatLoadoutGrip"
 
 local WeaponsData = nil
 local Arena: BasePart? = nil
@@ -49,56 +47,7 @@ local function carriedCombatTools(player: Player, character: Model): { Tool }
 	return tools
 end
 
-local function destroyExternalGrips(character: Model, handle: BasePart)
-	for _, descendant in ipairs(character:GetDescendants()) do
-		if descendant:IsA("JointInstance")
-			and descendant.Part1 == handle
-			and not descendant:IsDescendantOf(handle.Parent) then
-			descendant:Destroy()
-		end
-	end
-end
-
-local function ensureGrip(character: Model, tool: Tool)
-	local handName = WeaponsData.GetHand(tool)
-	local hand = handName and character:FindFirstChild(handName)
-	local handle = tool:FindFirstChild("Handle")
-	if not (hand and hand:IsA("BasePart") and handle and handle:IsA("BasePart")) then
-		return
-	end
-
-	local existing = hand:FindFirstChild(GRIP_NAME)
-	if existing and existing:IsA("Motor6D") and existing.Part1 == handle then
-		-- ShieldPoseController owns C1 while the Shield is raising/lowering. Reapplying the
-		-- resting Tool grip from this 10 Hz server sync fights that rendered animation and
-		-- produces visible snapping.
-		return
-	end
-
-	destroyExternalGrips(character, handle)
-	if existing then
-		existing:Destroy()
-	end
-
-	local gripAttachment = hand:FindFirstChild(handName == "LeftHand" and "LeftGripAttachment" or "RightGripAttachment")
-	local grip = Instance.new("Motor6D")
-	grip.Name = GRIP_NAME
-	grip.Part0 = hand
-	grip.Part1 = handle
-	grip.C0 = if gripAttachment and gripAttachment:IsA("Attachment")
-		then gripAttachment.CFrame
-		else CFrame.identity
-	grip.C1 = tool.Grip
-	grip:SetAttribute(GRIP_ATTRIBUTE, true)
-	grip.Parent = hand
-end
-
 local function stowTool(tool: Tool, backpack: Backpack?)
-	local handle = tool:FindFirstChild("Handle")
-	local character = tool.Parent
-	if character and character:IsA("Model") and handle and handle:IsA("BasePart") then
-		destroyExternalGrips(character, handle)
-	end
 	if backpack then
 		tool.Parent = backpack
 	end
@@ -140,7 +89,6 @@ function LoadoutPresentation.Sync(player: Player)
 		if type(combatKind) == "string" and not equippedKinds[combatKind] then
 			equippedKinds[combatKind] = true
 			tool.Parent = character
-			ensureGrip(character, tool)
 		elseif tool.Parent == character then
 			stowTool(tool, backpack)
 		end

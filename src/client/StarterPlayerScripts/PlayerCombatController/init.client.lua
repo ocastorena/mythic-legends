@@ -21,19 +21,12 @@ type ToolBinding = {
 	track: AnimationTrack?,
 }
 
-type ProceduralJoint = {
-	joint: Motor6D,
-	baseTransform: CFrame,
-}
-
 type SwingState = {
 	tool: Tool,
 	character: Model,
 	profile: any,
 	sequence: number,
 	track: AnimationTrack?,
-	proceduralJoints: { ProceduralJoint }?,
-	proceduralGrip: Motor6D?,
 	contactWindowStarted: boolean,
 	windowOpen: boolean,
 	hitReported: boolean,
@@ -51,16 +44,36 @@ local cachedArena: BasePart? = nil
 local BLADE_SWEEP_SAMPLES = 6
 local MAX_OVERLAP_PARTS = 100
 local HITBOX_PADDING = Vector3.new(0.1, 0.1, 0.1)
-local LEFT_SWING_WINDUP = {
-	CFrame.Angles(math.rad(-35), math.rad(-20), math.rad(-55)),
-	CFrame.Angles(math.rad(-65), 0, 0),
-	CFrame.Angles(math.rad(15), math.rad(-15), math.rad(-25)),
+local DEFAULT_TOOL_POSE_IDS = {
+	["182393478"] = true, -- R6 toolnone
+	["507768375"] = true, -- R15 toolnone
 }
-local LEFT_SWING_STRIKE = {
-	CFrame.Angles(math.rad(60), math.rad(15), math.rad(25)),
-	CFrame.Angles(math.rad(-20), 0, 0),
-	CFrame.Angles(math.rad(-20), math.rad(10), math.rad(35)),
-}
+
+local function isDefaultToolPose(track: AnimationTrack): boolean
+	local animation = track.Animation
+	local animationId = animation and string.match(animation.AnimationId, "%d+")
+	return animationId ~= nil and DEFAULT_TOOL_POSE_IDS[animationId] == true
+end
+
+local function hasVisibleCombatTool(character: Model): boolean
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Tool") and weaponsData.IsCombatTool(child) then
+			return true
+		end
+	end
+	return false
+end
+
+local function stopDefaultToolPoses(character: Model, animator: Animator)
+	if not hasVisibleCombatTool(character) then
+		return
+	end
+	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+		if isDefaultToolPose(track) then
+			track:Stop(0)
+		end
+	end
+end
 
 local function hasEnoughStamina(cost: any): boolean
 	if type(cost) ~= "number" or cost <= 0 then
@@ -280,13 +293,6 @@ local function finishSwing(state: SwingState)
 	state.windowOpen = false
 	state.hitStopToken += 1
 	setTrailEnabled(state.tool, false)
-	if state.proceduralJoints then
-		for _, jointPose in ipairs(state.proceduralJoints) do
-			if jointPose.joint.Parent then
-				jointPose.joint.Transform = jointPose.baseTransform
-			end
-		end
-	end
 	for _, connection in ipairs(state.connections) do
 		connection:Disconnect()
 	end
@@ -401,82 +407,9 @@ local function getOrCreateSwingTrack(tool: Tool, binding: ToolBinding, profile: 
 	end
 
 	track.Priority = Enum.AnimationPriority.Action
+	track.Looped = false
 	binding.track = track
 	return track
-end
-
-local function getLeftMountedGrip(character: Model, tool: Tool): Motor6D?
-	local handle = tool:FindFirstChild("Handle")
-	local leftHand = character:FindFirstChild("LeftHand")
-	local grip = leftHand and leftHand:FindFirstChild("CombatLoadoutGrip")
-	if not (handle and handle:IsA("BasePart")
-		and grip and grip:IsA("Motor6D")
-		and grip.Part1 == handle) then
-		return nil
-	end
-	return grip
-end
-
-local function smoothStep(alpha: number): number
-	local clamped = math.clamp(alpha, 0, 1)
-	return clamped * clamped * (3 - 2 * clamped)
-end
-
-local function findMotor(character: Model, name: string): Motor6D?
-	local joint = character:FindFirstChild(name, true)
-	return if joint and joint:IsA("Motor6D") then joint else nil
-end
-
-local function startLeftSwingMotion(state: SwingState): number
-	local character = state.character
-	local grip = state.proceduralGrip
-	local shoulder = findMotor(character, "LeftShoulder")
-	local elbow = findMotor(character, "LeftElbow")
-	local wrist = findMotor(character, "LeftWrist")
-	if not (grip and shoulder and elbow and wrist) then
-		return 0
-	end
-
-	local jointPoses: { ProceduralJoint } = {
-		{ joint = shoulder, baseTransform = shoulder.Transform },
-		{ joint = elbow, baseTransform = elbow.Transform },
-		{ joint = wrist, baseTransform = wrist.Transform },
-	}
-	state.proceduralJoints = jointPoses
-
-	local duration = math.max(0.6, state.profile.swing.activeWindowSeconds + 0.32)
-	local startedAt = os.clock()
-	table.insert(state.connections, RunService.PreSimulation:Connect(function()
-		if state.finished or activeSwing ~= state or not grip.Parent then
-			return
-		end
-
-		local alpha = math.clamp((os.clock() - startedAt) / duration, 0, 1)
-		local offsets: { CFrame } = {}
-		if alpha < 0.25 then
-			local phase = smoothStep(alpha / 0.25)
-			for index, windup in ipairs(LEFT_SWING_WINDUP) do
-				offsets[index] = CFrame.identity:Lerp(windup, phase)
-			end
-		elseif alpha < 0.7 then
-			local phase = smoothStep((alpha - 0.25) / 0.45)
-			for index, windup in ipairs(LEFT_SWING_WINDUP) do
-				offsets[index] = windup:Lerp(LEFT_SWING_STRIKE[index], phase)
-			end
-		else
-			local phase = smoothStep((alpha - 0.7) / 0.3)
-			for index, strike in ipairs(LEFT_SWING_STRIKE) do
-				offsets[index] = strike:Lerp(CFrame.identity, phase)
-			end
-		end
-
-		for index, jointPose in ipairs(jointPoses) do
-			if jointPose.joint.Parent then
-				jointPose.joint.Transform = jointPose.baseTransform * offsets[index]
-			end
-		end
-	end))
-	return duration
 end
 
 local function startSwing(tool: Tool)
@@ -502,9 +435,8 @@ local function startSwing(tool: Tool)
 		return
 	end
 
-	local proceduralGrip = getLeftMountedGrip(character, tool)
-	local track = if proceduralGrip then nil else getOrCreateSwingTrack(tool, binding, profile)
-	if not proceduralGrip and not track then
+	local track = getOrCreateSwingTrack(tool, binding, profile)
+	if not track then
 		return
 	end
 
@@ -520,8 +452,6 @@ local function startSwing(tool: Tool)
 		profile = profile,
 		sequence = nextSwingSequence,
 		track = track,
-		proceduralJoints = nil,
-		proceduralGrip = proceduralGrip,
 		contactWindowStarted = false,
 		windowOpen = false,
 		hitReported = false,
@@ -557,14 +487,6 @@ local function startSwing(tool: Tool)
 			openContactWindow(state)
 		end)
 		task.delay(profile.swing.activeWindowSeconds + 0.5, function()
-			finishSwing(state)
-		end)
-	else
-		local motionDuration = startLeftSwingMotion(state)
-		task.delay(motionDuration * 0.25, function()
-			openContactWindow(state)
-		end)
-		task.delay(motionDuration, function()
 			finishSwing(state)
 		end)
 	end
@@ -663,9 +585,18 @@ CharacterUtil.OnCharacter(function(character)
 		return
 	end
 
+	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+	local animator = humanoid:WaitForChild("Animator") :: Animator
+	animator.AnimationPlayed:Connect(function(track)
+		if hasVisibleCombatTool(character) and isDefaultToolPose(track) then
+			track:Stop(0)
+		end
+	end)
+
 	character.ChildAdded:Connect(function(child)
 		if child:IsA("Tool") then
 			bindCombatTool(child)
+			task.defer(stopDefaultToolPoses, character, animator)
 		end
 	end)
 
