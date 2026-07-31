@@ -78,6 +78,8 @@ for _, s in ipairs(ordered) do
 	end
 end
 
+log.info("Services initialized:", #ordered)
+
 for _, s in ipairs(ordered) do
 	if type(s.mod.Start) == "function" then
 		s.mod.Start()

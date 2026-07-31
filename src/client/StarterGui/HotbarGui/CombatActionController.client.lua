@@ -21,6 +21,7 @@ local screenGui = script.Parent
 
 local NORMAL_BUTTON_COLOR = Color3.fromRGB(60, 60, 64)
 local PRESSED_BUTTON_COLOR = Color3.fromRGB(48, 48, 52)
+local BUTTON_RING_COLOR = Color3.fromRGB(126, 124, 120)
 local FALLBACK_JUMP_SIZE = 70
 local ACTION_SCALE = 0.8
 local MIN_ACTION_SIZE = 52
@@ -81,6 +82,16 @@ local function createAction(name: string, combatKind: string, fallbackText: stri
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(1, 0)
 	corner.Parent = button
+
+	-- A permanent neutral outline matches Roblox's JumpButton. It never changes
+	-- color for Shield state, so holding block cannot produce a yellow ring.
+	local ring = Instance.new("UIStroke")
+	ring.Name = "ButtonRing"
+	ring.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	ring.Color = BUTTON_RING_COLOR
+	ring.Thickness = 2
+	ring.Transparency = 0.15
+	ring.Parent = button
 
 	return {
 		button = button,
