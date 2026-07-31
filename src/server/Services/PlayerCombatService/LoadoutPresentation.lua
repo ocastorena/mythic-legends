@@ -11,10 +11,6 @@ local LoadoutPresentation = {}
 
 local GRIP_NAME = "CombatLoadoutGrip"
 local GRIP_ATTRIBUTE = "CombatLoadoutGrip"
-local DEFAULT_HANDS = {
-	Melee = "LeftHand",
-	Shield = "RightHand",
-}
 
 local WeaponsData = nil
 local Arena: BasePart? = nil
@@ -63,12 +59,8 @@ local function destroyExternalGrips(character: Model, handle: BasePart)
 	end
 end
 
-local function ensureGrip(character: Model, tool: Tool, profile: any)
-	local presentation = type(profile.presentation) == "table" and profile.presentation or nil
-	local configuredHand = presentation and presentation.hand
-	local handName = if type(configuredHand) == "string" and configuredHand ~= ""
-		then configuredHand
-		else DEFAULT_HANDS[profile.combatKind]
+local function ensureGrip(character: Model, tool: Tool)
+	local handName = WeaponsData.GetHand(tool)
 	local hand = handName and character:FindFirstChild(handName)
 	local handle = tool:FindFirstChild("Handle")
 	if not (hand and hand:IsA("BasePart") and handle and handle:IsA("BasePart")) then
@@ -148,7 +140,7 @@ function LoadoutPresentation.Sync(player: Player)
 		if type(combatKind) == "string" and not equippedKinds[combatKind] then
 			equippedKinds[combatKind] = true
 			tool.Parent = character
-			ensureGrip(character, tool, profile)
+			ensureGrip(character, tool)
 		elseif tool.Parent == character then
 			stowTool(tool, backpack)
 		end

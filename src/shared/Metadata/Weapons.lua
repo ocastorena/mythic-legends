@@ -28,7 +28,7 @@ local Weapons = {
 			arenaHeightAllowanceStuds = 12,
 			staminaCost = 20,
 			presentation = {
-				hand = "LeftHand",
+				hand = "RightHand",
 			},
 
 			swing = {
@@ -95,7 +95,7 @@ local Weapons = {
 			arenaOnly = true,
 			arenaHeightAllowanceStuds = 12,
 			presentation = {
-				hand = "RightHand",
+				hand = "LeftHand",
 			},
 
 			shield = {
@@ -111,24 +111,24 @@ local Weapons = {
 					blendSeconds = 0.08,
 					ikSmoothTime = 0.04,
 					-- Targets and poles are relative to HumanoidRootPart.
-					passiveHandTarget = CFrame.new(1.35, -0.65, 0.1),
-					passiveElbowPole = CFrame.new(2.4, 0.2, -0.2),
-					passiveGripOffset = CFrame.Angles(math.rad(-90), math.rad(180), math.rad(180))
+					passiveHandTarget = CFrame.new(-1.1, -0.4, 0.2),
+					passiveElbowPole = CFrame.new(-0.6, 0.0, -1.0),
+					passiveGripOffset = CFrame.Angles(math.rad(-90), 0, math.rad(180))
 						* CFrame.Angles(math.rad(-20), 0, 0),
 
 					-- Flip around the grip axis in guard so the shield's authored top is
 					-- vertical while the arm IK keeps it positioned in front of the body.
-					guardGripOffset = CFrame.Angles(math.rad(180), 0, 0),
-					guardHandTarget = CFrame.new(0.7, 0.05, -1.05)
+					guardGripOffset = CFrame.Angles(math.rad(180), math.rad(180), 0),
+					guardHandTarget = CFrame.new(-0.6, 0.1, -0.9)
 						* CFrame.Angles(math.rad(-180), math.rad(-105), 0),
-					guardElbowPole = CFrame.new(1.8, 0.35, -0.65),
+					guardElbowPole = CFrame.new(-0.6, 0.1, -1.0),
 
-					-- The right leg plants forward with its shin upright. The left foot
+					-- The left leg plants forward with its shin upright. The right foot
 					-- reaches behind the body so its knee can settle onto the floor.
-					frontFootTarget = CFrame.new(0.55, -2.7, -0.9),
-					frontKneePole = CFrame.new(0.7, -1.3, -2),
-					kneelingFootTarget = CFrame.new(-0.55, -2.6, 1.45),
-					kneelingKneePole = CFrame.new(-0.7, -3, -0.45),
+					frontFootTarget = CFrame.new(-0.55, -2.7, -0.9),
+					frontKneePole = CFrame.new(-0.7, -1.3, -2),
+					kneelingFootTarget = CFrame.new(0.55, -2.6, 1.45),
+					kneelingKneePole = CFrame.new(0.7, -3, -0.45),
 
 					-- The root moves visually while leg IK creates the kneeling stance.
 					-- Humanoid.HipHeight stays unchanged, so the avatar does not sink
@@ -139,6 +139,11 @@ local Weapons = {
 			},
 		},
 	},
+}
+
+local DEFAULT_HANDS = {
+	Melee = "RightHand",
+	Shield = "LeftHand",
 }
 
 local function normalizeId(value: string): string
@@ -184,6 +189,27 @@ end
 function Weapons.IsCombatTool(tool: Tool): boolean
 	local _, profile = Weapons.GetProfile(tool)
 	return profile ~= nil and (profile.combatKind == "Melee" or profile.combatKind == "Shield")
+end
+
+function Weapons.GetHand(tool: Tool): string?
+	local _, profile = Weapons.GetProfile(tool)
+	if not profile then
+		return nil
+	end
+	local presentation = type(profile.presentation) == "table" and profile.presentation or nil
+	local hand = presentation and presentation.hand
+	if type(hand) == "string" and hand ~= "" then
+		return hand
+	end
+	return DEFAULT_HANDS[profile.combatKind]
+end
+
+function Weapons.GetHandSide(tool: Tool): string?
+	local hand = Weapons.GetHand(tool)
+	if not hand then
+		return nil
+	end
+	return string.match(hand, "^(%a+)Hand$")
 end
 
 return Weapons

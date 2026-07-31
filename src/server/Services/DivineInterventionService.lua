@@ -138,7 +138,6 @@ function DivineInterventionService.Start()
 	end
 
 	command.Triggered:Connect(handleCommand)
-	print("[DivineIntervention] Public command ready: /admin blockstorm")
 end
 
 return DivineInterventionService

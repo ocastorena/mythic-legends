@@ -1,6 +1,6 @@
 -- Procedural shield posing for every visible R15 player.
 --
--- The relaxed arm mirrors the left hand with position-only IK so both arms share the
+-- The relaxed arm mirrors the right hand with position-only IK so both arms share the
 -- same neutral pose. Guard bends that arm and rotates the shield in place so its top
 -- points upward. Root and leg IK create an asymmetric kneel without changing
 -- Humanoid.HipHeight.
@@ -29,7 +29,7 @@ type PoseState = {
 	passiveArmIK: IKControl?,
 	passiveArmTarget: Attachment?,
 	guardArmIK: IKControl?,
-	leftHand: BasePart?,
+	mirrorHand: BasePart?,
 	root: BasePart?,
 	legPoses: { LegPose },
 	attachments: { Attachment },
@@ -42,18 +42,18 @@ local poseStates: { [Player]: PoseState } = {}
 
 local DEFAULT_BLEND_SECONDS = 0.08
 local DEFAULT_IK_SMOOTH_TIME = 0.04
-local DEFAULT_PASSIVE_TARGET = CFrame.new(1.35, -0.65, 0.1)
-local DEFAULT_PASSIVE_POLE = CFrame.new(2.4, 0.2, -0.2)
-local DEFAULT_PASSIVE_GRIP = CFrame.Angles(math.rad(-90), math.rad(180), math.rad(180))
+local DEFAULT_PASSIVE_TARGET = CFrame.new(-1.1, -0.4, 0.2)
+local DEFAULT_PASSIVE_POLE = CFrame.new(-0.6, 0.0, -1.0)
+local DEFAULT_PASSIVE_GRIP = CFrame.Angles(math.rad(-90), 0, math.rad(180))
 	* CFrame.Angles(math.rad(-20), 0, 0)
-local DEFAULT_GUARD_GRIP = CFrame.Angles(math.rad(180), 0, 0)
-local DEFAULT_GUARD_TARGET = CFrame.new(0.7, 0.05, -1.05)
+local DEFAULT_GUARD_GRIP = CFrame.Angles(math.rad(180), math.rad(180), 0)
+local DEFAULT_GUARD_TARGET = CFrame.new(-0.6, 0.1, -0.9)
 	* CFrame.Angles(math.rad(-180), math.rad(-105), 0)
-local DEFAULT_GUARD_POLE = CFrame.new(1.8, 0.35, -0.65)
-local DEFAULT_FRONT_FOOT = CFrame.new(0.55, -2.7, -0.9)
-local DEFAULT_FRONT_KNEE_POLE = CFrame.new(0.7, -1.3, -2)
-local DEFAULT_KNEELING_FOOT = CFrame.new(-0.55, -2.6, 1.45)
-local DEFAULT_KNEELING_KNEE_POLE = CFrame.new(-0.7, -3, -0.45)
+local DEFAULT_GUARD_POLE = CFrame.new(-0.6, 0.1, -1.0)
+local DEFAULT_FRONT_FOOT = CFrame.new(-0.55, -2.7, -0.9)
+local DEFAULT_FRONT_KNEE_POLE = CFrame.new(-0.7, -1.3, -2)
+local DEFAULT_KNEELING_FOOT = CFrame.new(0.55, -2.6, 1.45)
+local DEFAULT_KNEELING_KNEE_POLE = CFrame.new(0.7, -3, -0.45)
 local DEFAULT_CROUCH_ROOT = CFrame.new(0, -0.78, 0) * CFrame.Angles(math.rad(-5), 0, 0)
 
 local function getPoseConfig(profile: any): any
@@ -229,7 +229,7 @@ local function createPose(
 		passiveArmIK = nil,
 		passiveArmTarget = nil,
 		guardArmIK = nil,
-		leftHand = nil,
+		mirrorHand = nil,
 		root = nil,
 		legPoses = {},
 		attachments = {},
@@ -240,14 +240,16 @@ local function createPose(
 	state.guardGrip = state.shieldGrip * getCFrame(pose.guardGripOffset, DEFAULT_GUARD_GRIP)
 
 	local root = character:FindFirstChild("HumanoidRootPart")
-	local upperArm = character:FindFirstChild("RightUpperArm")
-	local hand = character:FindFirstChild("RightHand")
-	local leftHand = character:FindFirstChild("LeftHand")
+	local shieldSide = WeaponsData.GetHandSide(tool)
+	local upperArm = shieldSide and character:FindFirstChild(shieldSide .. "UpperArm")
+	local hand = shieldSide and character:FindFirstChild(shieldSide .. "Hand")
+	local oppositeSide = if shieldSide == "Left" then "Right" else "Left"
+	local mirrorHand = character:FindFirstChild(oppositeSide .. "Hand")
 	if root and root:IsA("BasePart")
 		and upperArm and upperArm:IsA("BasePart")
 		and hand and hand:IsA("BasePart") then
 		state.root = root
-		state.leftHand = if leftHand and leftHand:IsA("BasePart") then leftHand else nil
+		state.mirrorHand = if mirrorHand and mirrorHand:IsA("BasePart") then mirrorHand else nil
 		local smoothTime = if type(pose.ikSmoothTime) == "number"
 			then math.clamp(pose.ikSmoothTime, 0, 0.5)
 			else DEFAULT_IK_SMOOTH_TIME
@@ -302,21 +304,21 @@ local function createPose(
 			state.alpha
 		)
 
-		if rootJoint then
+		if rootJoint and shieldSide then
 			addLegIK(
 				state,
 				root,
-				"Left",
-				getCFrame(pose.kneelingFootTarget, DEFAULT_KNEELING_FOOT),
-				getCFrame(pose.kneelingKneePole, DEFAULT_KNEELING_KNEE_POLE),
+				shieldSide,
+				getCFrame(pose.frontFootTarget, DEFAULT_FRONT_FOOT),
+				getCFrame(pose.frontKneePole, DEFAULT_FRONT_KNEE_POLE),
 				smoothTime
 			)
 			addLegIK(
 				state,
 				root,
-				"Right",
-				getCFrame(pose.frontFootTarget, DEFAULT_FRONT_FOOT),
-				getCFrame(pose.frontKneePole, DEFAULT_FRONT_KNEE_POLE),
+				oppositeSide,
+				getCFrame(pose.kneelingFootTarget, DEFAULT_KNEELING_FOOT),
+				getCFrame(pose.kneelingKneePole, DEFAULT_KNEELING_KNEE_POLE),
 				smoothTime
 			)
 		end
@@ -366,14 +368,14 @@ local function updatePlayer(player: Player, deltaTime: number)
 	end
 
 	local passiveArmTarget = state.passiveArmTarget
-	local leftHand = state.leftHand
+	local mirrorHand = state.mirrorHand
 	local root = state.root
-	if passiveArmTarget and leftHand and root then
-		local leftHandPosition = root.CFrame:PointToObjectSpace(leftHand.Position)
+	if passiveArmTarget and mirrorHand and root then
+		local mirrorPosition = root.CFrame:PointToObjectSpace(mirrorHand.Position)
 		passiveArmTarget.Position = Vector3.new(
-			-leftHandPosition.X,
-			leftHandPosition.Y,
-			leftHandPosition.Z
+			-mirrorPosition.X,
+			mirrorPosition.Y,
+			mirrorPosition.Z
 		)
 	end
 
