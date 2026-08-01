@@ -36,6 +36,9 @@ local lastAttackAt = 0
 local nextDualHand = "Right"
 local requestedToggle = false
 local activeTransitionTrack: AnimationTrack? = nil
+local activeAttackTrack: AnimationTrack? = nil
+local activeAttackConnections: { RBXScriptConnection } = {}
+local attackToken = 0
 
 local function getCharacter(): Model?
 	return localPlayer.Character
@@ -79,6 +82,40 @@ local function getEquipped(character: Model, hand: string): string
 	return if type(value) == "string" then value else ""
 end
 
+local function getWeaponModel(character: Model, hand: string): Model?
+	local folder = character:FindFirstChild("EquippedWeapons")
+	local weapon = folder and folder:FindFirstChild(`{hand}Weapon`)
+	return if weapon and weapon:IsA("Model") then weapon else nil
+end
+
+local function setWeaponTrail(weapon: Model?, enabled: boolean)
+	local trail = weapon and weapon:FindFirstChild("Trail", true)
+	if trail and trail:IsA("Trail") then
+		trail.Enabled = enabled
+	end
+end
+
+local function playWeaponSound(weapon: Model?)
+	local sound = weapon and weapon:FindFirstChild("SwordSlash", true)
+	if sound and sound:IsA("Sound") then
+		sound:Stop()
+		sound.TimePosition = 0
+		sound:Play()
+	end
+end
+
+local function clearActiveAttack()
+	attackToken += 1
+	for _, connection in activeAttackConnections do
+		connection:Disconnect()
+	end
+	table.clear(activeAttackConnections)
+	if activeAttackTrack then
+		activeAttackTrack:Stop(0.05)
+		activeAttackTrack = nil
+	end
+end
+
 local function chooseAttack(character: Model): (string?, string?)
 	local right = getEquipped(character, "Right")
 	local left = getEquipped(character, "Left")
@@ -106,6 +143,7 @@ local function toggleCombat(character: Model)
 		return
 	end
 	requestedToggle = true
+	clearActiveAttack()
 	local becomingReady = character:GetAttribute("CombatReady") ~= true
 	if activeTransitionTrack then
 		activeTransitionTrack:Stop(0.05)
@@ -149,8 +187,77 @@ local function attack(character: Model)
 		return
 	end
 	lastAttackAt = now
-	playAnimation(character, animationId)
-	PerformAttack:FireServer(hand)
+	clearActiveAttack()
+	local currentToken = attackToken
+	local weapon = getWeaponModel(character, hand)
+	local hitReported = false
+	local soundPlayed = false
+	local trailEnded = false
+
+	local function isCurrentAttack(): boolean
+		return attackToken == currentToken
+			and localPlayer.Character == character
+			and character:GetAttribute("CombatReady") == true
+	end
+
+	local function reportHitStart()
+		if hitReported or not isCurrentAttack() then
+			return
+		end
+		hitReported = true
+		PerformAttack:FireServer(hand)
+	end
+
+	local function playSwingSound()
+		if soundPlayed or not isCurrentAttack() then
+			return
+		end
+		soundPlayed = true
+		playWeaponSound(weapon)
+	end
+
+	local function endTrail()
+		if trailEnded then
+			return
+		end
+		trailEnded = true
+		setWeaponTrail(weapon, false)
+	end
+
+	local track = playAnimation(character, animationId)
+	activeAttackTrack = track
+	if track then
+		track.Looped = false
+		table.insert(activeAttackConnections, track:GetMarkerReachedSignal("SwingSound"):Connect(playSwingSound))
+		table.insert(activeAttackConnections, track:GetMarkerReachedSignal("TrailStart"):Connect(function()
+			if isCurrentAttack() then
+				setWeaponTrail(weapon, true)
+			end
+		end))
+		table.insert(activeAttackConnections, track:GetMarkerReachedSignal("HitStart"):Connect(reportHitStart))
+		table.insert(activeAttackConnections, track:GetMarkerReachedSignal("HitEnd"):Connect(endTrail))
+		table.insert(activeAttackConnections, track:GetMarkerReachedSignal("TrailEnd"):Connect(endTrail))
+		table.insert(activeAttackConnections, track.Stopped:Connect(function()
+			if isCurrentAttack() then
+				endTrail()
+			end
+		end))
+	end
+
+	-- Authored markers own normal timing; these fallbacks keep combat functional if an
+	-- animation fails to load or is published without its marker data.
+	task.delay(config.HitStartFallback, function()
+		if isCurrentAttack() then
+			playSwingSound()
+			setWeaponTrail(weapon, true)
+			reportHitStart()
+		end
+	end)
+	task.delay(config.HitStartFallback + config.HitWindowDuration, function()
+		if isCurrentAttack() then
+			endTrail()
+		end
+	end)
 end
 
 UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
@@ -169,6 +276,7 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 end)
 
 localPlayer.CharacterAdded:Connect(function()
+	clearActiveAttack()
 	if activeTransitionTrack then
 		activeTransitionTrack:Stop(0)
 		activeTransitionTrack = nil
