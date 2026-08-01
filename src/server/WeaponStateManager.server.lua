@@ -24,6 +24,28 @@ local nextLoadoutAt: { [Player]: number } = {}
 local nextToggleAt: { [Player]: number } = {}
 local characterConnections: { [Player]: { RBXScriptConnection } } = {}
 
+-- Studio-only pose helpers remain saved in Workspace for visual authoring, but should
+-- never replicate as live gameplay geometry.
+for _, authoringName in { "R15WeaponPositioningRig", "WeaponPosePreview" } do
+	local authoringInstance = workspace:FindFirstChild(authoringName)
+	if authoringInstance then
+		authoringInstance:Destroy()
+	end
+end
+
+local function getStarterLoadout(): (string, string)
+	local rightWeapon = ""
+	local leftWeapon = ""
+	for weaponName, config in WeaponConfigs do
+		if config.StarterSlot == "Right" and rightWeapon == "" then
+			rightWeapon = weaponName
+		elseif config.StarterSlot == "Left" and leftWeapon == "" then
+			leftWeapon = weaponName
+		end
+	end
+	return rightWeapon, leftWeapon
+end
+
 local function disconnectCharacterConnections(player: Player)
 	local connections = characterConnections[player]
 	if connections then
@@ -88,6 +110,18 @@ local function prepareWeaponModel(model: Model): boolean
 		warn(`[WeaponStateManager] {model:GetFullName()} has no PrimaryPart`)
 		return false
 	end
+	for _, attachmentName in { "HandGripAttachment", "SheathAttachment" } do
+		local attachment = model:FindFirstChild(attachmentName, true)
+		if not attachment or not attachment:IsA("Attachment") then
+			warn(`[WeaponStateManager] {model:GetFullName()} needs an Attachment named {attachmentName}`)
+			return false
+		end
+	end
+	local hitbox = model:FindFirstChild("Hitbox", true)
+	if not hitbox or not hitbox:IsA("BasePart") then
+		warn(`[WeaponStateManager] {model:GetFullName()} needs a BasePart named Hitbox`)
+		return false
+	end
 
 	-- A model is treated as one rigid assembly driven by its PrimaryPart Motor6D.
 	for _, descendant in model:GetDescendants() do
@@ -138,6 +172,16 @@ local function createMotor(name: string, parent: BasePart, part0: BasePart, part
 	motor.Parent = parent
 end
 
+local function getAuthoredOffset(model: Model, attachmentName: string): CFrame?
+	local attachment = model:FindFirstChild(attachmentName, true)
+	local primaryPart = model.PrimaryPart
+	if attachment and attachment:IsA("Attachment") and primaryPart then
+		-- Attachments may live on any weapon part; normalize them into PrimaryPart space.
+		return primaryPart.CFrame:ToObjectSpace(attachment.WorldCFrame)
+	end
+	return nil
+end
+
 local function attachSlot(character: Model, slot: string, weaponName: string, combatReady: boolean)
 	if weaponName == "" then
 		return
@@ -152,16 +196,30 @@ local function attachSlot(character: Model, slot: string, weaponName: string, co
 	if combatReady then
 		-- Unsheathed: transition ownership from UpperTorso to the matching R15 hand.
 		local hand = character:FindFirstChild(`{slot}Hand`)
-		if hand and hand:IsA("BasePart") then
-			createMotor(`{slot}HandMotor`, hand, hand, primaryPart, config.HandGripOffset)
+		local handGripOffset = getAuthoredOffset(model, "HandGripAttachment")
+		if hand and hand:IsA("BasePart") and handGripOffset then
+			createMotor(
+				`{slot}HandMotor`,
+				hand,
+				hand,
+				primaryPart,
+				handGripOffset
+			)
 		else
 			model:Destroy()
 		end
 	else
 		-- Sheathed: both weapon assemblies are carried by the R15 UpperTorso.
 		local upperTorso = character:FindFirstChild("UpperTorso")
-		if upperTorso and upperTorso:IsA("BasePart") then
-			createMotor(`{slot}SheathMotor`, upperTorso, upperTorso, primaryPart, config.SheathOffset)
+		local sheathOffset = getAuthoredOffset(model, "SheathAttachment")
+		if upperTorso and upperTorso:IsA("BasePart") and sheathOffset then
+			createMotor(
+				`{slot}SheathMotor`,
+				upperTorso,
+				upperTorso,
+				primaryPart,
+				sheathOffset
+			)
 		else
 			model:Destroy()
 		end
@@ -239,10 +297,11 @@ local function performAttack(player: Player, hand: unknown)
 	local cooldown = math.clamp(config.AttackCooldown, MIN_ATTACK_COOLDOWN, MAX_ATTACK_COOLDOWN)
 	nextAttackAt[player] = now + cooldown
 
-	local size = config.HitboxSize
-	if typeof(size) ~= "Vector3" then
+	local hitboxPart = weapon:FindFirstChild("Hitbox", true)
+	if not hitboxPart or not hitboxPart:IsA("BasePart") then
 		return
 	end
+	local size = hitboxPart.Size
 	size = Vector3.new(
 		math.clamp(size.X, 0.1, MAX_HITBOX_AXIS),
 		math.clamp(size.Y, 0.1, MAX_HITBOX_AXIS),
@@ -257,7 +316,7 @@ local function performAttack(player: Player, hand: unknown)
 	local hitHumanoids: { [Humanoid]: boolean } = {}
 	local hitCount = 0
 	local maxTargets = math.clamp(config.MaxTargets, 1, 10)
-	for _, part in workspace:GetPartBoundsInBox(primaryPart.CFrame, size, overlapParams) do
+	for _, part in workspace:GetPartBoundsInBox(hitboxPart.CFrame, size, overlapParams) do
 		local humanoid = resolveTargetHumanoid(part)
 		if humanoid and not hitHumanoids[humanoid] and humanoid.Parent ~= character and isEnemy(player, humanoid) then
 			hitHumanoids[humanoid] = true -- exactly once for this accepted swing
@@ -275,14 +334,20 @@ local function onCharacterAdded(player: Player, character: Model)
 	nextAttackAt[player] = nil
 	nextLoadoutAt[player] = nil
 	nextToggleAt[player] = nil
-	character:SetAttribute("RightEquipped", "")
-	character:SetAttribute("LeftEquipped", "")
+	local starterRight, starterLeft = getStarterLoadout()
+	character:SetAttribute("RightEquipped", starterRight)
+	character:SetAttribute("LeftEquipped", starterLeft)
 	character:SetAttribute("CombatReady", false)
 
 	local humanoid = character:WaitForChild("Humanoid", 10)
 	if not humanoid or not humanoid:IsA("Humanoid") then
 		return
 	end
+	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
+		warn(`[WeaponStateManager] {player.Name} must use an R15 character`)
+		return
+	end
+	rebuildAttachments(character)
 	characterConnections[player] = {
 		humanoid.Died:Connect(function()
 			nextAttackAt[player] = nil

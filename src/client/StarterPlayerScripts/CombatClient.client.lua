@@ -7,15 +7,15 @@ local UserInputService = game:GetService("UserInputService")
 
 local WeaponConfigs = require(ReplicatedStorage:WaitForChild("WeaponConfigs"))
 local ToggleCombatState = ReplicatedStorage:WaitForChild("ToggleCombatState") :: RemoteEvent
-local EquipLoadout = ReplicatedStorage:WaitForChild("EquipLoadout") :: RemoteEvent
 local PerformAttack = ReplicatedStorage:WaitForChild("PerformAttack") :: RemoteEvent
 local localPlayer = Players.LocalPlayer
 
 -- Replace or extend IDs per loadout without changing input/state code.
 local ANIMATIONS = {
 	Transitions = {
-		Sheath = "rbxassetid://507777826",
-		Unsheath = "rbxassetid://507777826",
+		-- Supply project-owned R15 animation IDs here. Empty IDs safely skip presentation.
+		Sheath = "",
+		Unsheath = "",
 	},
 	Loadouts = {
 		["WoodenSword+"] = {
@@ -35,6 +35,7 @@ local animationCache: { [string]: Animation } = {}
 local lastAttackAt = 0
 local nextDualHand = "Right"
 local requestedToggle = false
+local activeTransitionTrack: AnimationTrack? = nil
 
 local function getCharacter(): Model?
 	return localPlayer.Character
@@ -106,7 +107,24 @@ local function toggleCombat(character: Model)
 	end
 	requestedToggle = true
 	local becomingReady = character:GetAttribute("CombatReady") ~= true
-	playAnimation(character, if becomingReady then ANIMATIONS.Transitions.Unsheath else ANIMATIONS.Transitions.Sheath)
+	if activeTransitionTrack then
+		activeTransitionTrack:Stop(0.05)
+		activeTransitionTrack = nil
+	end
+	local track = playAnimation(
+		character,
+		if becomingReady then ANIMATIONS.Transitions.Unsheath else ANIMATIONS.Transitions.Sheath
+	)
+	if track then
+		track.Looped = false
+		activeTransitionTrack = track
+		task.delay(1, function()
+			if activeTransitionTrack == track then
+				track:Stop(0.1)
+				activeTransitionTrack = nil
+			end
+		end)
+	end
 	ToggleCombatState:FireServer()
 	task.delay(0.25, function()
 		requestedToggle = false
@@ -151,11 +169,11 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 end)
 
 localPlayer.CharacterAdded:Connect(function()
+	if activeTransitionTrack then
+		activeTransitionTrack:Stop(0)
+		activeTransitionTrack = nil
+	end
 	lastAttackAt = 0
 	nextDualHand = "Right"
 	requestedToggle = false
 end)
-
--- Example loadout request. Production inventory UI should fire this with owned IDs.
--- EquipLoadout:FireServer("WoodenSword", "WoodenShield")
-assert(EquipLoadout, "EquipLoadout remote is required")
