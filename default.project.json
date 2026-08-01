@@ -10,6 +10,22 @@
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
+      "WeaponConfigs": {
+        "$path": "src/shared/WeaponConfigs.lua"
+      },
+      "WeaponAssets": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true
+      },
+      "ToggleCombatState": {
+        "$className": "RemoteEvent"
+      },
+      "EquipLoadout": {
+        "$className": "RemoteEvent"
+      },
+      "PerformAttack": {
+        "$className": "RemoteEvent"
+      },
       "Metadata": {
         "$path": "src/shared/Metadata"
       },
@@ -17,9 +33,6 @@
         "$className": "Folder",
         "ArenaBounds": {
           "$path": "src/shared/ArenaBounds.lua"
-        },
-        "CombatGeometry": {
-          "$path": "src/shared/CombatGeometry.lua"
         },
         "Types": {
           "$path": "src/shared/Types.lua"
@@ -32,6 +45,9 @@
 
     "ServerScriptService": {
       "$className": "ServerScriptService",
+      "WeaponStateManager": {
+        "$path": "src/server/WeaponStateManager.server.lua"
+      },
       "Infrastructure": {
         "$path": "src/server/Infrastructure"
       },

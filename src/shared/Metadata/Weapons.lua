@@ -30,7 +30,7 @@ local Weapons = {
 			swing = {
 				cooldownSeconds = 0.72,
 				animationId = "rbxassetid://126682224103556",
-				animationSpeed = 2,
+				animationSpeed = 1,
 				activeWindowSeconds = 0.22,
 				hitStopSeconds = 0.045,
 			},

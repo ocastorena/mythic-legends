@@ -30,7 +30,7 @@ src/
   client/
     Modules/              -> ReplicatedStorage.Client
     StarterPlayerScripts/  -> StarterPlayer.StarterPlayerScripts
-      PlayerCombatController/ init.client.lua (server-authoritative melee input)
+      CombatClient.client.lua (server-authoritative model-based melee input)
       ClaimController.client.lua
       ...
     StarterGui/            -> StarterGui.<Name>Gui (ScreenGui)
