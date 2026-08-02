@@ -114,7 +114,6 @@ function ClientKnockbackController.Apply(
 	launchVelocity: Vector3,
 	angularVelocity: Vector3,
 	durationSeconds: number,
-	preserveControl: boolean,
 	maximumReactionSeconds: number,
 	landingRecoverySeconds: number,
 	onLanded: (() -> ())?
@@ -158,11 +157,9 @@ function ClientKnockbackController.Apply(
 	}
 	activeStates[character] = state
 
-	if not preserveControl then
-		humanoid.AutoRotate = false
-		humanoid.PlatformStand = true
-		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-	end
+	humanoid.AutoRotate = false
+	humanoid.PlatformStand = true
+	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "CombatLaunchAttachment"
@@ -208,38 +205,33 @@ function ClientKnockbackController.Apply(
 			elapsed += activeStep
 		end
 		cleanupActuator(state)
-		if preserveControl then
-			recover(state, false)
-		end
 	end)
 
-	if not preserveControl then
-		task.spawn(function()
-			local startedAt = os.clock()
-			local observedTakeoff = false
-			while activeStates[character] == state and not state.cleaned do
-				local velocity = root.AssemblyLinearVelocity
-				if velocity.Y >= TAKEOFF_SPEED or not hasGroundSupport(state) then
-					observedTakeoff = true
-				end
-				if observedTakeoff
-					and velocity.Y <= 0
-					and math.abs(velocity.Y) <= MAX_LANDING_VERTICAL_SPEED
-					and hasGroundSupport(state)
-				then
-					if onLanded then task.defer(onLanded) end
-					task.wait(math.max(0, landingRecoverySeconds))
-					recover(state, true)
-					return
-				end
-				if os.clock() - startedAt >= math.max(0.1, maximumReactionSeconds) then
-					recover(state, true)
-					return
-				end
-				task.wait(0.03)
+	task.spawn(function()
+		local startedAt = os.clock()
+		local observedTakeoff = false
+		while activeStates[character] == state and not state.cleaned do
+			local velocity = root.AssemblyLinearVelocity
+			if velocity.Y >= TAKEOFF_SPEED or not hasGroundSupport(state) then
+				observedTakeoff = true
 			end
-		end)
-	end
+			if observedTakeoff
+				and velocity.Y <= 0
+				and math.abs(velocity.Y) <= MAX_LANDING_VERTICAL_SPEED
+				and hasGroundSupport(state)
+			then
+				if onLanded then task.defer(onLanded) end
+				task.wait(math.max(0, landingRecoverySeconds))
+				recover(state, true)
+				return
+			end
+			if os.clock() - startedAt >= math.max(0.1, maximumReactionSeconds) then
+				recover(state, true)
+				return
+			end
+			task.wait(0.03)
+		end
+	end)
 	return true
 end
 

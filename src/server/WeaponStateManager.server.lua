@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+local TweenService = game:GetService("TweenService")
 
 local Weapons = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
 local ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
@@ -23,6 +24,8 @@ local MAX_SEQUENCE = 2_147_483_647
 local MAX_REACH = 20
 local MAX_COOLDOWN = 5
 local DEFAULT_ARENA_HEIGHT_ALLOWANCE = 20
+local SHIELD_BUBBLE_NAME = "ShieldBubble"
+local SHIELD_BUBBLE_SIZE = 9
 
 type MovementState = {
 	character: Model,
@@ -38,6 +41,8 @@ type AuthorizedSwing = {
 	weaponId: string,
 	expiresAt: number,
 }
+
+type ImpactReactionType = "Launch" | "ShieldSlide"
 
 type CombatRuntime = {
 	stamina: number,
@@ -151,6 +156,13 @@ local function spendStamina(player: Player, amount: number, now: number): boolea
 	return true
 end
 
+local function spendStaminaUpTo(player: Player, amount: number, now: number): number
+	local runtime = refreshRuntime(player, now)
+	runtime.stamina = math.max(0, runtime.stamina - math.min(runtime.stamina, amount))
+	player:SetAttribute("CombatStamina", runtime.stamina)
+	return runtime.stamina
+end
+
 local function restoreMovement(runtime: CombatRuntime)
 	local movement = runtime.movement
 	if not movement then
@@ -163,6 +175,46 @@ local function restoreMovement(runtime: CombatRuntime)
 		movement.humanoid.JumpHeight = movement.jumpHeight
 		movement.humanoid.AutoRotate = movement.autoRotate
 	end
+end
+
+local function clearShieldBubble(character: Model?)
+	local bubble = character and character:FindFirstChild(SHIELD_BUBBLE_NAME)
+	if bubble then
+		bubble:Destroy()
+	end
+end
+
+local function createShieldBubble(character: Model, root: BasePart)
+	clearShieldBubble(character)
+	local bubble = Instance.new("Part")
+	bubble.Name = SHIELD_BUBBLE_NAME
+	bubble.Shape = Enum.PartType.Ball
+	bubble.Size = Vector3.one
+	bubble.CFrame = root.CFrame
+	bubble.Color = Color3.fromRGB(104, 213, 255)
+	bubble.Material = Enum.Material.ForceField
+	bubble.Transparency = 1
+	bubble.CastShadow = false
+	bubble.Anchored = false
+	bubble.CanCollide = false
+	bubble.CanTouch = false
+	-- The attacking client's blade sweep must contact the bubble before body geometry.
+	bubble.CanQuery = true
+	bubble.Massless = true
+	bubble.Parent = character
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "ShieldBubbleWeld"
+	weld.Part0 = root
+	weld.Part1 = bubble
+	weld.Parent = bubble
+	TweenService:Create(
+		bubble,
+		TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{
+			Size = Vector3.one * SHIELD_BUBBLE_SIZE,
+			Transparency = 0.48,
+		}
+	):Play()
 end
 
 local function getEquipmentAndLoadout(player: Player): (any, any)
@@ -394,13 +446,15 @@ local function setShieldGuard(player: Player, enabled: boolean): boolean
 		local character = player.Character
 		if character then
 			character:SetAttribute("ShieldGuarding", false)
+			clearShieldBubble(character)
 		end
 		restoreMovement(runtime)
 		return true
 	end
-	local character, humanoid = getAliveR15Character(player)
+	local character, humanoid, root = getAliveR15Character(player)
 	if not character
 		or not humanoid
+		or not root
 		or character:GetAttribute("CombatReady") ~= true
 		or not isCharacterInArena(character)
 	then
@@ -413,6 +467,9 @@ local function setShieldGuard(player: Player, enabled: boolean): boolean
 	end
 	if runtime.movement then
 		character:SetAttribute("ShieldGuarding", true)
+		if not character:FindFirstChild(SHIELD_BUBBLE_NAME) then
+			createShieldBubble(character, root)
+		end
 		return true
 	end
 	local now = os.clock()
@@ -434,6 +491,7 @@ local function setShieldGuard(player: Player, enabled: boolean): boolean
 	humanoid.JumpHeight = 0
 	humanoid.AutoRotate = false
 	character:SetAttribute("ShieldGuarding", true)
+	createShieldBubble(character, root)
 	return true
 end
 
@@ -546,7 +604,8 @@ local function sendImpact(
 	launchVelocity: Vector3,
 	angularVelocity: Vector3,
 	controlSeconds: number,
-	preserveControl: boolean,
+	reactionType: ImpactReactionType,
+	slideDurationSeconds: number,
 	maximumReactionSeconds: number,
 	landingRecoverySeconds: number,
 	airTrailSeconds: number,
@@ -561,7 +620,8 @@ local function sendImpact(
 		launchVelocity = launchVelocity,
 		angularVelocity = angularVelocity,
 		controlSeconds = controlSeconds,
-		preserveControl = preserveControl,
+		reactionType = reactionType,
+		slideDurationSeconds = slideDurationSeconds,
 		maximumReactionSeconds = maximumReactionSeconds,
 		landingRecoverySeconds = landingRecoverySeconds,
 	})
@@ -645,21 +705,29 @@ local function handleHitReport(player: Player, payload: any)
 	local launchVelocity: Vector3
 	local angularVelocity = Vector3.zero
 	local controlSeconds: number
-	local preserveControl = false
+	local reactionType: ImpactReactionType = "Launch"
+	local slideDurationSeconds = 0
 	local maximumReactionSeconds = 0
 	local landingRecoverySeconds = 0
 	local airTrailSeconds = 0
+	local shieldDepleted = false
 	local shieldProfile = getProfile(targetCharacter:GetAttribute("LeftEquipped"))
 	if targetCharacter:GetAttribute("ShieldGuarding") == true
+		and targetCharacter:FindFirstChild(SHIELD_BUBBLE_NAME) ~= nil
 		and shieldProfile
 		and shieldProfile.kind == "Shield"
 		and withinGuardArc(attackerRoot, targetRoot, getNumber(shieldProfile.blockArcDegrees, 110, 0, 360))
-		and spendStamina(target, getNumber(shieldProfile.impactStaminaCost, 30, 0, 1_000), now)
 	then
 		blocked = true
-		preserveControl = true
+		shieldDepleted = spendStaminaUpTo(
+			target,
+			getNumber(shieldProfile.impactStaminaCost, 30, 0, 1_000),
+			now
+		) <= 0.001
+		reactionType = "ShieldSlide"
 		launchVelocity = direction * getNumber(shieldProfile.slideKnockback, 28, 0, 100)
-		controlSeconds = getNumber(shieldProfile.launchControlSeconds, 0.1, 0.05, 0.5)
+		controlSeconds = 0
+		slideDurationSeconds = getNumber(shieldProfile.slideDurationSeconds, 0.32, 0.08, 0.75)
 	else
 		launchVelocity = direction * getNumber(profile.planarKnockback, 56, 0, 100)
 			+ Vector3.yAxis * getNumber(profile.verticalKnockback, 58, 0, 100)
@@ -681,7 +749,8 @@ local function handleHitReport(player: Player, payload: any)
 		launchVelocity,
 		angularVelocity,
 		controlSeconds,
-		preserveControl,
+		reactionType,
+		slideDurationSeconds,
 		maximumReactionSeconds,
 		landingRecoverySeconds,
 		airTrailSeconds,
@@ -689,6 +758,14 @@ local function handleHitReport(player: Player, payload: any)
 		blocked,
 		profile
 	)
+	if blocked and shieldDepleted then
+		-- Let the final bubble spark finish, then lower the depleted guard automatically.
+		task.delay(0.5, function()
+			if target.Character == targetCharacter and targetCharacter:GetAttribute("ShieldGuarding") == true then
+				setShieldGuard(target, false)
+			end
+		end)
+	end
 end
 
 local function performAttack(player: Player, action: unknown, payload: unknown)

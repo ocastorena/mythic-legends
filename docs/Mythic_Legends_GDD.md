@@ -188,9 +188,10 @@ On acceptance, the server consumes the authorization without deducting Stamina a
 
 - A Shield is separately equipped in the Shield slot of the Combat Loadout and may be held active without changing Hotbar selection.
 - Pressing and holding the Shield action activates the Shield; releasing the action deactivates it.
+- Shield protection begins at the authored `GuardRaised` marker in the raise animation and ends at `GuardLowered` in the lower animation. The protective bubble follows those same marker transitions.
 - While a Shield is active, its player cannot move.
-- With sufficient Stamina, an active Shield absorbs an incoming weapon hit. It drains Stamina, slides the Shield user back slightly, and grants temporary knockback immunity.
-- A Shield with insufficient Stamina provides no protection; the incoming hit is handled as an unblocked hit.
+- With sufficient Stamina, the active bubble absorbs an incoming weapon hit from any direction. It drains Stamina, slides the Shield user away from the hit direction, grants temporary knockback immunity, and displays a spark effect on the struck bubble.
+- If a bubble has less than the full impact cost remaining, it still absorbs that final hit, spends the remaining Stamina, displays its bubble impact, and then lowers automatically.
 
 #### Security boundary
 
@@ -432,7 +433,7 @@ The server validates every client request that changes inventory, currency, Comb
 12. Capture Rings do not overlap, and the Arena spawn system does not create an overlapping contest.
 13. A Mythling earns separately configured XP only from verified Shrine production, caps at level 100, and retains its Passive Trait and element after an Inventory-menu evolution validated by the server.
 14. A player at Mythling capacity cannot gain Capture Ring progress, and any blocked pickup, collection, or crafting start produces an inventory-capacity warning without granting the entry.
-15. Every activated Arena weapon attack consumes its configured Stamina cost even when it misses, while shield impacts consume their configured Stamina cost; Arena combat uses knockback, Shield behavior, and temporary knockback immunity, but never player health or death. Elemental weapon effects are post-launch.
+15. Every activated Arena weapon attack consumes its configured Stamina cost even when it misses, while shield impacts consume up to their configured Stamina cost and allow one final partial-cost block before depletion; Arena combat uses knockback, Shield behavior, and temporary knockback immunity, but never player health or death. Elemental weapon effects are post-launch.
 16. All Passive Traits affect production only, and cancelling a Crafting Job refunds all of its spent Materials and Gold.
 17. A sword swing can report at most one target selected deterministically by closest visible blade contact, then attacker-to-target distance, then player user ID; proximity without attack activation cannot produce a hit, and the server cannot substitute an independently selected target.
 18. An accepted sword report produces immediate attacker feedback and one idempotent target-client launch while capture progress, contest resolution, and rewards remain server-authoritative.

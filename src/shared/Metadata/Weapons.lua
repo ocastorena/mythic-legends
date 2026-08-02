@@ -47,9 +47,9 @@ local Weapons = {
 
 			activationCooldownSeconds = 0.2,
 			impactStaminaCost = 30,
-			blockArcDegrees = 110,
-			slideKnockback = 28,
-			launchControlSeconds = 0.1,
+			blockArcDegrees = 360,
+			slideKnockback = 40,
+			slideDurationSeconds = 0.32,
 			raiseAnimationId = "rbxassetid://14022926289",
 			holdAnimationId = "rbxassetid://13382364012",
 			lowerAnimationId = "rbxassetid://13382274130",

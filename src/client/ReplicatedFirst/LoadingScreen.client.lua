@@ -2,6 +2,7 @@
 -- Keeps startup visually simple while the complete core world and its external assets load.
 
 local ContentProvider = game:GetService("ContentProvider")
+local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local StarterGui = game:GetService("StarterGui")
@@ -12,11 +13,117 @@ local MIN_DISPLAY_SECONDS = 1.5
 local STREAM_TIMEOUT_SECONDS = 6
 local PRELOAD_BATCH_SIZE = 12
 local FADE_SECONDS = 0.4
+local MOVEMENT_LOCK_ACTION = "LoadingScreenMovementLock"
+local CAMERA_LOCK_ACTION = "LoadingScreenCameraLock"
 
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 local displayedAt = os.clock()
 local dismissed = false
+local movementLocked = true
+local movementControls: any? = nil
+local lockedCamera: Camera? = nil
+local savedCameraSubject: Instance? = nil
+local cameraChangedConnection: RBXScriptConnection? = nil
+
+local function sinkMovement(): Enum.ContextActionResult
+	return Enum.ContextActionResult.Sink
+end
+
+-- Sink cross-platform character actions immediately, before PlayerModule finishes loading.
+ContextActionService:BindActionAtPriority(
+	MOVEMENT_LOCK_ACTION,
+	sinkMovement,
+	false,
+	Enum.ContextActionPriority.High.Value,
+	Enum.PlayerActions.CharacterForward,
+	Enum.PlayerActions.CharacterBackward,
+	Enum.PlayerActions.CharacterLeft,
+	Enum.PlayerActions.CharacterRight,
+	Enum.PlayerActions.CharacterJump
+)
+
+ContextActionService:BindActionAtPriority(
+	CAMERA_LOCK_ACTION,
+	sinkMovement,
+	false,
+	Enum.ContextActionPriority.High.Value + 100,
+	Enum.UserInputType.MouseMovement,
+	Enum.UserInputType.MouseWheel,
+	Enum.UserInputType.MouseButton2,
+	Enum.UserInputType.Touch,
+	Enum.KeyCode.Thumbstick2,
+	Enum.KeyCode.I,
+	Enum.KeyCode.O
+)
+
+local function lockCurrentCamera()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	if camera ~= lockedCamera then
+		lockedCamera = camera
+		savedCameraSubject = camera.CameraSubject
+	end
+	camera.CameraType = Enum.CameraType.Scriptable
+end
+
+lockCurrentCamera()
+cameraChangedConnection = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(lockCurrentCamera)
+
+-- Disabling the standard controls also hides mobile locomotion input from the character.
+task.spawn(function()
+	local success, controls = pcall(function()
+		local playerScripts = localPlayer:WaitForChild("PlayerScripts")
+		local playerModule = require(playerScripts:WaitForChild("PlayerModule"))
+		return playerModule:GetControls()
+	end)
+	if not success or not controls then
+		return
+	end
+	movementControls = controls
+	if movementLocked then
+		pcall(function()
+			controls:Disable()
+		end)
+	end
+end)
+
+local function releaseMovement()
+	if not movementLocked then
+		return
+	end
+	movementLocked = false
+	ContextActionService:UnbindAction(MOVEMENT_LOCK_ACTION)
+	if movementControls then
+		pcall(function()
+			movementControls:Enable()
+		end)
+	end
+end
+
+local function releaseCamera()
+	ContextActionService:UnbindAction(CAMERA_LOCK_ACTION)
+	if cameraChangedConnection then
+		cameraChangedConnection:Disconnect()
+		cameraChangedConnection = nil
+	end
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	camera.CameraType = Enum.CameraType.Custom
+	local character = localPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		camera.CameraSubject = humanoid
+	elseif savedCameraSubject and savedCameraSubject.Parent then
+		camera.CameraSubject = savedCameraSubject
+	end
+	lockedCamera = nil
+	savedCameraSubject = nil
+end
 
 --------------------------------------------------------------------------------
 -- Minimal presentation
@@ -386,18 +493,40 @@ local function dismiss()
 		task.wait(remaining)
 	end
 
-	local tween = TweenService:Create(
-		background,
-		TweenInfo.new(FADE_SECONDS, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-		{ GroupTransparency = 1 }
-	)
-	tween:Play()
-	tween.Completed:Wait()
+	local fadeInfo = TweenInfo.new(FADE_SECONDS, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeTweens: { Tween } = {}
+	local function addFadeTween(guiObject: GuiObject)
+		local goals: { [string]: number } = {
+			BackgroundTransparency = 1,
+		}
+		if guiObject:IsA("TextLabel") or guiObject:IsA("TextButton") or guiObject:IsA("TextBox") then
+			goals.TextTransparency = 1
+			goals.TextStrokeTransparency = 1
+		elseif guiObject:IsA("ImageLabel") or guiObject:IsA("ImageButton") then
+			goals.ImageTransparency = 1
+		end
+		table.insert(fadeTweens, TweenService:Create(guiObject, fadeInfo, goals))
+	end
+
+	-- Fade every rendered property explicitly so CanvasGroup child rendering cannot
+	-- outlive the full-screen background on slower startup frames.
+	addFadeTween(background)
+	for _, descendant in background:GetDescendants() do
+		if descendant:IsA("GuiObject") then
+			addFadeTween(descendant)
+		end
+	end
+	for _, tween in fadeTweens do
+		tween:Play()
+	end
+	fadeTweens[1].Completed:Wait()
 
 	pcall(function()
 		StarterGui:SetCore("TopbarEnabled", true)
 	end)
 	screenGui:Destroy()
+	releaseMovement()
+	releaseCamera()
 end
 
 task.delay(LOAD_TIMEOUT_SECONDS, dismiss)

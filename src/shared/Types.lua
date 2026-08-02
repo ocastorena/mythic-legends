@@ -69,6 +69,7 @@ export type WeaponProfile = {
 	impactStaminaCost: number?,
 	blockArcDegrees: number?,
 	slideKnockback: number?,
+	slideDurationSeconds: number?,
 	raiseAnimationId: string?,
 	holdAnimationId: string?,
 	lowerAnimationId: string?,

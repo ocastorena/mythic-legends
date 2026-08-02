@@ -163,8 +163,13 @@ local function playHitBurst(character: Model)
 	destroyAfter(flash, 0.18)
 end
 
-local function playShieldBurst(character: Model, shield: Model?)
-	local effectPart = shield and shield:FindFirstChild("ShieldFace", true)
+local function playShieldBurst(character: Model, shield: Model?, attackerCharacter: Model?)
+	local bubble = character:FindFirstChild("ShieldBubble")
+	local effectPart: BasePart? = if bubble and bubble:IsA("BasePart") then bubble else nil
+	if not effectPart then
+		local shieldFace = shield and shield:FindFirstChild("ShieldFace", true)
+		effectPart = if shieldFace and shieldFace:IsA("BasePart") then shieldFace else nil
+	end
 	if not effectPart or not effectPart:IsA("BasePart") then
 		effectPart = getEffectPart(character)
 	end
@@ -172,6 +177,16 @@ local function playShieldBurst(character: Model, shield: Model?)
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "ShieldImpactBurst"
 	attachment.Parent = effectPart
+	if effectPart == bubble then
+		local attackerRoot = attackerCharacter and attackerCharacter:FindFirstChild("HumanoidRootPart")
+		local outward = if attackerRoot and attackerRoot:IsA("BasePart")
+			then attackerRoot.Position - effectPart.Position
+			else -effectPart.CFrame.LookVector
+		if outward.Magnitude > 0.001 then
+			attachment.Position = effectPart.CFrame:VectorToObjectSpace(outward.Unit)
+				* (effectPart.Size.X * 0.48)
+		end
+	end
 	local sparks = Instance.new("ParticleEmitter")
 	sparks.Name = "ShieldImpactSparks"
 	sparks.Texture = HIT_TEXTURE
@@ -199,7 +214,7 @@ local function playShieldBurst(character: Model, shield: Model?)
 
 	local flash = Instance.new("Highlight")
 	flash.Name = "ShieldImpactFlash"
-	flash.Adornee = shield or character
+	flash.Adornee = bubble or shield or character
 	flash.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 	flash.FillColor = Color3.fromRGB(255, 205, 72)
 	flash.FillTransparency = 0.7
@@ -361,7 +376,11 @@ presentationBus.Event:Connect(function(action: string, character: Model, present
 		playHitBurst(character)
 	elseif action == "LocalShieldImpact" then
 		kind = "ShieldImpact"
-		playShieldBurst(character, if presentation and presentation:IsA("Model") then presentation else nil)
+		playShieldBurst(
+			character,
+			if presentation and presentation:IsA("Model") then presentation else nil,
+			localPlayer.Character
+		)
 	else
 		return
 	end
@@ -392,7 +411,9 @@ CombatImpact.OnClientEvent:Connect(function(action: unknown, payload: any)
 	end
 	if not wasLocal then
 		if kind == "ShieldImpact" then
-			playShieldBurst(character, getShieldModel(character))
+			local attacker = type(payload.attackerUserId) == "number"
+				and Players:GetPlayerByUserId(payload.attackerUserId)
+			playShieldBurst(character, getShieldModel(character), attacker and attacker.Character)
 		else
 			playImpactSound(character, payload.impactSoundId)
 			playHitBurst(character)

@@ -10,6 +10,7 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild(
 local WeaponAssets = ReplicatedStorage:WaitForChild("WeaponAssets")
 local Client = ReplicatedStorage:WaitForChild("Client")
 local ClientKnockbackController = require(Client:WaitForChild("ClientKnockbackController"))
+local ShieldSlideController = require(Client:WaitForChild("ShieldSlideController"))
 local presentationBus = require(Client:WaitForChild("CombatPresentationBus"))
 local Ui = Client:WaitForChild("Ui")
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
@@ -50,6 +51,7 @@ local activeGuardHoldTrack: AnimationTrack? = nil
 local activeGuardLowerTrack: AnimationTrack? = nil
 local activeGuardConnections: { RBXScriptConnection } = {}
 local combatReadyConnection: RBXScriptConnection? = nil
+local shieldGuardingConnection: RBXScriptConnection? = nil
 
 local function getCharacter(): Model?
 	return localPlayer.Character
@@ -198,7 +200,6 @@ local function beginGuard(character: Model)
 	guardRequested = true
 	guardToken += 1
 	local expectedToken = guardToken
-	SetShieldGuard:FireServer(true)
 
 	local transitioned = false
 	local function transitionToHold()
@@ -207,6 +208,8 @@ local function beginGuard(character: Model)
 		end
 		transitioned = true
 		disconnectGuardConnections()
+		-- Protection and the replicated bubble begin at the authored GuardRaised frame.
+		SetShieldGuard:FireServer(true)
 		startGuardHold(character, expectedToken)
 	end
 
@@ -227,10 +230,10 @@ local function endGuard(character: Model?, playLower: boolean)
 	end
 	guardRequested = false
 	guardToken += 1
-	SetShieldGuard:FireServer(false)
 	stopGuardTracks(0.08)
 
 	if not playLower or not character or localPlayer.Character ~= character then
+		SetShieldGuard:FireServer(false)
 		return
 	end
 	local profile = getShieldProfile(character)
@@ -238,13 +241,22 @@ local function endGuard(character: Model?, playLower: boolean)
 	activeGuardLowerTrack = track
 	if track then
 		track.Looped = false
+		local lowered = false
 		local function finishLower()
+			if lowered then
+				return
+			end
+			lowered = true
+			-- Keep protection active through the lowering motion, then remove the bubble.
+			SetShieldGuard:FireServer(false)
 			if activeGuardLowerTrack == track then
 				activeGuardLowerTrack = nil
 			end
 		end
 		table.insert(activeGuardConnections, track:GetMarkerReachedSignal("GuardLowered"):Connect(finishLower))
 		table.insert(activeGuardConnections, track.Stopped:Connect(finishLower))
+	else
+		SetShieldGuard:FireServer(false)
 	end
 end
 
@@ -362,38 +374,14 @@ local function chooseBladeTarget(
 	return bestTarget
 end
 
-local function getPredictedBlockingShield(attackerCharacter: Model, target: Player): Model?
+local function getPredictedBlockingShield(target: Player): Model?
 	local targetCharacter = target.Character
 	if not targetCharacter or targetCharacter:GetAttribute("ShieldGuarding") ~= true then
 		return nil
 	end
-	local profile = Weapons.Profiles[targetCharacter:GetAttribute("LeftEquipped")]
-	local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
-	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
 	local shield = getWeaponModel(targetCharacter, "Left")
-	if not profile
-		or profile.kind ~= "Shield"
-		or not attackerRoot
-		or not attackerRoot:IsA("BasePart")
-		or not targetRoot
-		or not targetRoot:IsA("BasePart")
-		or not shield
-	then
-		return nil
-	end
-	local stamina = target:GetAttribute("CombatStamina")
-	if type(stamina) == "number" and stamina + 0.001 < (profile.impactStaminaCost or 0) then
-		return nil
-	end
-	local towardAttacker = attackerRoot.Position - targetRoot.Position
-	local planarOffset = Vector3.new(towardAttacker.X, 0, towardAttacker.Z)
-	local facing = targetRoot.CFrame.LookVector
-	local planarFacing = Vector3.new(facing.X, 0, facing.Z)
-	if planarOffset.Magnitude <= 0.001 or planarFacing.Magnitude <= 0.001 then
-		return nil
-	end
-	local halfArc = math.rad(math.clamp(profile.blockArcDegrees or 110, 0, 360) * 0.5)
-	return if planarFacing.Unit:Dot(planarOffset.Unit) >= math.cos(halfArc) then shield else nil
+	local bubble = targetCharacter:FindFirstChild("ShieldBubble")
+	return if shield and bubble and bubble:IsA("BasePart") then shield else nil
 end
 
 local function attack(character: Model)
@@ -461,7 +449,7 @@ local function attack(character: Model)
 				previousCFrame = hitbox.CFrame
 				if target and target.Character then
 					hitReported = true
-					local blockingShield = getPredictedBlockingShield(character, target)
+					local blockingShield = getPredictedBlockingShield(target)
 					if blockingShield then
 						presentationBus:Fire("LocalShieldImpact", target.Character, blockingShield, sequence)
 					else
@@ -526,13 +514,26 @@ local function applyLaunch(payload: any)
 	if not character then
 		return
 	end
+	if payload.reactionType == "ShieldSlide" then
+		ClientKnockbackController.Clear(character)
+		ShieldSlideController.Apply(
+			character,
+			payload.hitId,
+			payload.launchVelocity,
+			tonumber(payload.slideDurationSeconds) or 0.32
+		)
+		return
+	end
+	if payload.reactionType ~= "Launch" then
+		return
+	end
+	ShieldSlideController.Clear(character)
 	ClientKnockbackController.Apply(
 		character,
 		payload.hitId,
 		payload.launchVelocity,
 		if typeof(payload.angularVelocity) == "Vector3" then payload.angularVelocity else Vector3.zero,
 		tonumber(payload.controlSeconds) or 0.1,
-		payload.preserveControl == true,
 		tonumber(payload.maximumReactionSeconds) or 3.5,
 		tonumber(payload.landingRecoverySeconds) or 0.2,
 		function()
@@ -654,9 +655,11 @@ local function createCombatButtons()
 	end)
 	local shieldButtonHeld = false
 	local function lowerShieldButton()
-		if shieldButtonHeld then
-			shieldButtonHeld = false
-			shieldButton.BackgroundColor3 = NORMAL_BUTTON_COLOR
+		if not shieldButtonHeld then
+			return
+		end
+		shieldButtonHeld = false
+		if guardRequested then
 			endGuard(getCharacter(), true)
 		end
 	end
@@ -666,18 +669,21 @@ local function createCombatButtons()
 		local _, _, canGuard = getButtonAvailability()
 		if character and canGuard then
 			shieldButtonHeld = true
-			shieldButton.BackgroundColor3 = PRESSED_BUTTON_COLOR
 			beginGuard(character)
 		end
 	end)
 	shieldButton.MouseButton1Up:Connect(lowerShieldButton)
 	UserInputService.InputEnded:Connect(function(input: InputObject)
-		if input.UserInputType == Enum.UserInputType.Touch then lowerShieldButton() end
+		if input.UserInputType == Enum.UserInputType.Touch then
+			lowerShieldButton()
+		end
 	end)
 	local modalOpen = ModalUtil.AnyOpen()
 	ModalUtil.OnChanged(function(isOpen: boolean)
 		modalOpen = isOpen
-		if isOpen then lowerShieldButton() end
+		if isOpen then
+			lowerShieldButton()
+		end
 	end)
 	local elapsed = 0
 	RunService.Heartbeat:Connect(function(deltaTime: number)
@@ -701,6 +707,7 @@ local function createCombatButtons()
 		shieldButton.Interactable = canGuard and not modalOpen
 		attackButton.BackgroundTransparency = if canAttack then 0.12 else 0.5
 		shieldButton.BackgroundTransparency = if canGuard then 0.12 else 0.5
+		shieldButton.BackgroundColor3 = if guardRequested then PRESSED_BUTTON_COLOR else NORMAL_BUTTON_COLOR
 		relayout()
 	end)
 	relayout()
@@ -715,18 +722,21 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		attack(character)
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-		beginGuard(character)
+		if not guardRequested then
+			beginGuard(character)
+		end
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input: InputObject)
-	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+	if input.UserInputType == Enum.UserInputType.MouseButton2 and guardRequested then
 		endGuard(getCharacter(), true)
 	end
 end)
 
 local function bindCharacter(character: Model)
 	if combatReadyConnection then combatReadyConnection:Disconnect() end
+	if shieldGuardingConnection then shieldGuardingConnection:Disconnect() end
 	if guardRequested then SetShieldGuard:FireServer(false) end
 	guardRequested = false
 	guardToken += 1
@@ -742,6 +752,14 @@ local function bindCharacter(character: Model)
 			wasCombatReady = isCombatReady
 			playCombatTransition(character, isCombatReady)
 		end
+	end)
+	local wasShieldGuarding = character:GetAttribute("ShieldGuarding") == true
+	shieldGuardingConnection = character:GetAttributeChangedSignal("ShieldGuarding"):Connect(function()
+		local isShieldGuarding = character:GetAttribute("ShieldGuarding") == true
+		if wasShieldGuarding and not isShieldGuarding and guardRequested then
+			endGuard(character, true)
+		end
+		wasShieldGuarding = isShieldGuarding
 	end)
 end
 
