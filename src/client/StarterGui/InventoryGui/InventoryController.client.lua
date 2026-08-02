@@ -29,6 +29,8 @@ local MythlingsData = require(ReplicatedStorage:WaitForChild("Metadata"):WaitFor
 local ResourcesMeta = require(ReplicatedStorage.Metadata.Resources)
 local WeaponsMeta = require(ReplicatedStorage.Metadata.Weapons)
 local ItemsMeta = require(ReplicatedStorage.Metadata.Items)
+local WeaponAssets = ReplicatedStorage:WaitForChild("WeaponAssets")
+local CombatLoadoutRequest = ReplicatedStorage:WaitForChild("CombatLoadoutRequest") :: RemoteFunction
 
 -- Remotes
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -196,6 +198,7 @@ local weaponInfo = PanelUtil.details({
 	accent = ThemeUtil.Accent.gold,
 	stats = 3,
 	info = true,
+	primary = "Equip",
 })
 local itemInfo = PanelUtil.details({
 	parent = newDetailsColumn("ItemInfo"),
@@ -372,7 +375,7 @@ local function setWeaponPreview(imageLabel: ImageLabel, profile, entry)
 	WeaponPreviewUtil.Clear(imageLabel)
 	imageLabel.Image = thumbnail
 	if thumbnail == "" then
-		WeaponPreviewUtil.Render(imageLabel, entry.previewTool)
+		WeaponPreviewUtil.Render(imageLabel, entry.previewModel)
 	end
 end
 
@@ -397,19 +400,19 @@ local weaponList = CardListUtil.new({
 		setWeaponPreview(weaponInfo.ElementIcon, profile, entry)
 		PanelUtil.setHeroRarity(weaponInfo, rarity)
 
-		if profile.combatKind == "Shield" and profile.shield then
-			weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.shield.activationCooldownSeconds or 0)
+		if profile.kind == "Shield" then
+			weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.activationCooldownSeconds or 0)
 			weaponInfo.Stats[1].Label.Text = "Raise Cooldown"
-			weaponInfo.Stats[2].Value.Text = string.format("%.0f°", profile.shield.blockArcDegrees or 0)
+			weaponInfo.Stats[2].Value.Text = string.format("%.0f°", profile.blockArcDegrees or 0)
 			weaponInfo.Stats[2].Label.Text = "Block Arc"
-			weaponInfo.Stats[3].Value.Text = tostring(profile.shield.slidePlanarDeltaV or 0)
+			weaponInfo.Stats[3].Value.Text = tostring(profile.slideKnockback or 0)
 			weaponInfo.Stats[3].Label.Text = "Block Slide"
-		elseif profile.swing and profile.target and profile.impact then
-			weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.swing.cooldownSeconds or 0)
+		elseif profile.kind == "PrimaryWeapon" then
+			weaponInfo.Stats[1].Value.Text = string.format("%.2fs", profile.cooldownSeconds or 0)
 			weaponInfo.Stats[1].Label.Text = "Swing Cooldown"
-			weaponInfo.Stats[2].Value.Text = string.format("%.2f", profile.target.reachStuds or 0)
+			weaponInfo.Stats[2].Value.Text = string.format("%.2f", profile.reachStuds or 0)
 			weaponInfo.Stats[2].Label.Text = "Reach (studs)"
-			weaponInfo.Stats[3].Value.Text = tostring(profile.impact.planarDeltaV or 0)
+			weaponInfo.Stats[3].Value.Text = tostring(profile.planarKnockback or 0)
 			weaponInfo.Stats[3].Label.Text = "Knockback"
 		else
 			for _, stat in ipairs(weaponInfo.Stats) do
@@ -529,7 +532,7 @@ if weaponInfo.InfoButton then
 		local rarity = profile.rarity or "Common"
 		openLore(
 			profile.displayName or titleCase(id),
-			`{ThemeUtil.tier(rarity)} · {profile.weaponFamily}`,
+			`{ThemeUtil.tier(rarity)} · {profile.kind}`,
 			profile.description or "A weapon used in arena combat.",
 			ThemeUtil.rarityColor(rarity),
 			weaponThumbnail(profile, entry)
@@ -687,38 +690,35 @@ end)
 
 local function collectWeapons()
 	local weapons = {}
-	local function collect(container: Instance?, equipped: boolean)
-		if not container then
-			return
-		end
-		for _, child in ipairs(container:GetChildren()) do
-			if child:IsA("Tool") then
-				local id, profile = WeaponsMeta.GetProfile(child)
-				if id and profile then
-					local entry = weapons[id]
-					if not entry then
-						entry = {
-							quantity = 0,
-							equipped = false,
-							textureId = child.TextureId,
-							previewTool = child,
-						}
-						weapons[id] = entry
-					end
-					entry.quantity += 1
-					entry.equipped = entry.equipped or equipped
-					if equipped or not entry.previewTool.Parent then
-						entry.previewTool = child
-					end
-					if entry.textureId == "" then
-						entry.textureId = child.TextureId
-					end
-				end
+	local success, response = pcall(CombatLoadoutRequest.InvokeServer, CombatLoadoutRequest, "Get")
+	if not success or type(response) ~= "table" or response.ok ~= true or type(response.snapshot) ~= "table" then
+		return weapons
+	end
+	local snapshot = response.snapshot
+	for _, owned in snapshot.equipment or {} do
+		local id = owned.definitionId
+		local profile = type(id) == "string" and WeaponsMeta.Profiles[id]
+		if profile then
+			local entry = weapons[id]
+			if not entry then
+				entry = {
+					quantity = 0,
+					equipped = false,
+					textureId = "",
+					instanceId = owned.instanceId,
+					previewModel = WeaponAssets:FindFirstChild(profile.modelName),
+				}
+				weapons[id] = entry
+			end
+			entry.quantity += 1
+			if owned.instanceId == snapshot.primaryWeaponInstanceId
+				or owned.instanceId == snapshot.shieldInstanceId
+			then
+				entry.equipped = true
+				entry.instanceId = owned.instanceId
 			end
 		end
 	end
-	collect(localPlayer:FindFirstChildOfClass("Backpack"), false)
-	collect(localPlayer.Character, true)
 	return weapons
 end
 
@@ -736,27 +736,30 @@ local function queueWeaponRefresh()
 	end)
 end
 
-local function watchTools(container: Instance)
-	container.ChildAdded:Connect(queueWeaponRefresh)
-	container.ChildRemoved:Connect(queueWeaponRefresh)
-end
-
-local backpack = localPlayer:FindFirstChildOfClass("Backpack")
-if backpack then
-	watchTools(backpack)
-end
-localPlayer.ChildAdded:Connect(function(child)
-	if child:IsA("Backpack") then
-		watchTools(child)
-		queueWeaponRefresh()
-	end
-end)
 localPlayer.CharacterAdded:Connect(function(character)
-	watchTools(character)
+	character:GetAttributeChangedSignal("RightEquipped"):Connect(queueWeaponRefresh)
+	character:GetAttributeChangedSignal("LeftEquipped"):Connect(queueWeaponRefresh)
 	queueWeaponRefresh()
 end)
 if localPlayer.Character then
-	watchTools(localPlayer.Character)
+	localPlayer.Character:GetAttributeChangedSignal("RightEquipped"):Connect(queueWeaponRefresh)
+	localPlayer.Character:GetAttributeChangedSignal("LeftEquipped"):Connect(queueWeaponRefresh)
+end
+
+if weaponInfo.PrimaryButton then
+	ButtonUtil.hookClick(weaponInfo.PrimaryButton, function()
+		local id = weaponList:GetSelectedId()
+		local entry = id and weaponList:GetData(id)
+		if not entry or type(entry.instanceId) ~= "string" then
+			return
+		end
+		local success, response = pcall(CombatLoadoutRequest.InvokeServer, CombatLoadoutRequest, "Equip", {
+			instanceId = entry.instanceId,
+		})
+		if success and type(response) == "table" and response.ok == true then
+			weaponList:Replace(collectWeapons())
+		end
+	end)
 end
 
 -- Inventory carries denser labels than the other panels, especially across four tabs and

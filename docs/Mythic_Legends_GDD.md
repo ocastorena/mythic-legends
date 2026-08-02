@@ -103,10 +103,10 @@ Players spawn at their own Base. From there, they may immediately enter the Aren
 - Launch movement uses only Roblox's standard walking and jumping. There is no sprint, dash, crouch, climbing ability, or other movement action.
 - The game uses Roblox's default third-person follow camera. There is no camera lock or aim mode at launch.
 - **Mobile:** the left thumb controls movement; the right side controls camera drag, a dedicated Attack button, and a dedicated Shield button.
-- **Keyboard/mouse:** primary attack uses the normal weapon input; holding the dedicated Shield input holds the equipped Shield active. Number keys `1` through `6` select the corresponding Hotbar slot.
-- **Gamepad:** right trigger attacks with the equipped Primary Weapon; holding left trigger holds the equipped Shield active; D-pad left and right cycle Hotbar selection.
+- **Keyboard/mouse:** left click uses the equipped Primary Weapon; holding right click holds the equipped Shield active. Number keys `1` through `6` select the corresponding Hotbar slot.
+- **Gamepad (later):** right-trigger attack, left-trigger Shield hold, and D-pad Hotbar cycling are planned after the current MVP implementation.
 - The Combat Loadout has one Primary Weapon slot and one Shield slot. Players choose these in the Inventory menu; Combat Equipment never occupies a Hotbar slot.
-- Both pieces of Combat Equipment in the Combat Loadout are visibly equipped on the player character while in the Arena, with the Primary Weapon presented on the character's left and the Shield on the right. Outside the Arena, they remain equipped in saved state but their character models are hidden and their actions are unavailable.
+- Both pieces of Combat Equipment use character-mounted Models rather than Roblox `Tool` instances. In the Arena, the Primary Weapon is held in the right hand and the Shield in the left hand. Outside the Arena, both remain visibly sheathed on the character and equipped in saved state, but their combat actions are unavailable.
 - Players may leave every Hotbar slot empty or equip up to six Combat Consumables or future approved Hotbar entries. Hotbar selection never changes the equipped Primary Weapon or Shield.
 
 - Every new player receives a plain wooden sword and wooden shield in their Combat Loadout. The Hotbar has six Combat Consumable slots.
@@ -149,13 +149,13 @@ Players spawn at their own Base. From there, they may immediately enter the Aren
 
 Launch combat is Arena-only and non-lethal. A player attacks with their equipped Primary Weapon and may independently hold their equipped Shield active; neither occupies a Hotbar slot. Launch weapons and Shields are non-elemental material tiers, including wood, copper, steel, and future configured material tiers. Elemental weapons and effects are post-launch content.
 
-Entering the Arena displays the player's equipped Primary Weapon and Shield on their character and enables their Arena actions. Leaving the Arena hides both models and disables weapon activation and Shield holding without changing the saved Combat Loadout.
+Entering the Arena moves the player's equipped Primary Weapon and Shield from their authored sheath attachments to their R15 hand attachments and enables Arena actions. Leaving the Arena returns both Models to their authored sheath attachments and disables attack and Shield holding without changing the saved Combat Loadout.
 
 The launch sword uses a deliberately client-reported melee architecture. This is an accepted MVP tradeoff: responsive, visually accurate combat in live servers is more important than making sword contact fully exploit-resistant. The server validates the report before relaying the reaction and remains authoritative wherever combat affects capture state, ownership, rewards, inventory, or the economy.
 
 #### Attacking client
 
-1. The equipped Tool's activation is the only source of a sword swing. A separate global input listener must not create an additional attack.
+1. One shared client attack function is the only source of a sword swing. Left click and the dedicated mobile Attack button may call that function, but they must not create duplicate activations for one input.
 2. The client sends one `MeleeSwing` activation with a monotonically increasing sequence, immediately plays the visible swing animation, and opens its contact window from animation markers, with a configured timing fallback when an animation lacks those markers. A player with insufficient Stamina cannot begin a weapon action.
 3. During that window, the client sweeps the visible sword blade through interpolated positions between rendered frames. Contact is based on the blade geometry, not a large character-centered cone.
 4. The client excludes its own character and selects at most one eligible target: the target with the closest valid blade contact. Optional line-of-sight filtering may reject contact through solid geometry.
@@ -434,12 +434,12 @@ The server validates every client request that changes inventory, currency, Comb
 14. A player at Mythling capacity cannot gain Capture Ring progress, and any blocked pickup, collection, or crafting start produces an inventory-capacity warning without granting the entry.
 15. Every activated Arena weapon attack consumes its configured Stamina cost even when it misses, while shield impacts consume their configured Stamina cost; Arena combat uses knockback, Shield behavior, and temporary knockback immunity, but never player health or death. Elemental weapon effects are post-launch.
 16. All Passive Traits affect production only, and cancelling a Crafting Job refunds all of its spent Materials and Gold.
-17. A sword swing can report at most one target selected by visible blade contact; proximity without Tool activation cannot produce a hit, and the server cannot substitute an independently selected target.
+17. A sword swing can report at most one target selected deterministically by closest visible blade contact, then attacker-to-target distance, then player user ID; proximity without attack activation cannot produce a hit, and the server cannot substitute an independently selected target.
 18. An accepted sword report produces immediate attacker feedback and one idempotent target-client launch while capture progress, contest resolution, and rewards remain server-authoritative.
 19. An Inventory sale validates the selected entry's ownership, metadata eligibility, quantity, and dependency state before atomically removing it and granting Gold; Mythling sales have no automatic final-copy protection.
 20. A Combat Consumable can be consumed only from a selected Hotbar slot in the Arena; the server applies and expires its temporary stacked effect.
 21. A player can attack with their equipped Primary Weapon and hold their equipped Shield active without changing Hotbar selection; Combat Equipment never occupies Hotbar slots.
-22. Combat Loadout models are visible and usable only in the Arena; leaving the Arena hides and disables them without unequipping them.
+22. Combat Loadout Models move to their authored R15 hand attachments and become usable only in the Arena; leaving the Arena returns them to their authored sheath attachments and disables them without unequipping them.
 
 ## 12. Open decisions for later design passes
 

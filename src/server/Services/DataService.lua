@@ -76,6 +76,14 @@ local DEFAULT_DOC = {
 	resources = {},
 	items = {},
 	currency = {},
+	equipment = {
+		starter_wooden_sword = { definitionId = "wooden_sword" },
+		starter_wooden_shield = { definitionId = "wooden_shield" },
+	},
+	combatLoadout = {
+		primaryWeaponInstanceId = "starter_wooden_sword",
+		shieldInstanceId = "starter_wooden_shield",
+	},
 }
 
 -- In-memory cache: uid -> doc table

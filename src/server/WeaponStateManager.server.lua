@@ -1,31 +1,61 @@
 -- ServerScriptService/WeaponStateManager
--- Server-owned R15 weapon presentation, stance state, and spatial melee resolution.
+-- Server-owned R15 loadouts, Arena state, Stamina, guard validation, and hit authorization.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local WeaponConfigs = require(ReplicatedStorage:WaitForChild("WeaponConfigs"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
+local ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
+local DataService = require(ServerScriptService:WaitForChild("Services"):WaitForChild("DataService"))
+
 local WeaponAssets = ReplicatedStorage:WaitForChild("WeaponAssets")
-local ToggleCombatState = ReplicatedStorage:WaitForChild("ToggleCombatState") :: RemoteEvent
-local EquipLoadout = ReplicatedStorage:WaitForChild("EquipLoadout") :: RemoteEvent
 local PerformAttack = ReplicatedStorage:WaitForChild("PerformAttack") :: RemoteEvent
+local SetShieldGuard = ReplicatedStorage:WaitForChild("SetShieldGuard") :: RemoteEvent
+local CombatImpact = ReplicatedStorage:WaitForChild("CombatImpact") :: RemoteEvent
+local CombatLoadoutRequest = ReplicatedStorage:WaitForChild("CombatLoadoutRequest") :: RemoteFunction
+local Arena = workspace:WaitForChild("Map"):WaitForChild("Arena") :: BasePart
 
 local WEAPON_FOLDER_NAME = "EquippedWeapons"
-local HITBOX_PADDING = Vector3.new(0.15, 0.15, 0.15)
-local MIN_ATTACK_COOLDOWN = 0.1
-local MAX_ATTACK_COOLDOWN = 5
-local MAX_HITBOX_AXIS = 16
-local MAX_KNOCKBACK = 100
-local LOADOUT_REQUEST_COOLDOWN = 0.5
-local TOGGLE_REQUEST_COOLDOWN = 0.2
+local STATE_STEP_SECONDS = 0.1
+local MAX_SEQUENCE = 2_147_483_647
+local MAX_REACH = 20
+local MAX_COOLDOWN = 5
+local DEFAULT_ARENA_HEIGHT_ALLOWANCE = 20
 
-local nextAttackAt: { [Player]: number } = {}
-local nextLoadoutAt: { [Player]: number } = {}
-local nextToggleAt: { [Player]: number } = {}
+type MovementState = {
+	character: Model,
+	humanoid: Humanoid,
+	walkSpeed: number,
+	jumpPower: number,
+	jumpHeight: number,
+	autoRotate: boolean,
+}
+
+type AuthorizedSwing = {
+	sequence: number,
+	weaponId: string,
+	expiresAt: number,
+}
+
+type CombatRuntime = {
+	stamina: number,
+	lastStaminaUpdate: number,
+	immunityUntil: number,
+	nextAttackAt: number,
+	nextGuardAt: number,
+	lastSwingSequence: number,
+	lastHitSequence: number,
+	authorizedSwing: AuthorizedSwing?,
+	movement: MovementState?,
+}
+
+local runtimes: { [Player]: CombatRuntime } = {}
 local characterConnections: { [Player]: { RBXScriptConnection } } = {}
+local nextLoadoutRequestAt: { [Player]: number } = {}
+local nextHitId = 0
 
--- Studio-only pose helpers remain saved in Workspace for visual authoring, but should
--- never replicate as live gameplay geometry.
 for _, authoringName in { "R15WeaponPositioningRig", "WeaponPosePreview" } do
 	local authoringInstance = workspace:FindFirstChild(authoringName)
 	if authoringInstance then
@@ -33,48 +63,178 @@ for _, authoringName in { "R15WeaponPositioningRig", "WeaponPosePreview" } do
 	end
 end
 
-local function getStarterLoadout(): (string, string)
-	local rightWeapon = ""
-	local leftWeapon = ""
-	for weaponName, config in WeaponConfigs do
-		if config.StarterSlot == "Right" and rightWeapon == "" then
-			rightWeapon = weaponName
-		elseif config.StarterSlot == "Left" and leftWeapon == "" then
-			leftWeapon = weaponName
-		end
+local function getNumber(value: any, fallback: number, minimum: number, maximum: number): number
+	if type(value) ~= "number" or value ~= value then
+		return fallback
 	end
-	return rightWeapon, leftWeapon
+	return math.clamp(value, minimum, maximum)
 end
 
-local function disconnectCharacterConnections(player: Player)
-	local connections = characterConnections[player]
-	if connections then
-		for _, connection in connections do
-			connection:Disconnect()
-		end
-	end
-	characterConnections[player] = nil
-end
-
-local function getAliveR15Character(player: Player): (Model?, Humanoid?)
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if not character or not humanoid or humanoid.Health <= 0 or humanoid.RigType ~= Enum.HumanoidRigType.R15 then
-		return nil, nil
-	end
-	return character, humanoid
-end
-
-local function getConfig(weaponName: unknown): any?
-	if type(weaponName) ~= "string" or #weaponName > 64 then
+local function getProfile(definitionId: unknown): any?
+	if type(definitionId) ~= "string" or #definitionId > 64 then
 		return nil
 	end
-	local config = WeaponConfigs[weaponName]
-	return if type(config) == "table" then config else nil
+	local profile = Weapons.Profiles[definitionId]
+	return if type(profile) == "table" then profile else nil
 end
 
-local function sanitizeWeaponName(weaponName: unknown): string
-	return if getConfig(weaponName) then weaponName :: string else ""
+local function getAliveR15Character(player: Player): (Model?, Humanoid?, BasePart?)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not character
+		or not humanoid
+		or humanoid.Health <= 0
+		or humanoid.RigType ~= Enum.HumanoidRigType.R15
+		or not root
+		or not root:IsA("BasePart")
+	then
+		return nil, nil, nil
+	end
+	return character, humanoid, root
+end
+
+local function isCharacterInArena(character: Model): boolean
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local allowance = getNumber(
+		Weapons.Combat.arenaHeightAllowanceStuds,
+		DEFAULT_ARENA_HEIGHT_ALLOWANCE,
+		0,
+		100
+	)
+	return root ~= nil and root:IsA("BasePart") and ArenaBounds.Contains(Arena, root.Position, allowance)
+end
+
+local function getRuntime(player: Player): CombatRuntime
+	local runtime = runtimes[player]
+	if runtime then
+		return runtime
+	end
+	runtime = {
+		stamina = getNumber(Weapons.Combat.staminaMaximum, 100, 1, 10_000),
+		lastStaminaUpdate = os.clock(),
+		immunityUntil = 0,
+		nextAttackAt = 0,
+		nextGuardAt = 0,
+		lastSwingSequence = 0,
+		lastHitSequence = 0,
+		authorizedSwing = nil,
+		movement = nil,
+	}
+	runtimes[player] = runtime
+	return runtime
+end
+
+local function refreshRuntime(player: Player, now: number): CombatRuntime
+	local runtime = getRuntime(player)
+	local maximum = getNumber(Weapons.Combat.staminaMaximum, 100, 1, 10_000)
+	local regen = getNumber(Weapons.Combat.staminaRegenPerSecond, 18, 0, 1_000)
+	local elapsed = math.max(0, now - runtime.lastStaminaUpdate)
+	runtime.lastStaminaUpdate = now
+	runtime.stamina = math.min(maximum, runtime.stamina + elapsed * regen)
+	if runtime.authorizedSwing and now > runtime.authorizedSwing.expiresAt then
+		runtime.authorizedSwing = nil
+	end
+	player:SetAttribute("CombatStamina", runtime.stamina)
+	player:SetAttribute("MaxCombatStamina", maximum)
+	player:SetAttribute("KnockbackImmune", now < runtime.immunityUntil)
+	return runtime
+end
+
+local function spendStamina(player: Player, amount: number, now: number): boolean
+	local runtime = refreshRuntime(player, now)
+	if runtime.stamina + 0.001 < amount then
+		return false
+	end
+	runtime.stamina = math.max(0, runtime.stamina - amount)
+	player:SetAttribute("CombatStamina", runtime.stamina)
+	return true
+end
+
+local function restoreMovement(runtime: CombatRuntime)
+	local movement = runtime.movement
+	if not movement then
+		return
+	end
+	runtime.movement = nil
+	if movement.humanoid.Parent == movement.character and movement.humanoid.Health > 0 then
+		movement.humanoid.WalkSpeed = movement.walkSpeed
+		movement.humanoid.JumpPower = movement.jumpPower
+		movement.humanoid.JumpHeight = movement.jumpHeight
+		movement.humanoid.AutoRotate = movement.autoRotate
+	end
+end
+
+local function getEquipmentAndLoadout(player: Player): (any, any)
+	return DataService.GetSection(player, "equipment"), DataService.GetSection(player, "combatLoadout")
+end
+
+local function getOwnedDefinition(equipment: any, instanceId: unknown, expectedKind: string): string?
+	if type(instanceId) ~= "string" or instanceId == "" then
+		return nil
+	end
+	local entry = equipment[instanceId]
+	local definitionId = type(entry) == "table" and entry.definitionId or nil
+	local profile = getProfile(definitionId)
+	return if profile and profile.kind == expectedKind then definitionId else nil
+end
+
+local function findOwnedInstance(equipment: any, expectedKind: string): string?
+	local best: string? = nil
+	for instanceId, entry in equipment do
+		local definitionId = type(entry) == "table" and entry.definitionId or nil
+		local profile = getProfile(definitionId)
+		if type(instanceId) == "string" and profile and profile.kind == expectedKind then
+			if not best or instanceId < best then
+				best = instanceId
+			end
+		end
+	end
+	return best
+end
+
+local function resolveLoadout(player: Player): (string, string)
+	local equipment, loadout = getEquipmentAndLoadout(player)
+	local changed = false
+	local primaryInstanceId = loadout.primaryWeaponInstanceId
+	local shieldInstanceId = loadout.shieldInstanceId
+	if not getOwnedDefinition(equipment, primaryInstanceId, "PrimaryWeapon") then
+		primaryInstanceId = findOwnedInstance(equipment, "PrimaryWeapon")
+		loadout.primaryWeaponInstanceId = primaryInstanceId
+		changed = true
+	end
+	if not getOwnedDefinition(equipment, shieldInstanceId, "Shield") then
+		shieldInstanceId = findOwnedInstance(equipment, "Shield")
+		loadout.shieldInstanceId = shieldInstanceId
+		changed = true
+	end
+	if changed then
+		DataService.MarkDirty(player)
+	end
+	return getOwnedDefinition(equipment, primaryInstanceId, "PrimaryWeapon") or "",
+		getOwnedDefinition(equipment, shieldInstanceId, "Shield") or ""
+end
+
+local function snapshotLoadout(player: Player): any
+	local equipment, loadout = getEquipmentAndLoadout(player)
+	local entries = {}
+	for instanceId, entry in equipment do
+		local definitionId = type(entry) == "table" and entry.definitionId or nil
+		if type(instanceId) == "string" and getProfile(definitionId) then
+			table.insert(entries, {
+				instanceId = instanceId,
+				definitionId = definitionId,
+			})
+		end
+	end
+	table.sort(entries, function(a, b)
+		return a.instanceId < b.instanceId
+	end)
+	return {
+		equipment = entries,
+		primaryWeaponInstanceId = loadout.primaryWeaponInstanceId,
+		shieldInstanceId = loadout.shieldInstanceId,
+	}
 end
 
 local function getWeaponFolder(character: Model): Folder
@@ -113,17 +273,22 @@ local function prepareWeaponModel(model: Model): boolean
 	for _, attachmentName in { "HandGripAttachment", "SheathAttachment" } do
 		local attachment = model:FindFirstChild(attachmentName, true)
 		if not attachment or not attachment:IsA("Attachment") then
-			warn(`[WeaponStateManager] {model:GetFullName()} needs an Attachment named {attachmentName}`)
+			warn(`[WeaponStateManager] {model:GetFullName()} needs {attachmentName}`)
 			return false
 		end
 	end
 	local hitbox = model:FindFirstChild("Hitbox", true)
 	if not hitbox or not hitbox:IsA("BasePart") then
-		warn(`[WeaponStateManager] {model:GetFullName()} needs a BasePart named Hitbox`)
+		warn(`[WeaponStateManager] {model:GetFullName()} needs a Hitbox BasePart`)
 		return false
 	end
-
-	-- A model is treated as one rigid assembly driven by its PrimaryPart Motor6D.
+	-- Rebuild one predictable rigid assembly instead of stacking runtime welds on top of
+	-- authored preview welds each time the weapon moves between hand and sheath.
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("WeldConstraint") or descendant:IsA("Weld") then
+			descendant:Destroy()
+		end
+	end
 	for _, descendant in model:GetDescendants() do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = false
@@ -143,17 +308,16 @@ local function prepareWeaponModel(model: Model): boolean
 	return true
 end
 
-local function cloneWeapon(character: Model, slot: string, weaponName: string): Model?
-	local config = getConfig(weaponName)
-	local asset = config and WeaponAssets:FindFirstChild(config.ModelName)
+local function cloneWeapon(character: Model, slot: string, definitionId: string): Model?
+	local profile = getProfile(definitionId)
+	local asset = profile and WeaponAssets:FindFirstChild(profile.modelName)
 	if not asset or not asset:IsA("Model") then
-		warn(`[WeaponStateManager] Missing Model WeaponAssets/{config and config.ModelName or weaponName}`)
+		warn(`[WeaponStateManager] Missing WeaponAssets model for {definitionId}`)
 		return nil
 	end
-
 	local model = asset:Clone()
 	model.Name = `{slot}Weapon`
-	model:SetAttribute("WeaponName", weaponName)
+	model:SetAttribute("WeaponId", definitionId)
 	model:SetAttribute("WeaponSlot", slot)
 	if not prepareWeaponModel(model) then
 		model:Destroy()
@@ -161,6 +325,15 @@ local function cloneWeapon(character: Model, slot: string, weaponName: string): 
 	end
 	model.Parent = getWeaponFolder(character)
 	return model
+end
+
+local function authoredOffset(model: Model, attachmentName: string): CFrame?
+	local attachment = model:FindFirstChild(attachmentName, true)
+	local primaryPart = model.PrimaryPart
+	if attachment and attachment:IsA("Attachment") and primaryPart then
+		return primaryPart.CFrame:ToObjectSpace(attachment.WorldCFrame)
+	end
+	return nil
 end
 
 local function createMotor(name: string, parent: BasePart, part0: BasePart, part1: BasePart, offset: CFrame)
@@ -172,54 +345,28 @@ local function createMotor(name: string, parent: BasePart, part0: BasePart, part
 	motor.Parent = parent
 end
 
-local function getAuthoredOffset(model: Model, attachmentName: string): CFrame?
-	local attachment = model:FindFirstChild(attachmentName, true)
-	local primaryPart = model.PrimaryPart
-	if attachment and attachment:IsA("Attachment") and primaryPart then
-		-- Attachments may live on any weapon part; normalize them into PrimaryPart space.
-		return primaryPart.CFrame:ToObjectSpace(attachment.WorldCFrame)
-	end
-	return nil
-end
-
-local function attachSlot(character: Model, slot: string, weaponName: string, combatReady: boolean)
-	if weaponName == "" then
+local function attachSlot(character: Model, slot: string, definitionId: string, combatReady: boolean)
+	if definitionId == "" then
 		return
 	end
-	local config = getConfig(weaponName)
-	local model = cloneWeapon(character, slot, weaponName)
+	local model = cloneWeapon(character, slot, definitionId)
 	local primaryPart = model and model.PrimaryPart
-	if not config or not model or not primaryPart then
+	if not model or not primaryPart then
 		return
 	end
-
 	if combatReady then
-		-- Unsheathed: transition ownership from UpperTorso to the matching R15 hand.
 		local hand = character:FindFirstChild(`{slot}Hand`)
-		local handGripOffset = getAuthoredOffset(model, "HandGripAttachment")
-		if hand and hand:IsA("BasePart") and handGripOffset then
-			createMotor(
-				`{slot}HandMotor`,
-				hand,
-				hand,
-				primaryPart,
-				handGripOffset
-			)
+		local offset = authoredOffset(model, "HandGripAttachment")
+		if hand and hand:IsA("BasePart") and offset then
+			createMotor(`{slot}HandMotor`, hand, hand, primaryPart, offset)
 		else
 			model:Destroy()
 		end
 	else
-		-- Sheathed: both weapon assemblies are carried by the R15 UpperTorso.
-		local upperTorso = character:FindFirstChild("UpperTorso")
-		local sheathOffset = getAuthoredOffset(model, "SheathAttachment")
-		if upperTorso and upperTorso:IsA("BasePart") and sheathOffset then
-			createMotor(
-				`{slot}SheathMotor`,
-				upperTorso,
-				upperTorso,
-				primaryPart,
-				sheathOffset
-			)
+		local torso = character:FindFirstChild("UpperTorso")
+		local offset = authoredOffset(model, "SheathAttachment")
+		if torso and torso:IsA("BasePart") and offset then
+			createMotor(`{slot}SheathMotor`, torso, torso, primaryPart, offset)
 		else
 			model:Destroy()
 		end
@@ -233,112 +380,344 @@ local function rebuildAttachments(character: Model)
 	attachSlot(character, "Left", character:GetAttribute("LeftEquipped") or "", combatReady)
 end
 
-local function resolveTargetHumanoid(part: BasePart): Humanoid?
-	local model = part:FindFirstAncestorOfClass("Model")
-	if not model then
-		return nil
-	end
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	return if humanoid and humanoid.Health > 0 then humanoid else nil
+local function applyResolvedLoadout(player: Player, character: Model)
+	local primaryId, shieldId = resolveLoadout(player)
+	character:SetAttribute("RightEquipped", primaryId)
+	character:SetAttribute("LeftEquipped", shieldId)
+	getRuntime(player).authorizedSwing = nil
+	rebuildAttachments(character)
 end
 
-local function isEnemy(attacker: Player, targetHumanoid: Humanoid): boolean
-	local targetCharacter = targetHumanoid.Parent
-	local targetPlayer = if targetCharacter and targetCharacter:IsA("Model")
-		then Players:GetPlayerFromCharacter(targetCharacter)
-		else nil
-	if not targetPlayer then
-		return true -- NPCs with Humanoids are valid targets.
+local function setShieldGuard(player: Player, enabled: boolean): boolean
+	local runtime = getRuntime(player)
+	if not enabled then
+		local character = player.Character
+		if character then
+			character:SetAttribute("ShieldGuarding", false)
+		end
+		restoreMovement(runtime)
+		return true
 	end
-	if targetPlayer == attacker then
+	local character, humanoid = getAliveR15Character(player)
+	if not character
+		or not humanoid
+		or character:GetAttribute("CombatReady") ~= true
+		or not isCharacterInArena(character)
+	then
 		return false
 	end
-	return attacker.Neutral or targetPlayer.Neutral or attacker.Team ~= targetPlayer.Team
+	local profile = getProfile(character:GetAttribute("LeftEquipped"))
+	local shieldMotor = character:FindFirstChild("LeftHandMotor", true)
+	if not profile or profile.kind ~= "Shield" or not shieldMotor or not shieldMotor:IsA("Motor6D") then
+		return false
+	end
+	if runtime.movement then
+		character:SetAttribute("ShieldGuarding", true)
+		return true
+	end
+	local now = os.clock()
+	if now < runtime.nextGuardAt then
+		return false
+	end
+	runtime.nextGuardAt = now + getNumber(profile.activationCooldownSeconds, 0.2, 0, 5)
+	runtime.authorizedSwing = nil
+	runtime.movement = {
+		character = character,
+		humanoid = humanoid,
+		walkSpeed = humanoid.WalkSpeed,
+		jumpPower = humanoid.JumpPower,
+		jumpHeight = humanoid.JumpHeight,
+		autoRotate = humanoid.AutoRotate,
+	}
+	humanoid.WalkSpeed = 0
+	humanoid.JumpPower = 0
+	humanoid.JumpHeight = 0
+	humanoid.AutoRotate = false
+	character:SetAttribute("ShieldGuarding", true)
+	return true
 end
 
-local function applyPositionalHit(attackerCharacter: Model, targetHumanoid: Humanoid, knockback: number)
-	local targetCharacter = targetHumanoid.Parent
-	local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
-	local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
-	if not attackerRoot or not attackerRoot:IsA("BasePart") or not targetRoot or not targetRoot:IsA("BasePart") then
+local function updateArenaCombatState(player: Player)
+	local character = getAliveR15Character(player)
+	if not character then
 		return
 	end
-	local delta = targetRoot.Position - attackerRoot.Position
-	local direction = if delta.Magnitude > 0.001 then delta.Unit else attackerRoot.CFrame.LookVector
-	local impulseVelocity = direction * math.clamp(knockback, 0, MAX_KNOCKBACK) + Vector3.yAxis * 12
-	targetRoot:ApplyImpulse(impulseVelocity * targetRoot.AssemblyMass)
+	local shouldBeReady = isCharacterInArena(character)
+	if character:GetAttribute("CombatReady") == shouldBeReady then
+		return
+	end
+	setShieldGuard(player, false)
+	local runtime = getRuntime(player)
+	runtime.authorizedSwing = nil
+	character:SetAttribute("CombatReady", shouldBeReady)
+	rebuildAttachments(character)
 end
 
-local function performAttack(player: Player, hand: unknown)
-	if hand ~= "Right" and hand ~= "Left" then
+local function isValidSequence(value: any): boolean
+	return type(value) == "number" and value % 1 == 0 and value >= 1 and value <= MAX_SEQUENCE
+end
+
+local function getEquippedPrimary(character: Model): (string?, any?)
+	local definitionId = character:GetAttribute("RightEquipped")
+	local profile = getProfile(definitionId)
+	if type(definitionId) ~= "string" or not profile or profile.kind ~= "PrimaryWeapon" then
+		return nil, nil
+	end
+	local folder = character:FindFirstChild(WEAPON_FOLDER_NAME)
+	local model = folder and folder:FindFirstChild("RightWeapon")
+	local motor = character:FindFirstChild("RightHandMotor", true)
+	if not model
+		or not model:IsA("Model")
+		or model:GetAttribute("WeaponId") ~= definitionId
+		or not motor
+		or not motor:IsA("Motor6D")
+	then
+		return nil, nil
+	end
+	return definitionId, profile
+end
+
+local function hasLineOfSight(attackerCharacter: Model, targetCharacter: Model): boolean
+	local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
+	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+	if not attackerRoot or not attackerRoot:IsA("BasePart") or not targetRoot or not targetRoot:IsA("BasePart") then
+		return false
+	end
+	local origin = attackerRoot.Position + Vector3.yAxis * 1.5
+	local direction = targetRoot.Position + Vector3.yAxis * 1.5 - origin
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { attackerCharacter }
+	params.IgnoreWater = true
+	local result = workspace:Raycast(origin, direction, params)
+	return result == nil or result.Instance:IsDescendantOf(targetCharacter)
+end
+
+local function withinGuardArc(attackerRoot: BasePart, targetRoot: BasePart, degrees: number): boolean
+	local offset = attackerRoot.Position - targetRoot.Position
+	local planarOffset = Vector3.new(offset.X, 0, offset.Z)
+	local facing = targetRoot.CFrame.LookVector
+	local planarFacing = Vector3.new(facing.X, 0, facing.Z)
+	if planarOffset.Magnitude <= 0.001 or planarFacing.Magnitude <= 0.001 then
+		return false
+	end
+	return planarFacing.Unit:Dot(planarOffset.Unit) >= math.cos(math.rad(math.clamp(degrees, 0, 360) * 0.5))
+end
+
+local function handleMeleeSwing(player: Player, payload: any)
+	if type(payload) ~= "table" or not isValidSequence(payload.sequence) then
 		return
 	end
 	local character = getAliveR15Character(player)
-	if not character or character:GetAttribute("CombatReady") ~= true then
+	if not character
+		or character:GetAttribute("CombatReady") ~= true
+		or character:GetAttribute("ShieldGuarding") == true
+		or not isCharacterInArena(character)
+	then
 		return
 	end
-
-	local weaponName = character:GetAttribute(`{hand}Equipped`)
-	local config = getConfig(weaponName)
-	local folder = character:FindFirstChild(WEAPON_FOLDER_NAME)
-	local weapon = folder and folder:FindFirstChild(`{hand}Weapon`)
-	if not config or not weapon or not weapon:IsA("Model") or weapon:GetAttribute("WeaponName") ~= weaponName then
+	local weaponId, profile = getEquippedPrimary(character)
+	if not weaponId or not profile then
 		return
 	end
-	local primaryPart = weapon.PrimaryPart
-	if not primaryPart or not character:FindFirstChild(`{hand}HandMotor`, true) then
-		return
-	end
-
 	local now = os.clock()
-	if now < (nextAttackAt[player] or 0) then
+	local runtime = refreshRuntime(player, now)
+	if payload.sequence <= runtime.lastSwingSequence or now < runtime.nextAttackAt then
 		return
 	end
-	local cooldown = math.clamp(config.AttackCooldown, MIN_ATTACK_COOLDOWN, MAX_ATTACK_COOLDOWN)
-	nextAttackAt[player] = now + cooldown
-
-	local hitboxPart = weapon:FindFirstChild("Hitbox", true)
-	if not hitboxPart or not hitboxPart:IsA("BasePart") then
+	local staminaCost = getNumber(profile.staminaCost, 0, 0, 1_000)
+	if not spendStamina(player, staminaCost, now) then
 		return
 	end
-	local size = hitboxPart.Size
-	size = Vector3.new(
-		math.clamp(size.X, 0.1, MAX_HITBOX_AXIS),
-		math.clamp(size.Y, 0.1, MAX_HITBOX_AXIS),
-		math.clamp(size.Z, 0.1, MAX_HITBOX_AXIS)
-	) + HITBOX_PADDING
+	local cooldown = getNumber(profile.cooldownSeconds, 0.72, 0.05, MAX_COOLDOWN)
+	local window = getNumber(profile.contactWindowSeconds, 0.22, 0.05, 2)
+	runtime.lastSwingSequence = payload.sequence
+	runtime.nextAttackAt = now + cooldown
+	runtime.authorizedSwing = {
+		sequence = payload.sequence,
+		weaponId = weaponId,
+		expiresAt = now + window + 0.75,
+	}
+end
 
-	local overlapParams = OverlapParams.new()
-	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-	overlapParams.FilterDescendantsInstances = { character }
-	overlapParams.MaxParts = 100
+local function sendImpact(
+	attacker: Player,
+	target: Player,
+	launchVelocity: Vector3,
+	angularVelocity: Vector3,
+	controlSeconds: number,
+	preserveControl: boolean,
+	maximumReactionSeconds: number,
+	landingRecoverySeconds: number,
+	airTrailSeconds: number,
+	sequence: number,
+	blocked: boolean,
+	profile: any
+)
+	nextHitId += 1
+	local hitId = nextHitId
+	CombatImpact:FireClient(target, "ApplyLaunch", {
+		hitId = hitId,
+		launchVelocity = launchVelocity,
+		angularVelocity = angularVelocity,
+		controlSeconds = controlSeconds,
+		preserveControl = preserveControl,
+		maximumReactionSeconds = maximumReactionSeconds,
+		landingRecoverySeconds = landingRecoverySeconds,
+	})
+	CombatImpact:FireAllClients("Impact", {
+		hitId = hitId,
+		targetUserId = target.UserId,
+		attackerUserId = attacker.UserId,
+		sequence = sequence,
+		blocked = blocked,
+		airTrailSeconds = airTrailSeconds,
+		impactSoundId = profile.impactSoundId,
+	})
+end
 
-	local hitHumanoids: { [Humanoid]: boolean } = {}
-	local hitCount = 0
-	local maxTargets = math.clamp(config.MaxTargets, 1, 10)
-	for _, part in workspace:GetPartBoundsInBox(hitboxPart.CFrame, size, overlapParams) do
-		local humanoid = resolveTargetHumanoid(part)
-		if humanoid and not hitHumanoids[humanoid] and humanoid.Parent ~= character and isEnemy(player, humanoid) then
-			hitHumanoids[humanoid] = true -- exactly once for this accepted swing
-			hitCount += 1
-			applyPositionalHit(character, humanoid, config.Knockback)
-			if hitCount >= maxTargets then
-				break
-			end
+local function handleHitReport(player: Player, payload: any)
+	if type(payload) ~= "table"
+		or not isValidSequence(payload.sequence)
+		or type(payload.targetUserId) ~= "number"
+		or payload.targetUserId % 1 ~= 0
+	then
+		return
+	end
+	local target = Players:GetPlayerByUserId(payload.targetUserId)
+	if not target or target == player then
+		return
+	end
+	local attackerCharacter, _, attackerRoot = getAliveR15Character(player)
+	local targetCharacter, _, targetRoot = getAliveR15Character(target)
+	if not attackerCharacter
+		or not attackerRoot
+		or not targetCharacter
+		or not targetRoot
+		or not isCharacterInArena(attackerCharacter)
+		or not isCharacterInArena(targetCharacter)
+	then
+		return
+	end
+	local weaponId, profile = getEquippedPrimary(attackerCharacter)
+	if not weaponId or not profile then
+		return
+	end
+	local now = os.clock()
+	local runtime = refreshRuntime(player, now)
+	local authorization = runtime.authorizedSwing
+	if not authorization
+		or authorization.sequence ~= payload.sequence
+		or authorization.weaponId ~= weaponId
+		or now > authorization.expiresAt
+		or payload.sequence <= runtime.lastHitSequence
+	then
+		return
+	end
+	local targetRuntime = refreshRuntime(target, now)
+	if now < targetRuntime.immunityUntil then
+		return
+	end
+	local maxDistance = math.clamp(
+		getNumber(profile.reachStuds, 5, 0, MAX_REACH)
+			+ getNumber(profile.serverToleranceStuds, 0, 0, MAX_REACH),
+		0,
+		MAX_REACH
+	)
+	if (targetRoot.Position - attackerRoot.Position).Magnitude > maxDistance
+		or (profile.requireLineOfSight == true and not hasLineOfSight(attackerCharacter, targetCharacter))
+	then
+		return
+	end
+
+	-- The accepted sequence is consumed exactly once before resolving Shield behavior.
+	runtime.authorizedSwing = nil
+	runtime.lastHitSequence = payload.sequence
+
+	local directionDelta = targetRoot.Position - attackerRoot.Position
+	local planar = Vector3.new(directionDelta.X, 0, directionDelta.Z)
+	local attackerFacing = Vector3.new(attackerRoot.CFrame.LookVector.X, 0, attackerRoot.CFrame.LookVector.Z)
+	local direction = if planar.Magnitude > 0.001
+		then planar.Unit
+		elseif attackerFacing.Magnitude > 0.001 then attackerFacing.Unit
+		else Vector3.zAxis
+	local blocked = false
+	local launchVelocity: Vector3
+	local angularVelocity = Vector3.zero
+	local controlSeconds: number
+	local preserveControl = false
+	local maximumReactionSeconds = 0
+	local landingRecoverySeconds = 0
+	local airTrailSeconds = 0
+	local shieldProfile = getProfile(targetCharacter:GetAttribute("LeftEquipped"))
+	if targetCharacter:GetAttribute("ShieldGuarding") == true
+		and shieldProfile
+		and shieldProfile.kind == "Shield"
+		and withinGuardArc(attackerRoot, targetRoot, getNumber(shieldProfile.blockArcDegrees, 110, 0, 360))
+		and spendStamina(target, getNumber(shieldProfile.impactStaminaCost, 30, 0, 1_000), now)
+	then
+		blocked = true
+		preserveControl = true
+		launchVelocity = direction * getNumber(shieldProfile.slideKnockback, 28, 0, 100)
+		controlSeconds = getNumber(shieldProfile.launchControlSeconds, 0.1, 0.05, 0.5)
+	else
+		launchVelocity = direction * getNumber(profile.planarKnockback, 56, 0, 100)
+			+ Vector3.yAxis * getNumber(profile.verticalKnockback, 58, 0, 100)
+		local tumbleAxis = Vector3.yAxis:Cross(direction)
+		if tumbleAxis.Magnitude > 0.001 then
+			angularVelocity = tumbleAxis.Unit * getNumber(profile.tumbleAngularSpeed, 5.5, 0, 20)
 		end
+		controlSeconds = getNumber(profile.launchControlSeconds, 0.1, 0.05, 0.5)
+		maximumReactionSeconds = getNumber(profile.maximumReactionSeconds, 3.5, 0.1, 10)
+		landingRecoverySeconds = getNumber(profile.landingRecoverySeconds, 0.2, 0, 2)
+		airTrailSeconds = getNumber(profile.airTrailSeconds, 3.5, 0, 10)
+	end
+	local immunity = getNumber(Weapons.Combat.knockbackImmunitySeconds, 0.65, 0, 5)
+	targetRuntime.immunityUntil = now + immunity
+	target:SetAttribute("KnockbackImmune", immunity > 0)
+	sendImpact(
+		player,
+		target,
+		launchVelocity,
+		angularVelocity,
+		controlSeconds,
+		preserveControl,
+		maximumReactionSeconds,
+		landingRecoverySeconds,
+		airTrailSeconds,
+		payload.sequence,
+		blocked,
+		profile
+	)
+end
+
+local function performAttack(player: Player, action: unknown, payload: unknown)
+	if action == "MeleeSwing" then
+		handleMeleeSwing(player, payload)
+	elseif action == "HitReport" then
+		handleHitReport(player, payload)
 	end
 end
 
-local function onCharacterAdded(player: Player, character: Model)
-	disconnectCharacterConnections(player)
-	nextAttackAt[player] = nil
-	nextLoadoutAt[player] = nil
-	nextToggleAt[player] = nil
-	local starterRight, starterLeft = getStarterLoadout()
-	character:SetAttribute("RightEquipped", starterRight)
-	character:SetAttribute("LeftEquipped", starterLeft)
-	character:SetAttribute("CombatReady", false)
+local function disconnectCharacterConnections(player: Player)
+	local connections = characterConnections[player]
+	if connections then
+		for _, connection in connections do
+			connection:Disconnect()
+		end
+	end
+	characterConnections[player] = nil
+end
 
+local function onCharacterAdded(player: Player, character: Model)
+	local priorRuntime = runtimes[player]
+	if priorRuntime then
+		restoreMovement(priorRuntime)
+	end
+	runtimes[player] = nil
+	disconnectCharacterConnections(player)
+	character:SetAttribute("CombatReady", false)
+	character:SetAttribute("ShieldGuarding", false)
 	local humanoid = character:WaitForChild("Humanoid", 10)
 	if not humanoid or not humanoid:IsA("Humanoid") then
 		return
@@ -347,55 +726,104 @@ local function onCharacterAdded(player: Player, character: Model)
 		warn(`[WeaponStateManager] {player.Name} must use an R15 character`)
 		return
 	end
-	rebuildAttachments(character)
+	refreshRuntime(player, os.clock())
+	applyResolvedLoadout(player, character)
 	characterConnections[player] = {
 		humanoid.Died:Connect(function()
-			nextAttackAt[player] = nil
+			setShieldGuard(player, false)
+			getRuntime(player).authorizedSwing = nil
 			clearWeapons(character)
 		end),
 		character.AncestryChanged:Connect(function(_, parent)
 			if not parent then
-				nextAttackAt[player] = nil
+				setShieldGuard(player, false)
+				getRuntime(player).authorizedSwing = nil
 			end
 		end),
 	}
 end
 
-EquipLoadout.OnServerEvent:Connect(function(player: Player, rightWeaponName: unknown, leftWeaponName: unknown)
-	local now = os.clock()
-	if now < (nextLoadoutAt[player] or 0) then
-		return
+local function equipOwnedInstance(player: Player, instanceId: unknown): (boolean, string?)
+	if type(instanceId) ~= "string" then
+		return false, "InvalidEquipment"
 	end
-	nextLoadoutAt[player] = now + LOADOUT_REQUEST_COOLDOWN
-	local character = getAliveR15Character(player)
-	if not character then
-		return
+	local equipment, loadout = getEquipmentAndLoadout(player)
+	local entry = equipment[instanceId]
+	local definitionId = type(entry) == "table" and entry.definitionId or nil
+	local profile = getProfile(definitionId)
+	if not profile then
+		return false, "NotOwned"
 	end
-	-- Config membership is the presentation allowlist. Integrate inventory ownership here
-	-- before exposing this remote in a progression-enabled build.
-	character:SetAttribute("RightEquipped", sanitizeWeaponName(rightWeaponName))
-	character:SetAttribute("LeftEquipped", sanitizeWeaponName(leftWeaponName))
-	character:SetAttribute("CombatReady", false)
-	nextAttackAt[player] = nil
-	rebuildAttachments(character)
-end)
+	if profile.kind == "PrimaryWeapon" then
+		loadout.primaryWeaponInstanceId = instanceId
+	elseif profile.kind == "Shield" then
+		loadout.shieldInstanceId = instanceId
+	else
+		return false, "UnsupportedEquipment"
+	end
+	DataService.MarkDirty(player)
+	local character = player.Character
+	if character then
+		setShieldGuard(player, false)
+		applyResolvedLoadout(player, character)
+	end
+	return true, nil
+end
 
-ToggleCombatState.OnServerEvent:Connect(function(player: Player)
-	local now = os.clock()
-	if now < (nextToggleAt[player] or 0) then
-		return
+CombatLoadoutRequest.OnServerInvoke = function(player: Player, action: unknown, payload: unknown)
+	if action == "Get" then
+		resolveLoadout(player)
+		return { ok = true, snapshot = snapshotLoadout(player) }
+	elseif action == "Equip" then
+		local now = os.clock()
+		if now < (nextLoadoutRequestAt[player] or 0) then
+			return { ok = false, reason = "RateLimited", snapshot = snapshotLoadout(player) }
+		end
+		nextLoadoutRequestAt[player] = now + 0.5
+		local instanceId = type(payload) == "table" and payload.instanceId or nil
+		local ok, reason = equipOwnedInstance(player, instanceId)
+		return { ok = ok, reason = reason, snapshot = snapshotLoadout(player) }
 	end
-	nextToggleAt[player] = now + TOGGLE_REQUEST_COOLDOWN
-	local character = getAliveR15Character(player)
-	if not character then
-		return
+	return { ok = false, reason = "InvalidAction" }
+end
+
+SetShieldGuard.OnServerEvent:Connect(function(player: Player, enabled: unknown)
+	if type(enabled) == "boolean" then
+		setShieldGuard(player, enabled)
 	end
-	character:SetAttribute("CombatReady", character:GetAttribute("CombatReady") ~= true)
-	nextAttackAt[player] = nil
-	rebuildAttachments(character)
 end)
 
 PerformAttack.OnServerEvent:Connect(performAttack)
+
+local stateAccumulator = 0
+RunService.Heartbeat:Connect(function(deltaTime: number)
+	stateAccumulator += deltaTime
+	if stateAccumulator < STATE_STEP_SECONDS then
+		return
+	end
+	stateAccumulator %= STATE_STEP_SECONDS
+	local now = os.clock()
+	for _, player in Players:GetPlayers() do
+		updateArenaCombatState(player)
+		local runtime = refreshRuntime(player, now)
+		local movement = runtime.movement
+		if movement then
+			if player.Character ~= movement.character
+				or not movement.character.Parent
+				or movement.humanoid.Health <= 0
+				or movement.character:GetAttribute("CombatReady") ~= true
+				or movement.character:GetAttribute("ShieldGuarding") ~= true
+			then
+				setShieldGuard(player, false)
+			else
+				movement.humanoid.WalkSpeed = 0
+				movement.humanoid.JumpPower = 0
+				movement.humanoid.JumpHeight = 0
+				movement.humanoid.AutoRotate = false
+			end
+		end
+	end
+end)
 
 local function onPlayerAdded(player: Player)
 	player.CharacterAdded:Connect(function(character)
@@ -413,7 +841,10 @@ end
 
 Players.PlayerRemoving:Connect(function(player)
 	disconnectCharacterConnections(player)
-	nextAttackAt[player] = nil
-	nextLoadoutAt[player] = nil
-	nextToggleAt[player] = nil
+	nextLoadoutRequestAt[player] = nil
+	local runtime = runtimes[player]
+	if runtime then
+		restoreMovement(runtime)
+	end
+	runtimes[player] = nil
 end)

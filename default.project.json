@@ -10,21 +10,21 @@
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "WeaponConfigs": {
-        "$path": "src/shared/WeaponConfigs.lua"
-      },
       "WeaponAssets": {
         "$className": "Folder",
         "$ignoreUnknownInstances": true
       },
-      "ToggleCombatState": {
-        "$className": "RemoteEvent"
-      },
-      "EquipLoadout": {
-        "$className": "RemoteEvent"
-      },
       "PerformAttack": {
         "$className": "RemoteEvent"
+      },
+      "SetShieldGuard": {
+        "$className": "RemoteEvent"
+      },
+      "CombatImpact": {
+        "$className": "RemoteEvent"
+      },
+      "CombatLoadoutRequest": {
+        "$className": "RemoteFunction"
       },
       "Metadata": {
         "$path": "src/shared/Metadata"

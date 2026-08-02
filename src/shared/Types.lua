@@ -41,88 +41,47 @@ export type MythlingDef = {
 	variants: { [string]: MythlingVariant },
 }
 
-export type WeaponSwing = {
-	cooldownSeconds: number,
-	animationId: string,
-	animationSpeed: number,
-	activeWindowSeconds: number,
-	hitStopSeconds: number,
-}
-
-export type WeaponTarget = {
-	maxTargets: number,
-	reachStuds: number,
-	serverToleranceStuds: number,
-	requireLineOfSight: boolean,
-}
-
-export type WeaponImpact = {
-	reactionMode: string,
-	tumbleAngularSpeed: number,
-	launchControlSeconds: number,
-	planarDeltaV: number,
-	verticalDeltaV: number,
-	ragdollMaxSeconds: number,
-	ragdollLandingRecoverySeconds: number,
-}
-
-export type WeaponImpactSound = {
-	id: string,
-	volume: number,
-	startTimeSeconds: number?,
-	minDistance: number,
-	maxDistance: number,
-}
-
-export type WeaponVfx = {
-	hitBurstParticles: number,
-	impactSound: WeaponImpactSound?,
-	airTrailParticlesPerStud: number,
-	airTrailSeconds: number,
-	airTrailBurstParticles: number,
-}
-
-export type ShieldProfile = {
-	activationCooldownSeconds: number,
-	depletedCooldownSeconds: number,
-	impactStaminaCost: number,
-	blockArcDegrees: number,
-	slidePlanarDeltaV: number,
-	slideControlSeconds: number,
-}
-
 export type WeaponProfile = {
 	displayName: string,
 	rarity: string,
 	thumbnail: string,
 	description: string,
-	combatKind: string,
-	weaponFamily: string,
-	arenaOnly: boolean?,
-	arenaHeightAllowanceStuds: number?,
+	kind: "PrimaryWeapon" | "Shield",
+	modelName: string,
 	staminaCost: number?,
-	swing: WeaponSwing?,
-	target: WeaponTarget?,
-	impact: WeaponImpact?,
-	shield: ShieldProfile?,
-	vfx: WeaponVfx?,
+	cooldownSeconds: number?,
+	animationId: string?,
+	hitStartFallbackSeconds: number?,
+	contactWindowSeconds: number?,
+	hitStopSeconds: number?,
+	reachStuds: number?,
+	serverToleranceStuds: number?,
+	requireLineOfSight: boolean?,
+	planarKnockback: number?,
+	verticalKnockback: number?,
+	tumbleAngularSpeed: number?,
+	launchControlSeconds: number?,
+	maximumReactionSeconds: number?,
+	landingRecoverySeconds: number?,
+	airTrailSeconds: number?,
+	impactSoundId: string?,
+	activationCooldownSeconds: number?,
+	impactStaminaCost: number?,
+	blockArcDegrees: number?,
+	slideKnockback: number?,
+	raiseAnimationId: string?,
+	holdAnimationId: string?,
+	lowerAnimationId: string?,
 }
 
 export type WeaponsMetadata = {
 	Combat: {
-		stamina: {
-			maximum: number,
-			regenPerSecond: number,
-		},
+		staminaMaximum: number,
+		staminaRegenPerSecond: number,
 		knockbackImmunitySeconds: number,
+		arenaHeightAllowanceStuds: number,
 	},
-	ToolAliases: { [string]: string },
 	Profiles: { [string]: WeaponProfile },
-	GetId: (Tool) -> string?,
-	GetProfile: (Tool) -> (string?, WeaponProfile?),
-	IsMeleeTool: (Tool) -> boolean,
-	IsShieldTool: (Tool) -> boolean,
-	IsCombatTool: (Tool) -> boolean,
 }
 
 -- The player document held by DataService.
@@ -133,6 +92,11 @@ export type PlayerDoc = {
 	resources: { [string]: ResourceEntry },
 	items: { [string]: any },
 	currency: { [string]: number },
+	equipment: { [string]: { definitionId: string } },
+	combatLoadout: {
+		primaryWeaponInstanceId: string?,
+		shieldInstanceId: string?,
+	},
 }
 
 -- Injected into every service's Init by Bootstrap.

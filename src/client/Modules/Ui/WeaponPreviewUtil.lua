@@ -1,6 +1,6 @@
 -- ReplicatedStorage/Client/Ui/WeaponPreviewUtil
--- Renders the equipped Tool's visible parts directly in UI, avoiding separate thumbnail
--- assets that can drift from the authored weapon or wait in moderation.
+-- Renders a Tool or weapon Model's visible parts directly in UI, avoiding separate
+-- thumbnail assets that can drift from the authored equipment.
 
 local WeaponPreviewUtil = {}
 
@@ -22,12 +22,12 @@ local function removeNonVisualDescendants(part: BasePart)
 	end
 end
 
-local function cloneVisibleParts(tool: Tool, worldModel: WorldModel): Model?
+local function cloneVisibleParts(source: Instance, worldModel: WorldModel): Model?
 	local model = Instance.new("Model")
 	model.Name = "WeaponModel"
 	model.Parent = worldModel
 
-	for _, descendant in ipairs(tool:GetDescendants()) do
+	for _, descendant in ipairs(source:GetDescendants()) do
 		if descendant:IsA("BasePart") and descendant.Transparency < 1 then
 			local part = descendant:Clone()
 			removeNonVisualDescendants(part)
@@ -72,9 +72,9 @@ function WeaponPreviewUtil.Clear(container: GuiObject)
 	end
 end
 
-function WeaponPreviewUtil.Render(container: GuiObject, tool: Tool?): boolean
+function WeaponPreviewUtil.Render(container: GuiObject, source: Instance?): boolean
 	WeaponPreviewUtil.Clear(container)
-	if not tool then
+	if not source then
 		return false
 	end
 
@@ -91,7 +91,7 @@ function WeaponPreviewUtil.Render(container: GuiObject, tool: Tool?): boolean
 
 	local worldModel = Instance.new("WorldModel")
 	worldModel.Parent = viewport
-	local model = cloneVisibleParts(tool, worldModel)
+	local model = cloneVisibleParts(source, worldModel)
 	if not model then
 		viewport:Destroy()
 		return false

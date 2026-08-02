@@ -19,7 +19,7 @@
 --
 -- Behaviour is otherwise the hotbar it replaces: consumable slots fill in the order tools
 -- arrive, the number keys equip and unequip them, and clicking an equipped slot puts the
--- tool away. Combat equipment is deliberately excluded; CombatActionController presents
+-- tool away. Combat equipment is deliberately excluded; CombatClient presents
 -- the equipped Primary Weapon and Shield as dedicated actions instead.
 
 -- Services
@@ -35,7 +35,6 @@ local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
 local WeaponPreviewUtil = require(Ui:WaitForChild("WeaponPreviewUtil"))
 local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("CharacterUtil"))
-local WeaponsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
 local ItemsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Items"))
 
 -- Six slots, all of them on screen whether or not they hold anything. Roblox's hotbar is
@@ -133,10 +132,6 @@ end
 --- Only combat consumables belong in the Hotbar. Weapons and Shields have dedicated
 --- actions, while materials and currencies stay in Inventory.
 local function isConsumableTool(tool: Tool): boolean
-	if WeaponsMeta.IsCombatTool(tool) then
-		return false
-	end
-
 	local configuredId = tool:GetAttribute("ItemId")
 	local itemId = if type(configuredId) == "string" and configuredId ~= "" then configuredId else tool.Name
 	local normalizedId = normalizeMetadataId(itemId)
@@ -173,8 +168,8 @@ local function createSlot(index: number): Slot
 	local ring = ThemeUtil.ring(button, ThemeUtil.Accent.gold, 2)
 	ring.Transparency = 1
 
-	-- Weapon metadata or the Tool's TextureId supplies authored 2D art. When both are empty,
-	-- WeaponPreviewUtil renders the actual Tool model and the initials remain a final fallback.
+	-- The Tool's TextureId supplies authored 2D art. When it is empty,
+	-- WeaponPreviewUtil renders the Tool and initials remain a final fallback.
 	local icon = Instance.new("ImageLabel")
 	icon.Name = "Icon"
 	icon.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -269,11 +264,7 @@ local function bindSlot(slot: Slot, tool: Tool?)
 		return
 	end
 
-	local _, profile = WeaponsMeta.GetProfile(tool)
-	local metadataThumbnail = profile and profile.thumbnail
-	local texture = if type(metadataThumbnail) == "string" and metadataThumbnail ~= ""
-		then metadataThumbnail
-		else tool.TextureId
+	local texture = tool.TextureId
 	WeaponPreviewUtil.Clear(slot.icon)
 	if texture ~= "" then
 		slot.icon.Image = texture
