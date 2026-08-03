@@ -45,8 +45,8 @@
 
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "WeaponStateManager": {
-        "$path": "src/server/WeaponStateManager.server.lua"
+      "EquipmentStateManager": {
+        "$path": "src/server/EquipmentStateManager.server.lua"
       },
       "Infrastructure": {
         "$path": "src/server/Infrastructure"

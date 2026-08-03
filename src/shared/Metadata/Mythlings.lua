@@ -9,7 +9,7 @@ return {
 		drainRate = 5.0,
 		description = "A gentle, luminous creature of flowing water that thrives in currents and calms storms within the stream.",
 		production = {
-			resourceId = "essence",
+			materialId = "essence",
 			baseRate = 1.20,
 			baseCapacity = 420,
 		},
@@ -29,7 +29,7 @@ return {
 		drainRate = 5.0,
 		description = "A rare and regal dragon whose gemstone scales shimmer with light, drawing awe as much as power.",
 		production = {
-			resourceId = "crystal",
+			materialId = "crystal",
 			baseRate = 0.70,
 			baseCapacity = 300,
 		},
@@ -49,7 +49,7 @@ return {
 		drainRate = 5.0,
 		description = "A cunning dweller of twilight, dancing between shadows, unseen until its music echoes in silence.",
 		production = {
-			resourceId = "shadow_dust",
+			materialId = "shadow_dust",
 			baseRate = 0.85,
 			baseCapacity = 340,
 		},

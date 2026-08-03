@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 
-local Weapons = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
+local Equipment = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Equipment"))
 local presentationBus = require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("CombatPresentationBus"))
 local CombatImpact = ReplicatedStorage:WaitForChild("CombatImpact") :: RemoteEvent
 local localPlayer = Players.LocalPlayer
@@ -64,14 +64,14 @@ local function getEffectPart(character: Model): BasePart?
 end
 
 local function getShieldModel(character: Model): Model?
-	local folder = character:FindFirstChild("EquippedWeapons")
-	local shield = folder and folder:FindFirstChild("LeftWeapon")
+	local folder = character:FindFirstChild("EquippedEquipment")
+	local shield = folder and folder:FindFirstChild("LeftEquipment")
 	return if shield and shield:IsA("Model") then shield else nil
 end
 
 local function preloadImpactSounds()
 	local sounds = {}
-	for _, profile in Weapons.Profiles do
+	for _, profile in Equipment.Profiles do
 		local soundId = profile.impactSoundId
 		if type(soundId) == "string" and soundId ~= "" and not soundPools[soundId] then
 			local pool = {}

@@ -1,5 +1,5 @@
 -- ServerScriptService/Services/ProductionService/Accrual
--- Calculates a stationed mythling's stored production and transfers collected resources
+-- Calculates a stationed mythling's stored production and transfers collected Materials
 -- through InventoryService.
 
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -73,7 +73,7 @@ function Accrual.Collect(player: Player, mythlingId: any)
 	end
 
 	local amount = calculate(player, mythlingId)
-	InventoryService.AddResource(player, definition.production.resourceId, amount)
+	InventoryService.AddMaterial(player, definition.production.materialId, amount)
 	entry.lastCollectionAt = os.time()
 	InventoryService.MarkDirty(player)
 end

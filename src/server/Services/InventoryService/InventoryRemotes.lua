@@ -1,22 +1,22 @@
 -- ServerScriptService/Services/InventoryService/InventoryRemotes
--- Keeps the existing client remote contract at the InventoryService boundary.
+-- Owns the canonical client request contract at the InventoryService boundary.
 
 local InventoryRemotes = {}
 
 local Mythlings: any
-local Resources: any
-local Items: any
+local Materials: any
+local Consumables: any
 local MythlingsEvent: RemoteEvent
-local ResourcesRequest: RemoteFunction
-local InventoryRequest: RemoteFunction
+local MaterialsRequest: RemoteFunction
+local ConsumablesRequest: RemoteFunction
 
-function InventoryRemotes.Init(context, mythlings, resources, items)
+function InventoryRemotes.Init(context, mythlings, materials, consumables)
 	Mythlings = mythlings
-	Resources = resources
-	Items = items
+	Materials = materials
+	Consumables = consumables
 	MythlingsEvent = context.Remotes.MythlingsEvent
-	ResourcesRequest = context.Remotes.ResourcesRequest
-	InventoryRequest = context.Remotes.InventoryRequest
+	MaterialsRequest = context.Remotes.MaterialsRequest
+	ConsumablesRequest = context.Remotes.ConsumablesRequest
 end
 
 function InventoryRemotes.Start()
@@ -32,15 +32,15 @@ function InventoryRemotes.Start()
 		end
 	end)
 
-	ResourcesRequest.OnServerInvoke = function(player: Player, action: string)
-		if action == "GetResources" then
-			return Resources.List(player)
+	MaterialsRequest.OnServerInvoke = function(player: Player, action: string)
+		if action == "GetMaterials" then
+			return Materials.List(player)
 		end
 	end
 
-	InventoryRequest.OnServerInvoke = function(player: Player, action: string)
-		if action == "GetItems" then
-			return Items.List(player)
+	ConsumablesRequest.OnServerInvoke = function(player: Player, action: string)
+		if action == "GetConsumables" then
+			return Consumables.List(player)
 		end
 	end
 end

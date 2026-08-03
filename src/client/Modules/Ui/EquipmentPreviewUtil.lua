@@ -1,10 +1,10 @@
--- ReplicatedStorage/Client/Ui/WeaponPreviewUtil
--- Renders a Tool or weapon Model's visible parts directly in UI, avoiding separate
+-- ReplicatedStorage/Client/Ui/EquipmentPreviewUtil
+-- Renders a Tool or Equipment Model's visible parts directly in UI, avoiding separate
 -- thumbnail assets that can drift from the authored equipment.
 
-local WeaponPreviewUtil = {}
+local EquipmentPreviewUtil = {}
 
-local PREVIEW_NAME = "WeaponViewport"
+local PREVIEW_NAME = "EquipmentViewport"
 local FIELD_OF_VIEW = 28
 local DISPLAY_ROTATION = CFrame.Angles(math.rad(60), 0, math.rad(-35))
 
@@ -24,7 +24,7 @@ end
 
 local function cloneVisibleParts(source: Instance, worldModel: WorldModel): Model?
 	local model = Instance.new("Model")
-	model.Name = "WeaponModel"
+	model.Name = "EquipmentModel"
 	model.Parent = worldModel
 
 	for _, descendant in ipairs(source:GetDescendants()) do
@@ -65,15 +65,15 @@ local function centerAndPose(model: Model): Vector3
 	return posedSize
 end
 
-function WeaponPreviewUtil.Clear(container: GuiObject)
+function EquipmentPreviewUtil.Clear(container: GuiObject)
 	local existing = container:FindFirstChild(PREVIEW_NAME)
 	if existing then
 		existing:Destroy()
 	end
 end
 
-function WeaponPreviewUtil.Render(container: GuiObject, source: Instance?): boolean
-	WeaponPreviewUtil.Clear(container)
+function EquipmentPreviewUtil.Render(container: GuiObject, source: Instance?): boolean
+	EquipmentPreviewUtil.Clear(container)
 	if not source then
 		return false
 	end
@@ -111,4 +111,4 @@ function WeaponPreviewUtil.Render(container: GuiObject, source: Instance?): bool
 	return true
 end
 
-return WeaponPreviewUtil
+return EquipmentPreviewUtil

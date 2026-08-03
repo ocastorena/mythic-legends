@@ -3,7 +3,7 @@
 --   local Types = require(ReplicatedStorage.Shared.Types)
 --   local function f(ctx: Types.Context) ... end
 
-export type ResourceEntry = {
+export type MaterialEntry = {
 	total: number,
 }
 
@@ -18,7 +18,7 @@ export type MythlingEntry = {
 }
 
 export type MythlingProduction = {
-	resourceId: string,
+	materialId: string,
 	baseRate: number,
 	baseCapacity: number,
 }
@@ -41,7 +41,7 @@ export type MythlingDef = {
 	variants: { [string]: MythlingVariant },
 }
 
-export type WeaponProfile = {
+export type EquipmentProfile = {
 	displayName: string,
 	rarity: string,
 	thumbnail: string,
@@ -75,14 +75,14 @@ export type WeaponProfile = {
 	lowerAnimationId: string?,
 }
 
-export type WeaponsMetadata = {
+export type EquipmentMetadata = {
 	Combat: {
 		staminaMaximum: number,
 		staminaRegenPerSecond: number,
 		knockbackImmunitySeconds: number,
 		arenaHeightAllowanceStuds: number,
 	},
-	Profiles: { [string]: WeaponProfile },
+	Profiles: { [string]: EquipmentProfile },
 }
 
 -- The player document held by DataService.
@@ -90,8 +90,8 @@ export type PlayerDoc = {
 	version: number,
 	profile: { [string]: any },
 	mythlings: { [string]: MythlingEntry },
-	resources: { [string]: ResourceEntry },
-	items: { [string]: any },
+	materials: { [string]: MaterialEntry },
+	consumables: { [string]: any },
 	currency: { [string]: number },
 	equipment: { [string]: { definitionId: string } },
 	combatLoadout: {
@@ -105,10 +105,10 @@ export type Context = {
 	Instances: { [string]: Instance },
 	Metadata: {
 		Mythlings: { [string]: MythlingDef },
-		Resources: { [string]: any },
-		Items: { [string]: any },
+		Materials: { [string]: any },
+		Consumables: { [string]: any },
 		Spawns: { [string]: any },
-		Weapons: WeaponsMetadata,
+		Equipment: EquipmentMetadata,
 	},
 	Remotes: { [string]: RemoteEvent | RemoteFunction },
 	Services: { [string]: any },

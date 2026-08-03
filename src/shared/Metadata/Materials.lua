@@ -1,8 +1,8 @@
--- ReplicatedStorage/Metadata/Resources
+-- ReplicatedStorage/Metadata/Materials
 return {
 	essence = {
 		displayName = "Essence",
-		category = "currency",
+		category = "material",
 		guiColor = "39C0FF",
 		thumbnail = "rbxassetid://102449498933091",
 		description = "A rare alchemical concentrate produced only by the Aqualotl Mythlings. When these gentle creatures meditate within pure water, their bodies release a shimmering golden residue infused with life energy. Though it appears simple, Essence carries traces of ancient aquatic magic — said to be the same energy used by the First Mages to shape early Mythlings from the waters of creation.",

@@ -10,23 +10,23 @@ local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 
 local Mythlings = require(script.Mythlings)
-local Resources = require(script.Resources)
-local Items = require(script.Items)
+local Materials = require(script.Materials)
+local Consumables = require(script.Consumables)
 local InventoryRemotes = require(script.InventoryRemotes)
 
 local log = LogUtil.For("InventoryService")
 local InventoryService = {}
 local DataService: any
 
--- userId -> { mythlings = table, resources = table }
+-- userId -> { mythlings = table, materials = table, consumables = table }
 local sessionsByUserId: { [number]: any } = {}
 
 function InventoryService.Init(context)
 	DataService = context.Services.DataService
 	Mythlings.Init(context, sessionsByUserId)
-	Resources.Init(context, sessionsByUserId)
-	Items.Init(context, sessionsByUserId)
-	InventoryRemotes.Init(context, Mythlings, Resources, Items)
+	Materials.Init(context, sessionsByUserId)
+	Consumables.Init(context, sessionsByUserId)
+	InventoryRemotes.Init(context, Mythlings, Materials, Consumables)
 
 	log.info("Initialized")
 end
@@ -35,8 +35,8 @@ function InventoryService.Start()
 	PlayerUtil.OnPlayer(function(player: Player)
 		sessionsByUserId[player.UserId] = {}
 		Mythlings.LoadPlayer(player)
-		Resources.LoadPlayer(player)
-		Items.LoadPlayer(player)
+		Materials.LoadPlayer(player)
+		Consumables.LoadPlayer(player)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player: Player)
@@ -64,17 +64,17 @@ function InventoryService.GetMythling(player: Player, mythlingId: string): any?
 	return Mythlings.Get(player, mythlingId)
 end
 
--- Resource API for production and future crafting services.
-function InventoryService.ListResources(player: Player): any?
-	return Resources.List(player)
+-- Material API for production and future crafting services.
+function InventoryService.ListMaterials(player: Player): any?
+	return Materials.List(player)
 end
 
-function InventoryService.ListItems(player: Player): any?
-	return Items.List(player)
+function InventoryService.ListConsumables(player: Player): any?
+	return Consumables.List(player)
 end
 
-function InventoryService.AddResource(player: Player, resourceId: string, amount: number)
-	Resources.Add(player, resourceId, amount)
+function InventoryService.AddMaterial(player: Player, materialId: string, amount: number)
+	Materials.Add(player, materialId, amount)
 end
 
 -- Production and base placement can mutate an owned Mythling entry directly. Keep their

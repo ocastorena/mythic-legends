@@ -1,7 +1,7 @@
 -- ReplicatedStorage/Client/Ui/CardListUtil
 -- Scrolling grid of selectable cards cloned from a template.
 --
--- InventoryController (mythlings and resources) and StandController each grew their own
+-- InventoryController (Mythlings and Materials) and StandController each grew their own
 -- copy of this: clone/name/parent the template, keep an id -> card map alongside an
 -- id -> data map, track one selection, rebuild from a server list. Only the highlight
 -- styling actually differed, so that is a callback rather than baked in.

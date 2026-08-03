@@ -18,9 +18,9 @@ RemoteUtil.DEFINITIONS = {
 	SpawnEvent = "RemoteEvent",
 
 	GetStands = "RemoteFunction",
-	InventoryRequest = "RemoteFunction",
+	ConsumablesRequest = "RemoteFunction",
+	MaterialsRequest = "RemoteFunction",
 	MythlingsRequest = "RemoteFunction",
-	ResourcesRequest = "RemoteFunction",
 }
 
 -- Creates the folder and any missing remotes, then returns name -> instance for every

@@ -33,9 +33,9 @@ local Ui = Client:WaitForChild("Ui")
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
-local WeaponPreviewUtil = require(Ui:WaitForChild("WeaponPreviewUtil"))
+local EquipmentPreviewUtil = require(Ui:WaitForChild("EquipmentPreviewUtil"))
 local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("CharacterUtil"))
-local ItemsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Items"))
+local ConsumablesMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Consumables"))
 
 -- Six slots, all of them on screen whether or not they hold anything. Roblox's hotbar is
 -- ten deep and hides the empties; a fixed six reads as a deliberate loadout rather than a
@@ -129,17 +129,17 @@ local function normalizeMetadataId(value: string): string
 	return string.lower(string.gsub(value, "[^%w]", ""))
 end
 
---- Only combat consumables belong in the Hotbar. Weapons and Shields have dedicated
---- actions, while materials and currencies stay in Inventory.
+--- Only Consumables belong in the Hotbar. Primary Weapons and Shields have dedicated
+--- actions, while Materials and Gold stay in Inventory.
 local function isConsumableTool(tool: Tool): boolean
-	local configuredId = tool:GetAttribute("ItemId")
-	local itemId = if type(configuredId) == "string" and configuredId ~= "" then configuredId else tool.Name
-	local normalizedId = normalizeMetadataId(itemId)
+	local configuredId = tool:GetAttribute("ConsumableId")
+	local consumableId = if type(configuredId) == "string" and configuredId ~= "" then configuredId else tool.Name
+	local normalizedId = normalizeMetadataId(consumableId)
 
-	for metadataId, metadata in pairs(ItemsMeta) do
+	for metadataId, metadata in pairs(ConsumablesMeta) do
 		if type(metadata) == "table"
 			and normalizeMetadataId(metadataId) == normalizedId
-			and metadata.Type == "Consumable" then
+			and metadata.category == "consumable" then
 			return true
 		end
 	end
@@ -169,7 +169,7 @@ local function createSlot(index: number): Slot
 	ring.Transparency = 1
 
 	-- The Tool's TextureId supplies authored 2D art. When it is empty,
-	-- WeaponPreviewUtil renders the Tool and initials remain a final fallback.
+	-- EquipmentPreviewUtil renders the Tool and initials remain a final fallback.
 	local icon = Instance.new("ImageLabel")
 	icon.Name = "Icon"
 	icon.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -256,7 +256,7 @@ local function bindSlot(slot: Slot, tool: Tool?)
 	slot.tool = tool
 
 	if not tool then
-		WeaponPreviewUtil.Clear(slot.icon)
+		EquipmentPreviewUtil.Clear(slot.icon)
 		slot.icon.Image = ""
 		slot.icon.Visible = false
 		slot.label.Visible = false
@@ -265,12 +265,12 @@ local function bindSlot(slot: Slot, tool: Tool?)
 	end
 
 	local texture = tool.TextureId
-	WeaponPreviewUtil.Clear(slot.icon)
+	EquipmentPreviewUtil.Clear(slot.icon)
 	if texture ~= "" then
 		slot.icon.Image = texture
 		slot.icon.Visible = true
 		slot.label.Visible = false
-	elseif WeaponPreviewUtil.Render(slot.icon, tool) then
+	elseif EquipmentPreviewUtil.Render(slot.icon, tool) then
 		slot.icon.Image = ""
 		slot.icon.Visible = true
 		slot.label.Visible = false

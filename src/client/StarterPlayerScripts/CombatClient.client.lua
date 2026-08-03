@@ -6,15 +6,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
-local Weapons = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
-local WeaponAssets = ReplicatedStorage:WaitForChild("WeaponAssets")
+local Equipment = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Equipment"))
+local EquipmentAssets = ReplicatedStorage:WaitForChild("WeaponAssets")
 local Client = ReplicatedStorage:WaitForChild("Client")
 local ClientKnockbackController = require(Client:WaitForChild("ClientKnockbackController"))
 local ShieldSlideController = require(Client:WaitForChild("ShieldSlideController"))
 local presentationBus = require(Client:WaitForChild("CombatPresentationBus"))
 local Ui = Client:WaitForChild("Ui")
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
-local WeaponPreviewUtil = require(Ui:WaitForChild("WeaponPreviewUtil"))
+local EquipmentPreviewUtil = require(Ui:WaitForChild("EquipmentPreviewUtil"))
 local PerformAttack = ReplicatedStorage:WaitForChild("PerformAttack") :: RemoteEvent
 local SetShieldGuard = ReplicatedStorage:WaitForChild("SetShieldGuard") :: RemoteEvent
 local CombatImpact = ReplicatedStorage:WaitForChild("CombatImpact") :: RemoteEvent
@@ -100,13 +100,13 @@ local function getEquipped(character: Model, hand: string): string
 end
 
 local function getProfile(character: Model, hand: string): any?
-	return Weapons.Profiles[getEquipped(character, hand)]
+	return Equipment.Profiles[getEquipped(character, hand)]
 end
 
-local function getWeaponModel(character: Model, hand: string): Model?
-	local folder = character:FindFirstChild("EquippedWeapons")
-	local weapon = folder and folder:FindFirstChild(`{hand}Weapon`)
-	return if weapon and weapon:IsA("Model") then weapon else nil
+local function getEquipmentModel(character: Model, hand: string): Model?
+	local folder = character:FindFirstChild("EquippedEquipment")
+	local equipment = folder and folder:FindFirstChild(`{hand}Equipment`)
+	return if equipment and equipment:IsA("Model") then equipment else nil
 end
 
 local function getWeaponHitbox(weapon: Model?): BasePart?
@@ -191,7 +191,7 @@ local function beginGuard(character: Model)
 		return
 	end
 	local profile = getShieldProfile(character)
-	if not profile or not getWeaponModel(character, "Left") then
+	if not profile or not getEquipmentModel(character, "Left") then
 		return
 	end
 
@@ -379,7 +379,7 @@ local function getPredictedBlockingShield(target: Player): Model?
 	if not targetCharacter or targetCharacter:GetAttribute("ShieldGuarding") ~= true then
 		return nil
 	end
-	local shield = getWeaponModel(targetCharacter, "Left")
+	local shield = getEquipmentModel(targetCharacter, "Left")
 	local bubble = targetCharacter:FindFirstChild("ShieldBubble")
 	return if shield and bubble and bubble:IsA("BasePart") then shield else nil
 end
@@ -392,7 +392,7 @@ local function attack(character: Model)
 		return
 	end
 	local profile = getProfile(character, "Right")
-	local weapon = getWeaponModel(character, "Right")
+	local weapon = getEquipmentModel(character, "Right")
 	local hitbox = getWeaponHitbox(weapon)
 	if not profile or profile.kind ~= "PrimaryWeapon" or not weapon or not hitbox then
 		return
@@ -601,14 +601,14 @@ local function createCombatButtons()
 
 	local attackButton, attackIcon = createButton("PrimaryAttackButton")
 	local shieldButton, shieldIcon = createButton("SecondaryShieldButton")
-	local renderedRightWeapon = ""
-	local renderedLeftWeapon = ""
-	local function renderWeapon(icon: Frame, definitionId: string)
-		WeaponPreviewUtil.Clear(icon)
-		local profile = Weapons.Profiles[definitionId]
-		local asset = profile and WeaponAssets:FindFirstChild(profile.modelName)
+	local renderedRightEquipment = ""
+	local renderedLeftEquipment = ""
+	local function renderEquipment(icon: Frame, definitionId: string)
+		EquipmentPreviewUtil.Clear(icon)
+		local profile = Equipment.Profiles[definitionId]
+		local asset = profile and EquipmentAssets:FindFirstChild(profile.modelName)
 		if asset then
-			WeaponPreviewUtil.Render(icon, asset)
+			EquipmentPreviewUtil.Render(icon, asset)
 		end
 	end
 	local function getJumpButton(): GuiButton?
@@ -640,9 +640,9 @@ local function createCombatButtons()
 		local rightProfile = character and getProfile(character, "Right")
 		local leftProfile = character and getProfile(character, "Left")
 		local canAttack = ready and rightProfile and rightProfile.kind == "PrimaryWeapon"
-			and getWeaponModel(character :: Model, "Right") ~= nil
+			and getEquipmentModel(character :: Model, "Right") ~= nil
 		local canGuard = ready and leftProfile and leftProfile.kind == "Shield"
-			and getWeaponModel(character :: Model, "Left") ~= nil
+			and getEquipmentModel(character :: Model, "Left") ~= nil
 		return ready, canAttack == true, canGuard == true
 	end
 
@@ -692,15 +692,15 @@ local function createCombatButtons()
 		elapsed = 0
 		local ready, canAttack, canGuard = getButtonAvailability()
 		local character = getCharacter()
-		local rightWeapon = if character then getEquipped(character, "Right") else ""
-		local leftWeapon = if character then getEquipped(character, "Left") else ""
-		if rightWeapon ~= renderedRightWeapon then
-			renderedRightWeapon = rightWeapon
-			renderWeapon(attackIcon, rightWeapon)
+		local rightEquipment = if character then getEquipped(character, "Right") else ""
+		local leftEquipment = if character then getEquipped(character, "Left") else ""
+		if rightEquipment ~= renderedRightEquipment then
+			renderedRightEquipment = rightEquipment
+			renderEquipment(attackIcon, rightEquipment)
 		end
-		if leftWeapon ~= renderedLeftWeapon then
-			renderedLeftWeapon = leftWeapon
-			renderWeapon(shieldIcon, leftWeapon)
+		if leftEquipment ~= renderedLeftEquipment then
+			renderedLeftEquipment = leftEquipment
+			renderEquipment(shieldIcon, leftEquipment)
 		end
 		root.Visible = ready and not modalOpen
 		attackButton.Interactable = canAttack and not modalOpen

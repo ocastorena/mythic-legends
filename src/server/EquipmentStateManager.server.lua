@@ -1,4 +1,4 @@
--- ServerScriptService/WeaponStateManager
+-- ServerScriptService/EquipmentStateManager
 -- Server-owned R15 loadouts, Arena state, Stamina, guard validation, and hit authorization.
 
 local Players = game:GetService("Players")
@@ -7,18 +7,18 @@ local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local TweenService = game:GetService("TweenService")
 
-local Weapons = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Weapons"))
+local Equipment = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Equipment"))
 local ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
 local DataService = require(ServerScriptService:WaitForChild("Services"):WaitForChild("DataService"))
 
-local WeaponAssets = ReplicatedStorage:WaitForChild("WeaponAssets")
+local EquipmentAssets = ReplicatedStorage:WaitForChild("WeaponAssets")
 local PerformAttack = ReplicatedStorage:WaitForChild("PerformAttack") :: RemoteEvent
 local SetShieldGuard = ReplicatedStorage:WaitForChild("SetShieldGuard") :: RemoteEvent
 local CombatImpact = ReplicatedStorage:WaitForChild("CombatImpact") :: RemoteEvent
 local CombatLoadoutRequest = ReplicatedStorage:WaitForChild("CombatLoadoutRequest") :: RemoteFunction
 local Arena = workspace:WaitForChild("Map"):WaitForChild("Arena") :: BasePart
 
-local WEAPON_FOLDER_NAME = "EquippedWeapons"
+local EQUIPMENT_FOLDER_NAME = "EquippedEquipment"
 local STATE_STEP_SECONDS = 0.1
 local MAX_SEQUENCE = 2_147_483_647
 local MAX_REACH = 20
@@ -79,7 +79,7 @@ local function getProfile(definitionId: unknown): any?
 	if type(definitionId) ~= "string" or #definitionId > 64 then
 		return nil
 	end
-	local profile = Weapons.Profiles[definitionId]
+	local profile = Equipment.Profiles[definitionId]
 	return if type(profile) == "table" then profile else nil
 end
 
@@ -102,7 +102,7 @@ end
 local function isCharacterInArena(character: Model): boolean
 	local root = character:FindFirstChild("HumanoidRootPart")
 	local allowance = getNumber(
-		Weapons.Combat.arenaHeightAllowanceStuds,
+		Equipment.Combat.arenaHeightAllowanceStuds,
 		DEFAULT_ARENA_HEIGHT_ALLOWANCE,
 		0,
 		100
@@ -116,7 +116,7 @@ local function getRuntime(player: Player): CombatRuntime
 		return runtime
 	end
 	runtime = {
-		stamina = getNumber(Weapons.Combat.staminaMaximum, 100, 1, 10_000),
+		stamina = getNumber(Equipment.Combat.staminaMaximum, 100, 1, 10_000),
 		lastStaminaUpdate = os.clock(),
 		immunityUntil = 0,
 		nextAttackAt = 0,
@@ -132,8 +132,8 @@ end
 
 local function refreshRuntime(player: Player, now: number): CombatRuntime
 	local runtime = getRuntime(player)
-	local maximum = getNumber(Weapons.Combat.staminaMaximum, 100, 1, 10_000)
-	local regen = getNumber(Weapons.Combat.staminaRegenPerSecond, 18, 0, 1_000)
+	local maximum = getNumber(Equipment.Combat.staminaMaximum, 100, 1, 10_000)
+	local regen = getNumber(Equipment.Combat.staminaRegenPerSecond, 18, 0, 1_000)
 	local elapsed = math.max(0, now - runtime.lastStaminaUpdate)
 	runtime.lastStaminaUpdate = now
 	runtime.stamina = math.min(maximum, runtime.stamina + elapsed * regen)
@@ -289,8 +289,8 @@ local function snapshotLoadout(player: Player): any
 	}
 end
 
-local function getWeaponFolder(character: Model): Folder
-	local existing = character:FindFirstChild(WEAPON_FOLDER_NAME)
+local function getEquipmentFolder(character: Model): Folder
+	local existing = character:FindFirstChild(EQUIPMENT_FOLDER_NAME)
 	if existing and existing:IsA("Folder") then
 		return existing
 	end
@@ -298,13 +298,13 @@ local function getWeaponFolder(character: Model): Folder
 		existing:Destroy()
 	end
 	local folder = Instance.new("Folder")
-	folder.Name = WEAPON_FOLDER_NAME
+	folder.Name = EQUIPMENT_FOLDER_NAME
 	folder.Parent = character
 	return folder
 end
 
-local function clearWeapons(character: Model)
-	local folder = character:FindFirstChild(WEAPON_FOLDER_NAME)
+local function clearEquipment(character: Model)
+	local folder = character:FindFirstChild(EQUIPMENT_FOLDER_NAME)
 	if folder then
 		folder:Destroy()
 	end
@@ -316,26 +316,26 @@ local function clearWeapons(character: Model)
 	end
 end
 
-local function prepareWeaponModel(model: Model): boolean
+local function prepareEquipmentModel(model: Model): boolean
 	local primaryPart = model.PrimaryPart
 	if not primaryPart then
-		warn(`[WeaponStateManager] {model:GetFullName()} has no PrimaryPart`)
+		warn(`[EquipmentStateManager] {model:GetFullName()} has no PrimaryPart`)
 		return false
 	end
 	for _, attachmentName in { "HandGripAttachment", "SheathAttachment" } do
 		local attachment = model:FindFirstChild(attachmentName, true)
 		if not attachment or not attachment:IsA("Attachment") then
-			warn(`[WeaponStateManager] {model:GetFullName()} needs {attachmentName}`)
+			warn(`[EquipmentStateManager] {model:GetFullName()} needs {attachmentName}`)
 			return false
 		end
 	end
 	local hitbox = model:FindFirstChild("Hitbox", true)
 	if not hitbox or not hitbox:IsA("BasePart") then
-		warn(`[WeaponStateManager] {model:GetFullName()} needs a Hitbox BasePart`)
+		warn(`[EquipmentStateManager] {model:GetFullName()} needs a Hitbox BasePart`)
 		return false
 	end
 	-- Rebuild one predictable rigid assembly instead of stacking runtime welds on top of
-	-- authored preview welds each time the weapon moves between hand and sheath.
+	-- authored preview welds each time the Equipment moves between hand and sheath.
 	for _, descendant in model:GetDescendants() do
 		if descendant:IsA("WeldConstraint") or descendant:IsA("Weld") then
 			descendant:Destroy()
@@ -350,7 +350,7 @@ local function prepareWeaponModel(model: Model): boolean
 			descendant.Massless = true
 			if descendant ~= primaryPart then
 				local weld = Instance.new("WeldConstraint")
-				weld.Name = "WeaponAssemblyWeld"
+				weld.Name = "EquipmentAssemblyWeld"
 				weld.Part0 = primaryPart
 				weld.Part1 = descendant
 				weld.Parent = primaryPart
@@ -360,22 +360,22 @@ local function prepareWeaponModel(model: Model): boolean
 	return true
 end
 
-local function cloneWeapon(character: Model, slot: string, definitionId: string): Model?
+local function cloneEquipment(character: Model, slot: string, definitionId: string): Model?
 	local profile = getProfile(definitionId)
-	local asset = profile and WeaponAssets:FindFirstChild(profile.modelName)
+	local asset = profile and EquipmentAssets:FindFirstChild(profile.modelName)
 	if not asset or not asset:IsA("Model") then
-		warn(`[WeaponStateManager] Missing WeaponAssets model for {definitionId}`)
+		warn(`[EquipmentStateManager] Missing authored Equipment model for {definitionId}`)
 		return nil
 	end
 	local model = asset:Clone()
-	model.Name = `{slot}Weapon`
-	model:SetAttribute("WeaponId", definitionId)
-	model:SetAttribute("WeaponSlot", slot)
-	if not prepareWeaponModel(model) then
+	model.Name = `{slot}Equipment`
+	model:SetAttribute("EquipmentId", definitionId)
+	model:SetAttribute("EquipmentSlot", slot)
+	if not prepareEquipmentModel(model) then
 		model:Destroy()
 		return nil
 	end
-	model.Parent = getWeaponFolder(character)
+	model.Parent = getEquipmentFolder(character)
 	return model
 end
 
@@ -401,7 +401,7 @@ local function attachSlot(character: Model, slot: string, definitionId: string, 
 	if definitionId == "" then
 		return
 	end
-	local model = cloneWeapon(character, slot, definitionId)
+	local model = cloneEquipment(character, slot, definitionId)
 	local primaryPart = model and model.PrimaryPart
 	if not model or not primaryPart then
 		return
@@ -426,7 +426,7 @@ local function attachSlot(character: Model, slot: string, definitionId: string, 
 end
 
 local function rebuildAttachments(character: Model)
-	clearWeapons(character)
+	clearEquipment(character)
 	local combatReady = character:GetAttribute("CombatReady") == true
 	attachSlot(character, "Right", character:GetAttribute("RightEquipped") or "", combatReady)
 	attachSlot(character, "Left", character:GetAttribute("LeftEquipped") or "", combatReady)
@@ -521,12 +521,12 @@ local function getEquippedPrimary(character: Model): (string?, any?)
 	if type(definitionId) ~= "string" or not profile or profile.kind ~= "PrimaryWeapon" then
 		return nil, nil
 	end
-	local folder = character:FindFirstChild(WEAPON_FOLDER_NAME)
-	local model = folder and folder:FindFirstChild("RightWeapon")
+	local folder = character:FindFirstChild(EQUIPMENT_FOLDER_NAME)
+	local model = folder and folder:FindFirstChild("RightEquipment")
 	local motor = character:FindFirstChild("RightHandMotor", true)
 	if not model
 		or not model:IsA("Model")
-		or model:GetAttribute("WeaponId") ~= definitionId
+		or model:GetAttribute("EquipmentId") ~= definitionId
 		or not motor
 		or not motor:IsA("Motor6D")
 	then
@@ -740,7 +740,7 @@ local function handleHitReport(player: Player, payload: any)
 		landingRecoverySeconds = getNumber(profile.landingRecoverySeconds, 0.2, 0, 2)
 		airTrailSeconds = getNumber(profile.airTrailSeconds, 3.5, 0, 10)
 	end
-	local immunity = getNumber(Weapons.Combat.knockbackImmunitySeconds, 0.65, 0, 5)
+	local immunity = getNumber(Equipment.Combat.knockbackImmunitySeconds, 0.65, 0, 5)
 	targetRuntime.immunityUntil = now + immunity
 	target:SetAttribute("KnockbackImmune", immunity > 0)
 	sendImpact(
@@ -800,7 +800,7 @@ local function onCharacterAdded(player: Player, character: Model)
 		return
 	end
 	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
-		warn(`[WeaponStateManager] {player.Name} must use an R15 character`)
+		warn(`[EquipmentStateManager] {player.Name} must use an R15 character`)
 		return
 	end
 	refreshRuntime(player, os.clock())
@@ -809,7 +809,7 @@ local function onCharacterAdded(player: Player, character: Model)
 		humanoid.Died:Connect(function()
 			setShieldGuard(player, false)
 			getRuntime(player).authorizedSwing = nil
-			clearWeapons(character)
+			clearEquipment(character)
 		end),
 		character.AncestryChanged:Connect(function(_, parent)
 			if not parent then

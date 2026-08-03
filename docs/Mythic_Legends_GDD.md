@@ -16,7 +16,7 @@ The game is designed first for landscape mobile play, with keyboard and gamepad 
 - Online and offline shrine production.
 - Material collection, inventory capacity, duplicate Mythling selling, Gold, and Base/Shrine upgrades.
 - Mythling levels, evolutions, and one rolled Passive Trait per acquired Mythling.
-- Crafting Stations with queued, time-based recipes for Combat Equipment and Combat Consumables.
+- Crafting Stations with queued, time-based recipes for Equipment and Consumables.
 - Shop purchases and shrine upgrades paid for with Gold and required Materials.
 
 ### Not part of the game
@@ -48,13 +48,13 @@ Arena capture is launch PvP, but it is **non-lethal positional PvP**: the goal i
 | Evolution | Replacing a Mythling's current form with a new Mythling definition that has its own base statistics. |
 | Material | A crafting and upgrade input produced by a Shrine. |
 | Gold | The primary currency, earned principally from selling duplicate Mythlings and spent in shops and upgrades. |
-| Primary Weapon | Combat Equipment used to apply positional knockback in the Arena. |
-| Shield | Combat Equipment used to protect against or reduce positional knockback in the Arena. |
-| Combat Equipment | The inventory category containing Primary Weapons and Shields. |
-| Combat Consumable | A stackable Hotbar entry that grants a temporary Arena combat buff when consumed. |
+| Primary Weapon | Equipment used to apply positional knockback in the Arena. |
+| Shield | Equipment used to protect against or reduce positional knockback in the Arena. |
+| Equipment | The inventory category containing Primary Weapons and Shields. |
+| Consumable | A stackable Hotbar entry that grants a temporary Arena combat buff when consumed. |
 | Crafting Station | A base building that runs a level-limited queue of time-based crafting jobs. |
 | Combat Loadout | The player's separately equipped Primary Weapon and Shield. |
-| Hotbar | The player's six slots for Combat Consumables and future approved Hotbar entries; it does not hold Combat Equipment. |
+| Hotbar | The player's six slots for Consumables and future approved Hotbar entries; it does not hold Equipment. |
 | Stamina | A player resource consumed by arena weapon actions and by shield impacts; it recovers gradually over time. |
 
 Do not use *forge*, *altar*, or *pet* as alternative names for shrines or Mythlings in player-facing text.
@@ -81,6 +81,10 @@ Rarity affects capture and spawn odds, configured base Yield and Luck ranges, vi
 
 The first release has no cosmetic Mythling variants. Every gameplay-relevant or visual transformation is represented by a distinct evolved Mythling form.
 
+### Mythling concept principle
+
+Every Mythling evolution line is a hybrid of two recognizable mythological creatures from distinct traditions. Both source creatures must be visually legible in the first form and remain part of the line through both evolutions. Mythling concepts must not use figures from living religions.
+
 ### Visual language
 
 - Fire: orange/red, lava, embers.
@@ -105,11 +109,11 @@ Players spawn at their own Base. From there, they may immediately enter the Aren
 - **Mobile:** the left thumb controls movement; the right side controls camera drag, a dedicated Attack button, and a dedicated Shield button.
 - **Keyboard/mouse:** left click uses the equipped Primary Weapon; holding right click holds the equipped Shield active. Number keys `1` through `6` select the corresponding Hotbar slot.
 - **Gamepad (later):** right-trigger attack, left-trigger Shield hold, and D-pad Hotbar cycling are planned after the current MVP implementation.
-- The Combat Loadout has one Primary Weapon slot and one Shield slot. Players choose these in the Inventory menu; Combat Equipment never occupies a Hotbar slot.
-- Both pieces of Combat Equipment use character-mounted Models rather than Roblox `Tool` instances. In the Arena, the Primary Weapon is held in the right hand and the Shield in the left hand. Outside the Arena, both remain visibly sheathed on the character and equipped in saved state, but their combat actions are unavailable.
-- Players may leave every Hotbar slot empty or equip up to six Combat Consumables or future approved Hotbar entries. Hotbar selection never changes the equipped Primary Weapon or Shield.
+- The Combat Loadout has one Primary Weapon slot and one Shield slot. Players choose these in the Inventory menu; Equipment never occupies a Hotbar slot.
+- Both pieces of Equipment use character-mounted Models rather than Roblox `Tool` instances. In the Arena, the Primary Weapon is held in the right hand and the Shield in the left hand. Outside the Arena, both remain visibly sheathed on the character and equipped in saved state, but their combat actions are unavailable.
+- Players may leave every Hotbar slot empty or equip up to six Consumables or future approved Hotbar entries. Hotbar selection never changes the equipped Primary Weapon or Shield.
 
-- Every new player receives a plain wooden sword and wooden shield in their Combat Loadout. The Hotbar has six Combat Consumable slots.
+- Every new player receives a plain wooden sword and wooden shield in their Combat Loadout. The Hotbar has six Consumable slots.
 - The Hotbar is displayed along the bottom of the screen, consistent with familiar Roblox inventory placement.
 - The HUD provides Inventory and Shop buttons. Players access Base, Shrine, and Crafting Station interactions through nearby Proximity Prompts.
 - Gold, the six-slot Hotbar, Inventory button, and Shop button are always visible. Arena UI also exposes the dedicated Attack and Shield controls; Stamina is visible only while the player is in the Arena.
@@ -143,7 +147,7 @@ Players spawn at their own Base. From there, they may immediately enter the Aren
 - The server is authoritative for Capture Ring membership, capture progress, winner selection, inventory changes, and rewards. MVP sword contact uses the client-reported architecture defined below.
 - Arena combat does not deal damage or cause player death. Knockback, Shield behavior, and temporary knockback immunity create the positional disruption used in Capture Ring contests.
 - A combat client may report a sword target and present immediate feedback, but it may never change capture progress, award a Mythling, determine a winner, or grant any inventory or economy result.
-- Capture rates, ring radius, spawn frequency, active-spawn cap, despawn time, knockback strength, Shield behavior, and Combat Equipment cooldowns are shared balance configuration—not independently hard-coded in client controllers.
+- Capture rates, ring radius, spawn frequency, active-spawn cap, despawn time, knockback strength, Shield behavior, and Equipment cooldowns are shared balance configuration—not independently hard-coded in client controllers.
 
 ### MVP player combat system
 
@@ -261,22 +265,22 @@ Traits are selected from universal, element-agnostic weighted pools. The selecte
 
 ### Crafting
 
-Crafting Stations are not owned at the start of the game; a player must build one through the Base build/upgrade menu before starting recipes. A Crafting Station's Proximity Prompt opens its crafting menu. Crafting Stations use Shrine Materials to create approved Combat Equipment and Combat Consumables. All recipes are time-based Crafting Jobs. A Crafting Station's level determines its maximum job-queue capacity. Every recipe must define:
+Crafting Stations are not owned at the start of the game; a player must build one through the Base build/upgrade menu before starting recipes. A Crafting Station's Proximity Prompt opens its crafting menu. Crafting Stations use Shrine Materials to create approved Equipment and Consumables. All recipes are time-based Crafting Jobs. A Crafting Station's level determines its maximum job-queue capacity. Every recipe must define:
 
 - Result definition ID and category.
 - Required Material quantities and required Gold, if any.
 - Unlock requirement.
 - Stack or ownership behavior.
 - Craft duration, eligible Crafting Station, and queue behavior.
-- Arena effect, cooldown, and numerical tuning for Combat Equipment or Combat Consumables.
+- Arena effect, cooldown, and numerical tuning for Equipment or Consumables.
 
-Players may cancel a Crafting Job at any time for a full refund of every Material and Gold amount spent to start that job. Crafting is server-authoritative: the server verifies the recipe, affordability, unlock state, inventory capacity, queue capacity, cancellation/refund behavior, and result before deducting costs or granting Combat Equipment or a Combat Consumable.
+Players may cancel a Crafting Job at any time for a full refund of every Material and Gold amount spent to start that job. Crafting is server-authoritative: the server verifies the recipe, affordability, unlock state, inventory capacity, queue capacity, cancellation/refund behavior, and result before deducting costs or granting Equipment or a Consumable.
 
 Crafting Jobs continue and complete while their owner is offline. The server records the job timing and resolves completion on a server tick, player join, or Crafting Station interaction; the output space reserved when the job began remains reserved until the job is completed or cancelled.
 
-### Combat Consumables
+### Consumables
 
-First-release Combat Consumables are temporary combat buffs only. A player must equip a Combat Consumable to a Hotbar slot and activate it in the Arena to consume it. Combat Consumables may provide configured combat-stat boosts and their timed effects stack. Each Combat Consumable definition must provide a duration and configurable stack cap. The server validates the selected inventory entry, Arena eligibility, and stack cap; it consumes the Combat Consumable and owns the active-buff and expiry state. Production and crafting consumables are not part of the first release.
+First-release Consumables are temporary combat buffs only. A player must equip a Consumable to a Hotbar slot and activate it in the Arena to consume it. Consumables may provide configured combat-stat boosts and their timed effects stack. Each Consumable definition must provide a duration and configurable stack cap. The server validates the selected inventory entry, Arena eligibility, and stack cap; it consumes the Consumable and owns the active-buff and expiry state. Production and crafting consumables are not part of the first release.
 
 ### Gold and duplication
 
@@ -293,7 +297,7 @@ First-release Combat Consumables are temporary combat buffs only. A player must 
 
 ### Inventory capacity and overflow
 
-The first-release inventory tabs are Materials, Combat Consumables, Mythlings, Combat Equipment, and Crafting Jobs. Each tab has a configured maximum number of inventory slots. Materials and Combat Consumables combine into stacks by type; each metadata definition supplies that stack's maximum quantity. Gold is a separate, uncapped balance and does not occupy an inventory slot. A player cannot receive an entry when its destination tab has no available slot or compatible stack space.
+The first-release inventory tabs are Materials, Consumables, Mythlings, Equipment, and Crafting Jobs. Each tab has a configured maximum number of inventory slots. Materials and Consumables combine into stacks by type; each metadata definition supplies that stack's maximum quantity. Gold is a separate, uncapped balance and does not occupy an inventory slot. A player cannot receive an entry when its destination tab has no available slot or compatible stack space.
 
 - A player at Mythling capacity cannot begin or gain Capture Ring progress. The server sends an `InventoryFull` warning that identifies Mythlings as the blocked inventory category.
 - A proximity pickup is not collected when the recipient's relevant inventory is full. It remains available according to that pickup's normal despawn and claim rules.
@@ -328,7 +332,7 @@ For every system other than the documented combat exception, clients send an int
 1. The client may immediately show input feedback and a pending/loading state.
 2. The server validates the request against the cached player document, metadata, runtime eligibility, capacity, affordability, and permissions.
 3. The server performs the mutation as a duplicate-safe transaction, marks the player document dirty through DataService, and returns or replicates the authoritative result.
-4. The client updates inventory, Gold, Shrine output, Crafting Jobs, capture state, Combat Equipment, Stamina, and buffs only from that confirmed result.
+4. The client updates inventory, Gold, Shrine output, Crafting Jobs, capture state, Equipment, Stamina, and buffs only from that confirmed result.
 5. A rejection leaves the authoritative state unchanged and supplies a player-facing reason when appropriate, such as `InventoryFull`, insufficient Gold/Materials, invalid selection, unavailable capacity, or not-in-Arena.
 
 Capture meters, Stamina, active Shield state, temporary knockback immunity, active combat buffs, and active Arena contests are server-owned runtime state. They are not persistent; they clear on disconnect or server shutdown unless a later approved design explicitly changes that rule.
@@ -344,8 +348,8 @@ Content and balance data must be separate from game logic and versioned. At mini
 - Crafting Station: queue capacity by level, eligible recipe groups, and upgrade/build costs.
 - Material: id, element, display information, crafting uses, sell eligibility/value, buy value, stack limit, and optional rare variant.
 - Arena spawn: eligible stationary Mythlings, rarity-weighted selection pool, ring radius, active cap, lifetime, and per-Mythling capture-progress and decay rates.
-- Combat Equipment: id, category, visuals, knockback/protection behavior, cooldown, Stamina costs, and sell eligibility/value.
-- Combat Consumable: id, visuals, temporary combat-buff effect, duration, stack cap, stack limit, and sell eligibility/value.
+- Equipment: id, category, visuals, knockback/protection behavior, cooldown, Stamina costs, and sell eligibility/value.
+- Consumable: id, visuals, temporary combat-buff effect, duration, stack cap, stack limit, and sell eligibility/value.
 - Recipe: input Materials and Gold, result definition, duration, eligible Crafting Station, unlocks, and queue behavior.
 - Inventory upgrade: tab affected, slot increase, price, and eligibility.
 
@@ -363,7 +367,7 @@ materials[materialId]   -- quantity only; stack rules come from Material metadat
 consumables[consumableIdOrInstanceId] -- consumableId, quantity, or approved unique mutable state
 equipment[instanceId]   -- equipmentId and approved unique mutable state
 combatLoadout           -- optional primaryWeaponInstanceId and shieldInstanceId
-hotbar[1..6]            -- optional references to owned Combat Consumables or future approved Hotbar entries
+hotbar[1..6]            -- optional references to owned Consumables or future approved Hotbar entries
 mythlings[instanceId]   -- owned Mythling schema below
 base                    -- Base upgrade state and built-structure records
 craftingJobs[jobId]     -- active/queued Crafting Job schema below
@@ -397,25 +401,25 @@ Evolution updates `mythlingId` to the evolved form's metadata ID. The saved entr
 | Mythling form | `mythlingId`, name, element, rarity, visuals, base Yield/Luck ranges, level scaling, Trait weights, fixed evolution target, Arena eligibility and capture tuning | Owned instance ID, current `mythlingId`, level, XP, rolled Luck, `traitId`, acquisition/assignment data | Spawned contest, per-player capture meters, despawn timing |
 | Passive Trait | `traitId`, eligibility, rarity-pool weight, trigger, numerical effect | Owned Mythling's `traitId` only | Applied production modifier when eligible |
 | Material | `materialId`, element, display data, stack limit, sell value, crafting use | Quantity by `materialId` | World pickup/claim state, if introduced in an approved system |
-| Combat Equipment and Combat Consumable | Definition ID, category, visuals, effect, stack limit, sell eligibility/value, recipe, cooldown, buff duration/stack cap | Stack or owned-instance quantity; Combat Loadout and Hotbar references; approved unique mutable state | Equipped selection, cooldowns, active temporary buffs, Shield state |
+| Equipment and Consumable | Definition ID, category, visuals, effect, stack limit, sell eligibility/value, recipe, cooldown, buff duration/stack cap | Stack or owned-instance quantity; Combat Loadout and Hotbar references; approved unique mutable state | Equipped selection, cooldowns, active temporary buffs, Shield state |
 | Gold | None beyond balance presentation/configuration | Uncapped `currency.gold` balance | None |
 | Base | Upgrade definitions, build-slot grants, costs, eligible structures | Base upgrade state and constructed-structure records | Spawned Base model references |
 | Shrine | `shrineId`, element, output Material, capacities, slots, multipliers, upgrade costs | Instance ID, level, stored output, last accrual time, assigned Mythling IDs | Current production resolution during accrual/collection |
 | Crafting Station | `craftingStationId`, queue capacity by level, costs, eligible recipes | Instance ID and level | Current menu/session references |
 | Recipe and Crafting Job | `recipeId`, inputs, Gold cost, result, duration, unlock requirement | Job ID, recipe/station IDs, status, start/completion time, reserved output | Completion scheduling while a server is live |
 | Arena spawn rules | Rarity-weighted pool, active cap, positions, lifetime, capture rates | None | Active spawned Mythlings and Capture Rings |
-| Player combat | Combat Equipment/Consumable tuning and animation/VFX references | Combat Equipment ownership, Combat Loadout, and Hotbar assignment | Stamina, hit sequence/recent hit IDs, immunity, cooldowns, active Shield, knockback and combat buffs |
+| Player combat | Equipment/Consumable tuning and animation/VFX references | Equipment ownership, Combat Loadout, and Hotbar assignment | Stamina, hit sequence/recent hit IDs, immunity, cooldowns, active Shield, knockback and combat buffs |
 
 Other inventory entries follow the same rule: store an instance ID, a metadata ID, and only mutable state such as quantity, durability, acquisition data, equipped state, or unique rolled values.
 
 The player document must also contain:
 - Base and Shrine state, including levels, slots, stored Materials, and last production-accrual time.
 - Material and Gold balances.
-- Crafted Combat Equipment and Combat Consumables.
+- Crafted Equipment and Consumables.
 - Unlock and tutorial flags.
 - A schema version and forward-only migrations.
 
-The server validates every client request that changes inventory, currency, Combat Equipment, production, or capture. Persistence must use bounded document sizes, retry handling, periodic saves, safe failure behavior, and schema migrations; it cannot assume DataStore limits or network calls never fail.
+The server validates every client request that changes inventory, currency, Equipment, production, or capture. Persistence must use bounded document sizes, retry handling, periodic saves, safe failure behavior, and schema migrations; it cannot assume DataStore limits or network calls never fail.
 
 ## 11. Acceptance criteria
 
@@ -438,15 +442,15 @@ The server validates every client request that changes inventory, currency, Comb
 17. A sword swing can report at most one target selected deterministically by closest visible blade contact, then attacker-to-target distance, then player user ID; proximity without attack activation cannot produce a hit, and the server cannot substitute an independently selected target.
 18. An accepted sword report produces immediate attacker feedback and one idempotent target-client launch while capture progress, contest resolution, and rewards remain server-authoritative.
 19. An Inventory sale validates the selected entry's ownership, metadata eligibility, quantity, and dependency state before atomically removing it and granting Gold; Mythling sales have no automatic final-copy protection.
-20. A Combat Consumable can be consumed only from a selected Hotbar slot in the Arena; the server applies and expires its temporary stacked effect.
-21. A player can attack with their equipped Primary Weapon and hold their equipped Shield active without changing Hotbar selection; Combat Equipment never occupies Hotbar slots.
+20. A Consumable can be consumed only from a selected Hotbar slot in the Arena; the server applies and expires its temporary stacked effect.
+21. A player can attack with their equipped Primary Weapon and hold their equipped Shield active without changing Hotbar selection; Equipment never occupies Hotbar slots.
 22. Combat Loadout Models move to their authored R15 hand attachments and become usable only in the Arena; leaving the Arena returns them to their authored sheath attachments and disables them without unequipping them.
 
 ## 12. Open decisions for later design passes
 
 - Exact starting-Gold amount, first-Shrine cost/unlock, Base-upgrade costs, and Crafting Station build costs/unlocks.
 - Numerical balance for spawn rates, capture/decay rates, Yield, Luck, capacities, upgrades, prices, and recipes.
-- Combat Equipment catalogue, effects, cooldowns, exact Combat Consumable activation bindings, Stamina costs, regeneration rate, and maximum Stamina.
+- Equipment catalogue, effects, cooldowns, exact Consumable activation bindings, Stamina costs, regeneration rate, and maximum Stamina.
 - Exact shop inventory and non-duplicate Gold sources, if needed after playtesting.
 - XP requirements, exact per-level Yield percentage, evolution target levels, and trait acquisition weights.
 - Mythling treats, combat health/attack, and a separate brawl/PvP mode.

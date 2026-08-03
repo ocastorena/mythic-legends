@@ -39,10 +39,10 @@ local Context = {
 	},
 	Metadata = {
 		Mythlings = require(ReplicatedStorage.Metadata:WaitForChild("Mythlings")),
-		Resources = require(ReplicatedStorage.Metadata:WaitForChild("Resources")),
-		Items = require(ReplicatedStorage.Metadata:WaitForChild("Items")),
+		Materials = require(ReplicatedStorage.Metadata:WaitForChild("Materials")),
+		Consumables = require(ReplicatedStorage.Metadata:WaitForChild("Consumables")),
 		Spawns = require(ReplicatedStorage.Metadata:WaitForChild("Spawns")),
-		Weapons = require(ReplicatedStorage.Metadata:WaitForChild("Weapons")),
+		Equipment = require(ReplicatedStorage.Metadata:WaitForChild("Equipment")),
 	},
 	Remotes = {},
 	Services = {},

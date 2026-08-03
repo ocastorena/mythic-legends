@@ -10,7 +10,7 @@
 --       parent = screenGui,
 --       title = "Inventory",
 --       titleIcon = "rbxassetid://...",
---       tabs = { "Mythlings", "Resources" },
+--       tabs = { "Mythlings", "Materials" },
 --       coins = true,
 --       onClose = function() ... end,
 --   })
@@ -735,7 +735,7 @@ end
 --- (dimmed) when not. Primordial's ring cycles, so its tween is owned here and stopped
 --- as soon as the cell stops being prismatic.
 ---
---- `colorOverride` is for entries that have no rarity at all — resources carry their own
+--- `colorOverride` is for entries that have no rarity at all — Materials carry their own
 --- identity colour instead, and without this the selection ring would repaint them with
 --- the default tier's white.
 function PanelUtil.setCellRing(cell: GuiObject, rarity: string?, selected: boolean, colorOverride: Color3?)

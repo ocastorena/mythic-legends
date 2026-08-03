@@ -29,7 +29,7 @@ local CardListUtil = require(Ui:WaitForChild("CardListUtil"))
 local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
 local MythlingsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Mythlings"))
-local ResourcesMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Resources"))
+local MaterialsMeta = require(ReplicatedStorage:WaitForChild("Metadata"):WaitForChild("Materials"))
 
 -- Identifies this panel to ModalUtil, which owns the backdrop and input guard.
 local PANEL_NAME = "Stand"
@@ -270,14 +270,14 @@ local function showMythlingInfo(): ()
 	end
 
 	local metadata = MythlingsMeta[data.typeId]
-	local resourceId = metadata.production.resourceId
-	local resourceMeta = ResourcesMeta[resourceId]
-	local tint = Color3.fromHex(resourceMeta.guiColor)
+	local materialId = metadata.production.materialId
+	local materialMeta = MaterialsMeta[materialId]
+	local tint = Color3.fromHex(materialMeta.guiColor)
 
 	details.NameLabel.Text = metadata.displayName
 	details.Art.Image = metadata.variants[data.variantId].thumbnail
 	PanelUtil.setHeroRarity(details, metadata.rarity)
-	details.ElementIcon.Image = resourceMeta.thumbnail
+	details.ElementIcon.Image = materialMeta.thumbnail
 	details.ElementIcon.BackgroundColor3 = tint
 
 	local response = MythlingsRequest:InvokeServer("GetProduction", { mythlingId = id })
@@ -287,8 +287,8 @@ local function showMythlingInfo(): ()
 
 	details.Stats[1].Value.Text = `{rate}/min`
 	details.Stats[1].Label.Text = "Total Yield"
-	details.Stats[2].Value.Text = resourceMeta.displayName
-	details.Stats[2].Label.Text = "Resource"
+	details.Stats[2].Value.Text = materialMeta.displayName
+	details.Stats[2].Label.Text = "Material"
 	details.Stats[2].Value.TextColor3 = tint
 
 	startProductionTween(production, capacity, rate)
@@ -345,13 +345,13 @@ if details.InfoButton then
 			return
 		end
 		local metadata = MythlingsMeta[data.typeId]
-		local resourceMeta = ResourcesMeta[metadata.production.resourceId]
+		local materialMeta = MaterialsMeta[metadata.production.materialId]
 
 		loreModal.TitleLabel.Text = metadata.displayName
 		loreModal.IconDisc.Image = metadata.variants[data.variantId].thumbnail
-		loreModal.IconDisc.BackgroundColor3 = Color3.fromHex(resourceMeta.guiColor)
+		loreModal.IconDisc.BackgroundColor3 = Color3.fromHex(materialMeta.guiColor)
 		if loreModal.SubtitleLabel then
-			loreModal.SubtitleLabel.Text = `{ThemeUtil.tier(metadata.rarity)} · {resourceMeta.displayName}`
+			loreModal.SubtitleLabel.Text = `{ThemeUtil.tier(metadata.rarity)} · {materialMeta.displayName}`
 			loreModal.SubtitleLabel.TextColor3 = ThemeUtil.rarityColor(metadata.rarity)
 		end
 		if loreModal.BodyLabel then

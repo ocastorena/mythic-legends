@@ -1,7 +1,7 @@
--- ReplicatedStorage/Metadata/Weapons
+-- ReplicatedStorage/Metadata/Equipment
 -- Canonical static metadata for Model-based Arena combat equipment.
 
-local Weapons = {
+local Equipment = {
 	Combat = {
 		staminaMaximum = 100,
 		staminaRegenPerSecond = 18,
@@ -57,4 +57,4 @@ local Weapons = {
 	},
 }
 
-return table.freeze(Weapons)
+return table.freeze(Equipment)

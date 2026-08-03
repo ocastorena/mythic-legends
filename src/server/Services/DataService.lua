@@ -8,7 +8,7 @@
 
 -- schema example
 -- {
---     version = 1.0, -- must match SCHEMA_VERSION below
+--     version = 2, -- must match SCHEMA_VERSION below
 --     profile = {
 --         userId = 123,
 --         createdAt = 1710000000,
@@ -19,13 +19,13 @@
 --         gems = 0,
 --         // add more as needed
 --     },
---     resources = {
---         crystal = { total = 90 },       -- resourceId matches Resources metadata key
+--     materials = {
+--         crystal = { total = 90 },       -- materialId matches Materials metadata key
 --         essence = { total = 0 },
 --     },
---     items = {
---         -- keyed by item instance id if they’re unique; otherwise by itemId with counts
---         -- ["itm_abc123"] = { itemId = "potion_small", quantity = 2 }
+--     consumables = {
+--         -- keyed by instance id when unique; otherwise by consumableId with counts
+--         -- ["con_abc123"] = { consumableId = "speed_tonic", quantity = 2 }
 --     },
 --     mythlings = {
 --         ["myth_1763253150c04d"] = {
@@ -66,15 +66,15 @@ local SHUTDOWN_SAVE_TIMEOUT_SEC = 25
 
 -- Current schema version. Bumping this REQUIRES adding a matching MIGRATIONS entry --
 -- see the migration notes below.
-local SCHEMA_VERSION = 1.0
+local SCHEMA_VERSION = 2
 
 -- Top-level document schema (add sections as you grow your game)
 local DEFAULT_DOC = {
 	version = SCHEMA_VERSION,
 	profile = {},
 	mythlings = {}, -- array of saved mythlings
-	resources = {},
-	items = {},
+	materials = {},
+	consumables = {},
 	currency = {},
 	equipment = {
 		starter_wooden_sword = { definitionId = "wooden_sword" },
@@ -161,12 +161,44 @@ end
 -- time. Never delete an entry -- players who have not logged in since still need it.
 --
 -- Example:
---   MIGRATIONS[1.0] = function(doc)
+--   MIGRATIONS[2] = function(doc)
 --       doc.flags = doc.flags or {}
 --       doc.version = 1.1
 --       return doc
 --   end
 local MIGRATIONS: { [number]: (any) -> any } = {}
+
+-- Rename the original inventory sections without dropping existing player data. Copying
+-- only missing canonical entries also makes this safe for documents that were partially
+-- upgraded during development.
+MIGRATIONS[1] = function(doc)
+	doc.materials = type(doc.materials) == "table" and doc.materials or {}
+	if type(doc.resources) == "table" then
+		for materialId, entry in pairs(doc.resources) do
+			if doc.materials[materialId] == nil then
+				doc.materials[materialId] = entry
+			end
+		end
+	end
+
+	doc.consumables = type(doc.consumables) == "table" and doc.consumables or {}
+	if type(doc.items) == "table" then
+		for instanceId, entry in pairs(doc.items) do
+			if type(entry) == "table" and entry.consumableId == nil and entry.itemId ~= nil then
+				entry.consumableId = entry.itemId
+				entry.itemId = nil
+			end
+			if doc.consumables[instanceId] == nil then
+				doc.consumables[instanceId] = entry
+			end
+		end
+	end
+
+	doc.resources = nil
+	doc.items = nil
+	doc.version = 2
+	return doc
+end
 
 -- Fills in any top-level section the document is missing, so adding a section to
 -- DEFAULT_DOC does not need a migration of its own.
@@ -225,7 +257,11 @@ local function loadPlayerDoc(userId: number)
 		return
 	end
 
+	local previousVersion = doc.version
 	_docs[userId] = migrate(doc, userId)
+	if _docs[userId] and _docs[userId].version ~= previousVersion then
+		markDirtyByUserId(userId)
+	end
 end
 
 local function getPlayerDoc(userId)

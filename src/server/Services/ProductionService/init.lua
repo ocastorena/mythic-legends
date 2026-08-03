@@ -1,6 +1,6 @@
 -- ServerScriptService/Services/ProductionService
--- Coordinates resource production while InventoryService remains the owner of items,
--- mythlings, and resources.
+-- Coordinates Material production while InventoryService remains the owner of
+-- Consumables, Mythlings, and Materials.
 
 local ServerScriptService = game:GetService("ServerScriptService")
 
