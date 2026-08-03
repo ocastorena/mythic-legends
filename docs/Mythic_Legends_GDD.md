@@ -317,12 +317,14 @@ This system is **not part of the first release and is not ready for implementati
 
 ### Runtime architecture
 
-The first release uses the existing Rojo project structure and Roblox `DataStore` persistence through `DataService`.
+The first release uses the approved Rojo Bootstrap architecture and ProfileStore-backed player persistence. `default.project.json` defines the canonical Roblox Explorer hierarchy; Studio-authored descendants are preserved only at explicitly mixed-ownership containers.
 
-- **Server services** own validation, authoritative simulation, mutations, persistence requests, and grants. New gameplay domains follow the existing `ServerScriptService/Services` service pattern and are initialized by `Bootstrap`.
+- **MainServer** is the only server bootstrap. It initializes modules under `ServerScriptService.ServerModules` in deterministic lifecycle order and owns the player join/leave wiring.
+- **Server services** own validation, authoritative simulation, mutations, persistence requests, and grants. No domain service independently loads a profile or writes a Roblox DataStore.
+- **MainClient** is the only client bootstrap. It initializes state/networking before feature controllers under `StarterPlayerScripts.ClientModules`.
 - **Client controllers** own input, UI, local animation, sound, VFX, and rendering of server-confirmed state. They cannot mutate persistent player data, Arena ownership, capture state, or economy state.
-- **Shared metadata** is version-controlled Luau content under `src/shared/Metadata`. It contains static definitions and balance values only; it must never be written by a client at runtime.
-- **DataService** owns one versioned mutable player document per Roblox user ID. It loads, migrates, caches, retries, autosaves, and safely flushes that document. Game services request mutations through DataService rather than independently writing a DataStore.
+- **Shared metadata** is version-controlled Luau content under `ReplicatedStorage.SharedModules`. It contains static definitions and balance values only; it must never be written at runtime.
+- **DataManager** owns one versioned ProfileStore session per Roblox user ID using `MythicLegends_PlayerData_v1`. It reconciles the schema, associates the user ID, handles session termination, and ends the session when the player leaves. Studio uses an isolated mock store by default.
 - **Combat is the stated exception.** Its client-reported, server-validated relay and immediate local presentation remain exactly as defined in [MVP player combat system](#mvp-player-combat-system). This architecture must not be changed by the general UI synchronization rule below.
 
 ### Client/server state synchronization
@@ -331,11 +333,24 @@ For every system other than the documented combat exception, clients send an int
 
 1. The client may immediately show input feedback and a pending/loading state.
 2. The server validates the request against the cached player document, metadata, runtime eligibility, capacity, affordability, and permissions.
-3. The server performs the mutation as a duplicate-safe transaction, marks the player document dirty through DataService, and returns or replicates the authoritative result.
+3. The server performs the mutation as a duplicate-safe DataManager transaction while the ProfileStore session is active, then returns or replicates the authoritative result.
 4. The client updates inventory, Gold, Shrine output, Crafting Jobs, capture state, Equipment, Stamina, and buffs only from that confirmed result.
 5. A rejection leaves the authoritative state unchanged and supplies a player-facing reason when appropriate, such as `InventoryFull`, insufficient Gold/Materials, invalid selection, unavailable capacity, or not-in-Arena.
 
 Capture meters, Stamina, active Shield state, temporary knockback immunity, active combat buffs, and active Arena contests are server-owned runtime state. They are not persistent; they clear on disconnect or server shutdown unless a later approved design explicitly changes that rule.
+
+Private player UI state uses a client-ready snapshot request followed by revisioned incremental `UpdateState` packets. Only an explicit client-safe projection may be replicated; the complete ProfileStore document, permissions, internal flags, and server-only state must never be sent to the client. `LocalData` owns the client cache and change signal. A missed or out-of-order revision triggers a bounded snapshot resynchronization instead of polling.
+
+### UI composition and ownership
+
+- Renderable feature `ScreenGui` roots remain direct children of `StarterGui`; a plain organizational `Folder` must not wrap them in Roblox Explorer.
+- Studio owns visual composition such as frames, constraints, layouts, typography, gradients, responsive sizing, selection navigation, and viewport presentation. Stable semantic descendants use `PascalCase` names.
+- Rojo owns `MainClient`, UI controllers, state bindings, input behavior, themes/tokens, component APIs, and network contracts. Requiring a controller must not start work before its lifecycle method is called.
+- Dynamically cloned client-visible UI templates live under `ReplicatedStorage.Assets.UI.Components`. Static elements remain inside their owning `ScreenGui`.
+- Studio-authored production GUI and reusable components must be backed up as versioned model artifacts when they are not fully represented by Rojo source.
+- Controllers resolve required descendants once and react to `LocalData` or server-confirmed domain events. They must not poll, duplicate remote subscriptions, or treat displayed values as authoritative.
+- Shared `UIController` code coordinates state routing and screen lifecycle; focused feature controllers own their individual view behavior.
+- UI must support mobile safe areas, reachable touch targets, flexible layouts, legible text, non-color-only state communication, and Reduce Motion behavior.
 
 ### Content configuration
 
@@ -396,7 +411,7 @@ Evolution updates `mythlingId` to the evolved form's metadata ID. The saved entr
 
 ### Data ownership matrix
 
-| Game data | Metadata (static, version-controlled) | DataService player document (mutable) | Runtime-only server state |
+| Game data | Metadata (static, version-controlled) | DataManager player document (mutable) | Runtime-only server state |
 | --- | --- | --- | --- |
 | Mythling form | `mythlingId`, name, element, rarity, visuals, base Yield/Luck ranges, level scaling, Trait weights, fixed evolution target, Arena eligibility and capture tuning | Owned instance ID, current `mythlingId`, level, XP, rolled Luck, `traitId`, acquisition/assignment data | Spawned contest, per-player capture meters, despawn timing |
 | Passive Trait | `traitId`, eligibility, rarity-pool weight, trigger, numerical effect | Owned Mythling's `traitId` only | Applied production modifier when eligible |
