@@ -1,8 +1,13 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/ShopController
 
 local ShopController = {}
+local stopImpl: (() -> ())?
 
-function ShopController.Start(_context: any)
+function ShopController.Init(_context: any)
+end
+
+function ShopController.Start()
+local connections: { RBXScriptConnection } = {}
 --
 -- The Shop shares the Inventory panel anatomy: identity and tabs in the header, a
 -- two-thirds catalog grid, and a one-third offer details pane. Exact launch offers and
@@ -67,9 +72,9 @@ responsiveScale.Scale = contentScale(workspace.CurrentCamera and workspace.Curre
 responsiveScale.Parent = panel.Card
 
 if workspace.CurrentCamera then
-	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+	table.insert(connections, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 		responsiveScale.Scale = contentScale(workspace.CurrentCamera.ViewportSize)
-	end)
+	end))
 end
 
 --------------------------------------------------------------------------------
@@ -179,22 +184,28 @@ for _, descendant in ipairs(shopGui:GetDescendants()) do
 end
 PanelUtil.rescaleText(shopGui, panel.Root)
 
-shopGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+table.insert(connections, shopGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if shopGui.Enabled then
 		selectTab(panel.Tabs.Featured)
 		ModalUtil.Open(PANEL_NAME)
 	else
 		ModalUtil.Close(PANEL_NAME)
 	end
-end)
+end))
 
 if shopGui.Enabled then
 	selectTab(panel.Tabs.Featured)
 	ModalUtil.Open(PANEL_NAME)
 end
+stopImpl = function()
+	for _, connection in connections do connection:Disconnect() end
+	table.clear(connections)
+	ModalUtil.Close(PANEL_NAME)
+end
 end
 
-function ShopController.Destroy()
+function ShopController.Stop()
+	if stopImpl then stopImpl(); stopImpl = nil end
 end
 
 return ShopController

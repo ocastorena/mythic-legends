@@ -179,14 +179,14 @@ end
 
 --// Remote dispatch (centralized) ---------------------------------------------
 local function sendAll(action: string, payload: any)
-	local evt = Context.Remotes and Context.Remotes.SpawnEvent
+	local evt = Context.Remotes and Context.Remotes.World.Spawned
 	if evt then
 		evt:FireAllClients(action, payload)
 	end
 end
 
 local function sendTo(player: Player, action: string, payload: any)
-	local evt = Context.Remotes and Context.Remotes.SpawnEvent
+	local evt = Context.Remotes and Context.Remotes.World.Spawned
 	if evt then
 		evt:FireClient(player, action, payload)
 	end
@@ -652,24 +652,16 @@ function SpawnService.Init(context)
 	-- Epic and Secret, but no mythling declares them, so those rolls used to pick a rarity
 	-- and then fail with "No typeIds for rarity" -- silently wasting spawn attempts.
 	table.clear(SpawnableWeights)
-	local unusable = {}
 	for rarity, weight in pairs(weights) do
 		if TypesByRarity[rarity] and #TypesByRarity[rarity] > 0 then
 			SpawnableWeights[rarity] = weight
-		else
-			table.insert(unusable, rarity)
 		end
 	end
 
-	if #unusable > 0 then
-		table.sort(unusable)
-		log.warn(`Ignoring rarities with no mythlings: {table.concat(unusable, ", ")}`)
-	end
 	if next(SpawnableWeights) == nil then
 		log.error("No spawnable rarities; nothing will spawn")
 	end
 
-	log.info("Initialized")
 end
 
 --- Starts the spawn/expire pumps. Spawns at most one mythling per tick (no prefill).

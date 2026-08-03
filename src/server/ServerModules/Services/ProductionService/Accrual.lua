@@ -23,7 +23,6 @@ end
 local function calculate(player: Player, mythlingId: string)
 	local entry = getEntry(player, mythlingId)
 	if not entry then
-		log.debug(`mythlingId {tostring(mythlingId)} not found for userId {player.UserId}`)
 		return 0, 0, 0
 	end
 

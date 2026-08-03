@@ -1,9 +1,21 @@
 -- ServerScriptService/ServerModules/Services/MythlingPreviewService
 -- Publishes sanitized visual-only Mythling models for client ViewportFrame previews.
 
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local LogUtil = require(ServerScriptService.ServerModules.Infrastructure.LogUtil)
+local log = LogUtil.For("MythlingPreviewService")
+
 local MythlingPreviewService = {}
 
 MythlingPreviewService.Priority = 5
+local Context: any
+
+local function clearPreviews(previews: Folder)
+	for _, child in ipairs(previews:GetChildren()) do
+		child:Destroy()
+	end
+end
 
 local function sanitize(model: Model)
 	for _, descendant in ipairs(model:GetDescendants()) do
@@ -33,17 +45,19 @@ local function sanitize(model: Model)
 end
 
 function MythlingPreviewService.Init(context)
-	local previews = context.Instances.MythlingPreviews
-	for _, child in ipairs(previews:GetChildren()) do
-		child:Destroy()
-	end
+	Context = context
+end
+
+function MythlingPreviewService.Start()
+	local previews = Context.Instances.MythlingPreviews
+	clearPreviews(previews)
 
 	local published: { [string]: boolean } = {}
-	for _, definition in pairs(context.Metadata.Mythlings) do
+	for _, definition in pairs(Context.Metadata.Mythlings) do
 		for _, variant in pairs(definition.variants) do
 			local modelName = variant.model
 			if type(modelName) == "string" and not published[modelName] then
-				local source = context.Instances.MythlingAssets:FindFirstChild(modelName)
+				local source = Context.Instances.MythlingAssets:FindFirstChild(modelName)
 				if source and source:IsA("Model") then
 					local preview = source:Clone()
 					preview.Name = modelName
@@ -51,10 +65,16 @@ function MythlingPreviewService.Init(context)
 					preview.Parent = previews
 					published[modelName] = true
 				else
-					warn(`[MythlingPreviewService] Missing model: {tostring(modelName)}`)
+					log.warn(`Missing model: {tostring(modelName)}`)
 				end
 			end
 		end
+	end
+end
+
+function MythlingPreviewService.Stop()
+	if Context then
+		clearPreviews(Context.Instances.MythlingPreviews)
 	end
 end
 

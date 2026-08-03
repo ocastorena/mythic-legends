@@ -1,8 +1,13 @@
--- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/EnvironmentAudioController
+-- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/EnvironmentController/Audio
 
-local EnvironmentAudioController = {}
+local Audio = {}
+local ownedInstances: { Instance } = {}
+local ambienceThread: thread?
 
-function EnvironmentAudioController.Start(_context: any)
+function Audio.Init(_context: any)
+end
+
+function Audio.Start()
 -- Restrained ambient audio layers for the floating-island environment.
 
 local SoundService = game:GetService("SoundService")
@@ -40,6 +45,7 @@ local function createAnchor(name: string, position: Vector3): Part
 	anchor.Transparency = 1
 	anchor.Position = position
 	anchor.Parent = workspace
+	table.insert(ownedInstances, anchor)
 	return anchor
 end
 
@@ -54,6 +60,7 @@ local function createSound(
 	sound.SoundId = soundId
 	sound.SoundGroup = soundGroup
 	sound.Parent = parent
+	table.insert(ownedInstances, sound)
 	return sound
 end
 
@@ -98,7 +105,7 @@ gust.RollOffMaxDistance = 330
 
 local random = Random.new()
 
-task.spawn(function()
+ambienceThread = task.spawn(function()
 	task.wait(random:NextNumber(6, 10))
 	while gustAnchor.Parent do
 		local entranceIndex = random:NextInteger(0, 7)
@@ -113,7 +120,15 @@ task.spawn(function()
 end)
 end
 
-function EnvironmentAudioController.Destroy()
+function Audio.Stop()
+	if ambienceThread then
+		pcall(task.cancel, ambienceThread)
+		ambienceThread = nil
+	end
+	for index = #ownedInstances, 1, -1 do
+		ownedInstances[index]:Destroy()
+		ownedInstances[index] = nil
+	end
 end
 
-return EnvironmentAudioController
+return Audio

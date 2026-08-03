@@ -1,6 +1,7 @@
 -- ServerScriptService/ServerModules/Services/ClaimService
 
 local ClaimService = {}
+local connections: { RBXScriptConnection } = {}
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -233,25 +234,24 @@ end
 -- Public
 
 function ClaimService.Init(context)
-	ClaimEvent = context.Remotes.ClaimEvent
+	ClaimEvent = context.Remotes.World.ClaimState
 	SpawnService = context.Services.SpawnService
 	InventoryService = context.Services.InventoryService
 	MythlingsData = context.Metadata.Mythlings
 
-	PlayerUtil.OnPlayer(function(player)
-		ensurePlayerState(player)
-	end)
-
-	Players.PlayerRemoving:Connect(function(player)
-		PlayersState[player.UserId] = nil
-	end)
-
-	log.info("Initialized")
 end
 
 function ClaimService.Start()
+	table.insert(connections, PlayerUtil.OnPlayer(function(player)
+		ensurePlayerState(player)
+	end))
+
+	table.insert(connections, Players.PlayerRemoving:Connect(function(player)
+		PlayersState[player.UserId] = nil
+	end))
+
 	local acc = 0
-	RunService.Heartbeat:Connect(function(dt)
+	table.insert(connections, RunService.Heartbeat:Connect(function(dt)
 		acc += dt
 		if acc < TICK_INTERVAL then
 			return
@@ -270,9 +270,16 @@ function ClaimService.Start()
 				integrateProgress(player, state, now, activeMythlings)
 			end
 		end
-	end)
+	end))
 
-	log.info("Started")
+end
+
+function ClaimService.Stop()
+	for _, connection in connections do
+		connection:Disconnect()
+	end
+	table.clear(connections)
+	table.clear(PlayersState)
 end
 
 return ClaimService

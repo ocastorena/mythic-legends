@@ -1,8 +1,12 @@
--- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/EnvironmentQualityController
+-- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/EnvironmentController/Quality
 
-local EnvironmentQualityController = {}
+local Quality = {}
+local connections: { RBXScriptConnection } = {}
 
-function EnvironmentQualityController.Start(_context: any)
+function Quality.Init(_context: any)
+end
+
+function Quality.Start()
 -- Scales cosmetic world effects to the player's saved graphics quality and device profile.
 
 local UserInputService = game:GetService("UserInputService")
@@ -107,19 +111,23 @@ end
 
 applyEnvironmentQuality()
 
-environment.DescendantAdded:Connect(function(instance)
+table.insert(connections, environment.DescendantAdded:Connect(function(instance)
 	applyInstance(instance, qualityMultiplier())
-end)
+end))
 
 local ok, gameSettings = pcall(function()
 	return UserSettings().GameSettings
 end)
 if ok then
-	gameSettings:GetPropertyChangedSignal("SavedQualityLevel"):Connect(applyEnvironmentQuality)
+	table.insert(connections, gameSettings:GetPropertyChangedSignal("SavedQualityLevel"):Connect(applyEnvironmentQuality))
 end
 end
 
-function EnvironmentQualityController.Destroy()
+function Quality.Stop()
+	for _, connection in connections do
+		connection:Disconnect()
+	end
+	table.clear(connections)
 end
 
-return EnvironmentQualityController
+return Quality

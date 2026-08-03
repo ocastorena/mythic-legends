@@ -36,24 +36,27 @@ local function requestSnapshot()
 	warn("[UIController] Could not synchronize private player state")
 end
 
-function UIController.Init()
+function UIController.Init(_context: any)
 	if initialized then
 		return
 	end
 	initialized = true
-	local network = ReplicatedStorage:WaitForChild("Network")
-	updateState = network:WaitForChild("UpdateState") :: RemoteEvent
-	requestState = network:WaitForChild("RequestState") :: RemoteFunction
+	local stateNetwork = ReplicatedStorage:WaitForChild("Network"):WaitForChild("State")
+	updateState = stateNetwork:WaitForChild("Update") :: RemoteEvent
+	requestState = stateNetwork:WaitForChild("Request") :: RemoteFunction
+end
+
+function UIController.Start()
+	assert(initialized, "[UIController] Init must run before Start")
+	if updateConnection then
+		return
+	end
 	updateConnection = updateState.OnClientEvent:Connect(function(packet)
 		local ok, reason = LocalData.IngestPayload(packet)
 		if not ok and reason == "RevisionGap" then
 			requestSnapshot()
 		end
 	end)
-end
-
-function UIController.Start()
-	assert(initialized, "[UIController] Init must run before Start")
 	requestSnapshot()
 end
 
@@ -72,12 +75,12 @@ function UIController.Register(key: string, handler: (any, any) -> ()): RBXScrip
 	return connection
 end
 
-function UIController.Destroy()
+function UIController.Stop()
 	if updateConnection then
 		updateConnection:Disconnect()
 		updateConnection = nil
 	end
-	initialized = false
+	syncing = false
 end
 
 return UIController

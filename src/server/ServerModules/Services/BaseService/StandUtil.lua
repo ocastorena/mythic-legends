@@ -1,19 +1,24 @@
 -- ServerScriptService/ServerModules/Services/BaseService/StandUtil
 local StandUtil = {}
 
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local LogUtil = require(ServerScriptService.ServerModules.Infrastructure.LogUtil)
+local log = LogUtil.For("BaseService.StandUtil")
+
 ---------- helper functions ----------
 
 -- gets the model for a mythling type/variant
 local function getMythlingModel(variantId: string, mythlingAssets: Folder, mythlingMeta: any)
 	local variantModel = mythlingMeta.variants[variantId].model
 	if not variantModel then
-		warn(`[StandUtil] Missing variant model in metadata for variantId {variantId}`)
+		log.warn(`Missing variant model in metadata for variantId {variantId}`)
 		return nil
 	end
 
 	local mythlingAsset = mythlingAssets:FindFirstChild(variantModel)
 	if not mythlingAsset then
-		warn(`[StandUtil] Missing variant model in mythlingAssests for variantId {variantId}`)
+		log.warn(`Missing variant model in MythlingAssets for variantId {variantId}`)
 	end
 
 	local mythlingModel = mythlingAsset:Clone()
@@ -31,7 +36,7 @@ local function setMythlingModel(mythlingModel: Model, stand: BasePart)
 	-- Ensure a PrimaryPart (for pivoting)
 	local pp = mythlingModel.PrimaryPart or mythlingModel:FindFirstChildWhichIsA("BasePart")
 	if not pp then
-		warn("No BasePart found in mythling model")
+		log.warn("No BasePart found in mythling model")
 		mythlingModel.Parent = stand -- fallback
 		return
 	end
@@ -76,7 +81,7 @@ function StandUtil.LoadMythlingsOnStands(
 				local model = getMythlingModel(entry.variantId, mythlingAssets, mythlingMeta)
 				setMythlingModel(model, stand)
 			else
-				warn(("[StandUtil] Stand %s missing for mythling %s"):format(tostring(standId), tostring(mythlingId)))
+				log.warn(("Stand %s missing for mythling %s"):format(tostring(standId), tostring(mythlingId)))
 			end
 		end
 	end
@@ -93,9 +98,7 @@ function StandUtil.SetMythlingOnStand(
 	if mythlingEntry.standId then
 		return false, `[StandUtil] Mythling already has stand`
 	end
-	-- save Ids
-	mythlingEntry.standId = standId
-	-- place base
+	-- Resolve the target before mutating persistent state.
 	local standModel = nil
 	local stands = baseModel.Stands:GetChildren()
 	for _, stand in pairs(stands) do
@@ -106,6 +109,7 @@ function StandUtil.SetMythlingOnStand(
 	if not standModel then
 		return false, "Stand model not found"
 	end
+	mythlingEntry.standId = standId
 	local mythlingModel = getMythlingModel(mythlingEntry.variantId, mythlingAssets, mythlingMeta)
 	setMythlingModel(mythlingModel, standModel)
 	return true
@@ -125,7 +129,9 @@ function StandUtil.RemoveMythlingFromStand(mythlingEntry: any, baseModel: any)
 		return false, "Stand model not found"
 	end
 	local child = standModel:FindFirstChildWhichIsA("Model")
-	child:Destroy()
+	if child then
+		child:Destroy()
+	end
 	-- clear saved data
 
 	mythlingEntry.standId = nil

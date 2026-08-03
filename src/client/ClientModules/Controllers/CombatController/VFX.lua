@@ -1,8 +1,12 @@
--- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/CombatVfxController
+-- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/CombatController/VFX
 
-local CombatVfxController = {}
+local VFX = {}
+local stopImpl: (() -> ())?
 
-function CombatVfxController.Start(_context: any)
+function VFX.Init(_context: any)
+end
+
+function VFX.Start()
 -- All effects are cosmetic; CombatImpact carries only server-confirmed outcomes.
 
 local ContentProvider = game:GetService("ContentProvider")
@@ -11,9 +15,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 
 local Equipment = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Metadata"):WaitForChild("Equipment"))
-local presentationBus = require(script:FindFirstAncestor("ClientModules"):WaitForChild("CombatPresentationBus"))
-local CombatImpact = ReplicatedStorage:WaitForChild("Network"):WaitForChild("CombatImpact") :: RemoteEvent
+local PresentationBus = require(script.Parent.PresentationBus)
+local CombatImpact = ReplicatedStorage:WaitForChild("Network"):WaitForChild("Combat"):WaitForChild("Impact") :: RemoteEvent
 local localPlayer = Players.LocalPlayer
+local lifecycleConnections: { RBXScriptConnection } = {}
 
 type AirTrailState = {
 	token: number,
@@ -367,7 +372,7 @@ local function startAirTrail(character: Model, duration: number)
 	end)
 end
 
-presentationBus.Event:Connect(function(action: string, character: Model, presentation: any, sequence: number)
+table.insert(lifecycleConnections, PresentationBus.GetEvent():Connect(function(action: string, character: Model, presentation: any, sequence: number)
 	if type(sequence) ~= "number" or not character or not character:IsA("Model") then return end
 	if action == "Landed" then
 		stopAirTrail(character, true)
@@ -393,17 +398,13 @@ presentationBus.Event:Connect(function(action: string, character: Model, present
 	task.delay(1, function()
 		if localPresentations[sequence] == entry then localPresentations[sequence] = nil end
 	end)
-end)
+end))
 
-CombatImpact.OnClientEvent:Connect(function(action: unknown, payload: any)
+table.insert(lifecycleConnections, CombatImpact.OnClientEvent:Connect(function(payload: any)
 	if type(payload) ~= "table" then return end
 	local target = type(payload.targetUserId) == "number" and Players:GetPlayerByUserId(payload.targetUserId)
 	local character = target and target.Character
-	if action == "Landed" then
-		if character then stopAirTrail(character, true) end
-		return
-	end
-	if action ~= "Impact" or not character then return end
+	if not character then return end
 	local kind = if payload.blocked == true then "ShieldImpact" else "Impact"
 	local localEntry = type(payload.sequence) == "number" and localPresentations[payload.sequence] or nil
 	local wasLocal = payload.attackerUserId == localPlayer.UserId
@@ -426,10 +427,31 @@ CombatImpact.OnClientEvent:Connect(function(action: unknown, payload: any)
 	if kind == "Impact" and type(payload.airTrailSeconds) == "number" then
 		startAirTrail(character, payload.airTrailSeconds)
 	end
-end)
+end))
+
+stopImpl = function()
+	for _, connection in lifecycleConnections do
+		connection:Disconnect()
+	end
+	table.clear(lifecycleConnections)
+	for character in airTrails do
+		stopAirTrail(character)
+	end
+	table.clear(localPresentations)
+	for _, pool in soundPools do
+		for _, entry in pool do
+			entry.sound:Destroy()
+		end
+	end
+	table.clear(soundPools)
+end
 end
 
-function CombatVfxController.Destroy()
+function VFX.Stop()
+	if stopImpl then
+		stopImpl()
+		stopImpl = nil
+	end
 end
 
-return CombatVfxController
+return VFX

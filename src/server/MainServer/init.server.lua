@@ -15,7 +15,14 @@ local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local RemoteUtil = require(Infrastructure:WaitForChild("RemoteUtil"))
 
 local log = LogUtil.For("MainServer")
-local DEFAULT_PRIORITY = 100
+local SERVICE_ORDER = {
+	"InventoryService",
+	"ProductionService",
+	"BaseService",
+	"SpawnService",
+	"ClaimService",
+	"MythlingPreviewService",
+}
 
 local map = workspace:WaitForChild("Map")
 local visuals = workspace:WaitForChild("Visuals")
@@ -46,7 +53,7 @@ local context = {
 		Spawns = require(metadata:WaitForChild("Spawns")),
 		Equipment = require(metadata:WaitForChild("Equipment")),
 	},
-	Remotes = RemoteUtil.Ensure(ReplicatedStorage),
+	Remotes = RemoteUtil.Resolve(ReplicatedStorage),
 	Services = {},
 }
 
@@ -54,37 +61,24 @@ local services = {
 	DataManager = DataManager,
 	EquipmentStateService = EquipmentStateService,
 }
-for _, child in ipairs(ServicesFolder:GetChildren()) do
-	if child:IsA("ModuleScript") then
-		services[child.Name] = require(child)
-	end
+for _, name in ipairs(SERVICE_ORDER) do
+	services[name] = require(ServicesFolder:WaitForChild(name))
 end
 context.Services = services
 
-local ordered = {}
-for name, service in pairs(services) do
-	table.insert(ordered, {
-		name = name,
-		service = service,
-		priority = service.Priority or DEFAULT_PRIORITY,
-	})
+local ordered = {
+	{ name = "DataManager", service = DataManager },
+}
+for _, name in ipairs(SERVICE_ORDER) do
+	table.insert(ordered, { name = name, service = services[name] })
 end
-table.sort(ordered, function(left, right)
-	if left.priority ~= right.priority then
-		return left.priority < right.priority
-	end
-	return left.name < right.name
-end)
+table.insert(ordered, { name = "EquipmentStateService", service = EquipmentStateService })
 
 for _, entry in ipairs(ordered) do
-	if type(entry.service.Init) == "function" then
-		entry.service.Init(context)
-	end
+	entry.service.Init(context)
 end
 for _, entry in ipairs(ordered) do
-	if type(entry.service.Start) == "function" then
-		entry.service.Start()
-	end
+	entry.service.Start()
 end
 
 local function guardHumanoid(humanoid: Humanoid)
@@ -125,13 +119,9 @@ end
 game:BindToClose(function()
 	for index = #ordered, 1, -1 do
 		local service = ordered[index].service
-		if type(service.Stop) == "function" then
-			local ok, err = pcall(service.Stop)
-			if not ok then
-				log.error(`Service stop failed for {ordered[index].name}`, err)
-			end
+		local ok, err = pcall(service.Stop)
+		if not ok then
+			log.error(`Service stop failed for {ordered[index].name}`, err)
 		end
 	end
 end)
-
-log.info(`Started {#ordered} services`)

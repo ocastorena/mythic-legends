@@ -1,9 +1,9 @@
--- StarterPlayer/StarterPlayerScripts/ClientModules/ClientKnockbackController
+-- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/CombatController/Knockback
 -- eased force curve. The avatar remains one rigid assembly; this is not a limb ragdoll.
 
 local RunService = game:GetService("RunService")
 
-local ClientKnockbackController = {}
+local Knockback = {}
 
 type ReactionState = {
 	token: number,
@@ -108,7 +108,7 @@ local function recover(state: ReactionState, settle: boolean)
 	end
 end
 
-function ClientKnockbackController.Apply(
+function Knockback.Apply(
 	character: Model,
 	hitId: number,
 	launchVelocity: Vector3,
@@ -235,11 +235,11 @@ function ClientKnockbackController.Apply(
 	return true
 end
 
-function ClientKnockbackController.Clear(character: Model)
+function Knockback.Clear(character: Model)
 	local state = activeStates[character]
 	if state then
 		recover(state, false)
 	end
 end
 
-return ClientKnockbackController
+return Knockback

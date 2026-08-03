@@ -8,6 +8,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Infrastructure = ServerScriptService:WaitForChild("ServerModules"):WaitForChild("Infrastructure")
 local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 
 local log = LogUtil.For("BaseService")
 
@@ -21,7 +22,7 @@ local running = false
 local MAX_SLOTS = 8
 
 -- slotIndex -> { userId, baseModel }
-local SLOTS: { [number]: { userId: number, model: Model } } = {}
+local SLOTS: { [number]: { userId: number, base: Model } } = {}
 
 -- Cached assets
 local Arena: BasePart
@@ -29,13 +30,15 @@ local BaseIslands: Folder
 local BasesFolder: Folder
 local BaseModel: Model
 local MythlingAssets: Folder
-local GetStandsRemote: RemoteFunction
-local BaseEventRemote: RemoteEvent
-local MythlingsEvent: RemoteEvent
+local PlaceMythlingRemote: RemoteFunction
+local RemoveMythlingRemote: RemoteFunction
 local MythlingsMeta: ModuleScript
 local DataManager: any
 local InventoryService: any
 local ProductionService: any
+local placementLimiter = RateLimiter.new(6, 2)
+local connections: { RBXScriptConnection } = {}
+local characterConnections: { [Player]: RBXScriptConnection } = {}
 
 -- ===== Utilities =====
 
@@ -45,9 +48,8 @@ local function resolveAssets()
 	BasesFolder = Context.Instances.Bases
 	MythlingAssets = Context.Instances.MythlingAssets
 	MythlingsMeta = Context.Metadata.Mythlings
-	GetStandsRemote = Context.Remotes.GetStands
-	BaseEventRemote = Context.Remotes.BaseEvent
-	MythlingsEvent = Context.Remotes.MythlingsEvent
+	PlaceMythlingRemote = Context.Remotes.Base.PlaceMythling
+	RemoveMythlingRemote = Context.Remotes.Base.RemoveMythling
 	DataManager = Context.Services.DataManager
 	InventoryService = Context.Services.InventoryService
 	ProductionService = Context.Services.ProductionService
@@ -75,8 +77,11 @@ local function handlePlayerAdded(player: Player)
 	end
 
 	local base = getPlayerBase(player)
+	if not base then
+		return { ok = false, code = "BaseUnavailable" }
+	end
 
-	player.CharacterAdded:Connect(function(char)
+	characterConnections[player] = player.CharacterAdded:Connect(function(char)
 		BaseUtil.TeleportToBaseSpawn(player, char, base)
 	end)
 
@@ -85,59 +90,111 @@ local function handlePlayerAdded(player: Player)
 	StandUtil.LoadMythlingsOnStands(mythlingsSection, base, MythlingAssets, MythlingsMeta)
 end
 
-local function handleBaseEvent(player: Player, eventType: string, payload: any)
-	if eventType == "PlaceMythling" then
-		local standId = payload.standId
-		local mythlingId = payload.mythlingId
-		local base = getPlayerBase(player)
-		local mythlingSection = DataManager.GetSection(player, "mythlings")
-		local mythlingEntry = mythlingSection[mythlingId]
-		local mythlingMeta = MythlingsMeta[mythlingEntry.typeId]
-		local result, message =
-			StandUtil.SetMythlingOnStand(mythlingEntry, base, standId, MythlingAssets, mythlingMeta)
-		if not result then
-			log.warn(message)
-		else
-			InventoryService.MarkDirty(player)
-		end
-		ProductionService.StartProduction(player, mythlingId)
-	elseif eventType == "RemoveMythling" then
-		local mythlingId = payload.mythlingId
-		local base = getPlayerBase(player)
-		local mythlingSection = DataManager.GetSection(player, "mythlings")
-		local mythlingEntry = mythlingSection[mythlingId]
-		local result, message = StandUtil.RemoveMythlingFromStand(mythlingEntry, base)
-		if result then
-			InventoryService.MarkDirty(player)
-		else
-			log.warn(message)
-		end
-		ProductionService.StopProduction(player, mythlingId)
-	end
+local function validRequest(standId: unknown, mythlingId: unknown): boolean
+	return type(standId) == "number"
+		and standId % 1 == 0
+		and standId >= 0
+		and standId <= 128
+		and type(mythlingId) == "string"
+		and #mythlingId > 0
+		and #mythlingId <= 128
 end
 
-local function handleInventoryEvent(player: Player, eventType: string, mythlingId: number)
-	if eventType == "Delete" then
-		local base = getPlayerBase(player)
-		local mythlingSection = DataManager.GetSection(player, "mythlings")
-		local mythlingEntry = mythlingSection[mythlingId]
-		StandUtil.RemoveMythlingFromStand(mythlingEntry, base)
+local function handlePlaceMythling(player: Player, payload: unknown)
+	if not placementLimiter:Allow(player) then
+		return { ok = false, code = "RateLimited" }
 	end
+	if type(payload) ~= "table" or not validRequest(payload.standId, payload.mythlingId) then
+		return { ok = false, code = "InvalidRequest" }
+	end
+	local standId = payload.standId
+	local mythlingId = payload.mythlingId
+	local mythlingSection = DataManager.GetSection(player, "mythlings")
+	local mythlingEntry = mythlingSection[mythlingId]
+	if not mythlingEntry then
+		return { ok = false, code = "NotOwned" }
+	end
+	local base = getPlayerBase(player)
+	if not base then
+		return { ok = false, code = "BaseUnavailable" }
+	end
+	local mythlingMeta = MythlingsMeta[mythlingEntry.typeId]
+	local result, message =
+		StandUtil.SetMythlingOnStand(mythlingEntry, base, standId, MythlingAssets, mythlingMeta)
+	if not result then
+		log.warn(message)
+		return { ok = false, code = "PlacementRejected" }
+	end
+	InventoryService.MarkDirty(player)
+	ProductionService.StartProduction(player, mythlingId)
+	return { ok = true }
+end
+
+local function handleRemoveMythling(player: Player, payload: unknown)
+	if not placementLimiter:Allow(player) then
+		return { ok = false, code = "RateLimited" }
+	end
+	if type(payload) ~= "table" or not validRequest(payload.standId, payload.mythlingId) then
+		return { ok = false, code = "InvalidRequest" }
+	end
+	local mythlingId = payload.mythlingId
+	local mythlingSection = DataManager.GetSection(player, "mythlings")
+	local mythlingEntry = mythlingSection[mythlingId]
+	if not mythlingEntry then
+		return { ok = false, code = "NotOwned" }
+	end
+	if mythlingEntry.standId ~= payload.standId then
+		return { ok = false, code = "StandMismatch" }
+	end
+	local base = getPlayerBase(player)
+	if not base then
+		return { ok = false, code = "BaseUnavailable" }
+	end
+	local result, message = StandUtil.RemoveMythlingFromStand(mythlingEntry, base)
+	if result then
+		InventoryService.MarkDirty(player)
+	else
+		log.warn(message)
+		return { ok = false, code = "RemovalRejected" }
+	end
+	ProductionService.StopProduction(player, mythlingId)
+	return { ok = true }
+end
+
+function BaseService.RemoveMythlingFromStand(player: Player, mythlingId: string): boolean
+	local mythlingEntry = DataManager.GetSection(player, "mythlings")[mythlingId]
+	if not mythlingEntry then
+		return false
+	end
+	if mythlingEntry.standId == nil then
+		return true
+	end
+	local base = getPlayerBase(player)
+	if not base then
+		return false
+	end
+	local removed = StandUtil.RemoveMythlingFromStand(mythlingEntry, base)
+	if not removed then
+		return false
+	end
+	ProductionService.StopProduction(player, mythlingId)
+	return true
 end
 
 local function handlePlayerRemoving(player: Player)
+	local connection = characterConnections[player]
+	if connection then
+		connection:Disconnect()
+		characterConnections[player] = nil
+	end
 	BaseUtil.RemoveBaseFor(player, SLOTS)
-end
-
-local function handleGetStands(player: Player)
-	return DataManager.GetSection(player, "base").stands
+	placementLimiter:Forget(player)
 end
 
 -- ===== Service lifecycle =====
 function BaseService.Init(context)
 	Context = context
 	resolveAssets()
-	log.info("Initialized")
 end
 
 function BaseService.Start()
@@ -146,11 +203,24 @@ function BaseService.Start()
 	end
 	running = true
 
-	PlayerUtil.OnPlayer(handlePlayerAdded)
-	Players.PlayerRemoving:Connect(handlePlayerRemoving)
-	BaseEventRemote.OnServerEvent:Connect(handleBaseEvent)
-	MythlingsEvent.OnServerEvent:Connect(handleInventoryEvent)
-	GetStandsRemote.OnServerInvoke = handleGetStands
+	table.insert(connections, PlayerUtil.OnPlayer(handlePlayerAdded))
+	table.insert(connections, Players.PlayerRemoving:Connect(handlePlayerRemoving))
+	PlaceMythlingRemote.OnServerInvoke = handlePlaceMythling
+	RemoveMythlingRemote.OnServerInvoke = handleRemoveMythling
+end
+
+function BaseService.Stop()
+	running = false
+	PlaceMythlingRemote.OnServerInvoke = nil
+	RemoveMythlingRemote.OnServerInvoke = nil
+	for _, connection in connections do
+		connection:Disconnect()
+	end
+	table.clear(connections)
+	for player in characterConnections do
+		handlePlayerRemoving(player)
+	end
+	placementLimiter:Clear()
 end
 
 return BaseService

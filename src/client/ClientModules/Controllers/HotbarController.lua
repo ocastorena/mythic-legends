@@ -1,8 +1,13 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/HotbarController
 
 local HotbarController = {}
+local stopImpl: (() -> ())?
 
-function HotbarController.Start(_context: any)
+function HotbarController.Init(_context: any)
+end
+
+function HotbarController.Start()
+local connections: { RBXScriptConnection } = {}
 -- The tool hotbar, styled as part of Roblox's own chrome.
 --
 -- Roblox's backpack hotbar cannot be restyled -- CoreGui owns it and exposes no properties
@@ -23,7 +28,7 @@ function HotbarController.Start(_context: any)
 --
 -- Behaviour is otherwise the hotbar it replaces: consumable slots fill in the order tools
 -- arrive, the number keys equip and unequip them, and clicking an equipped slot puts the
--- tool away. Combat equipment is deliberately excluded; CombatClient presents
+-- tool away. Combat equipment is deliberately excluded; CombatController presents
 -- the equipped Primary Weapon and Shield as dedicated actions instead.
 
 -- Services
@@ -293,14 +298,14 @@ for index = 1, SLOT_COUNT do
 	local slot = createSlot(index)
 	slots[index] = slot
 
-	slot.button.MouseEnter:Connect(function()
+	table.insert(connections, slot.button.MouseEnter:Connect(function()
 		slot.hovered = true
 		paintSlot(slot)
-	end)
-	slot.button.MouseLeave:Connect(function()
+	end))
+	table.insert(connections, slot.button.MouseLeave:Connect(function()
 		slot.hovered = false
 		paintSlot(slot)
-	end)
+	end))
 end
 
 --------------------------------------------------------------------------------
@@ -335,7 +340,7 @@ end
 -- A modal panel owns pointer, touch, keyboard and gamepad input while open. Keyboard
 -- activation is also guarded below, while Interactable prevents pointer/touch selection
 -- from reaching individual slots behind the panel.
-ModalUtil.OnChanged(function(anyPanelOpen)
+local disconnectModal = ModalUtil.OnChanged(function(anyPanelOpen)
 	for _, slot in ipairs(slots) do
 		slot.button.Interactable = not anyPanelOpen
 	end
@@ -347,7 +352,7 @@ for index, slot in ipairs(slots) do
 	end)
 end
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
+table.insert(connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	-- `gameProcessed` covers chat and any other text field, so typing "1" in chat cannot
 	-- swing an arena weapon.
 	if gameProcessed or input.UserInputType ~= Enum.UserInputType.Keyboard then
@@ -362,7 +367,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if index then
 		activateSlot(index)
 	end
-end)
+end))
 
 --------------------------------------------------------------------------------
 -- Tracking the player's tools
@@ -478,8 +483,8 @@ local function queueRefresh()
 end
 
 local function watch(container: Instance)
-	container.ChildAdded:Connect(queueRefresh)
-	container.ChildRemoved:Connect(queueRefresh)
+	table.insert(connections, container.ChildAdded:Connect(queueRefresh))
+	table.insert(connections, container.ChildRemoved:Connect(queueRefresh))
 end
 
 local backpack = localPlayer:FindFirstChildOfClass("Backpack")
@@ -489,17 +494,17 @@ end
 
 -- The Backpack is destroyed and remade on every respawn, so the new one has to be picked
 -- up as it arrives; the connections to the old one die with it.
-localPlayer.ChildAdded:Connect(function(child)
+table.insert(connections, localPlayer.ChildAdded:Connect(function(child)
 	if child:IsA("Backpack") then
 		watch(child)
 		queueRefresh()
 	end
-end)
+end))
 
-CharacterUtil.OnCharacter(function(character)
+table.insert(connections, CharacterUtil.OnCharacter(function(character)
 	watch(character)
 	queueRefresh()
-end)
+end))
 
 --------------------------------------------------------------------------------
 -- Layout and visibility
@@ -515,13 +520,19 @@ end
 relayout()
 
 if camera then
-	camera:GetPropertyChangedSignal("ViewportSize"):Connect(relayout)
+	table.insert(connections, camera:GetPropertyChangedSignal("ViewportSize"):Connect(relayout))
 end
 
 queueRefresh()
+stopImpl = function()
+	for _, connection in connections do connection:Disconnect() end
+	table.clear(connections)
+	disconnectModal()
+end
 end
 
-function HotbarController.Destroy()
+function HotbarController.Stop()
+	if stopImpl then stopImpl(); stopImpl = nil end
 end
 
 return HotbarController

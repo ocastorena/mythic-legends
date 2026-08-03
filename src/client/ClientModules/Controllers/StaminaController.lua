@@ -1,8 +1,12 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/StaminaController
 
 local StaminaController = {}
+local stopImpl: (() -> ())?
 
-function StaminaController.Start(_context: any)
+function StaminaController.Init(_context: any)
+end
+
+function StaminaController.Start()
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -56,16 +60,31 @@ local function bindCharacter(character: Model)
 	task.defer(update)
 end
 
-player:GetAttributeChangedSignal("CombatStamina"):Connect(update)
-player:GetAttributeChangedSignal("MaxCombatStamina"):Connect(update)
-player.CharacterAdded:Connect(bindCharacter)
+local connections = {
+	player:GetAttributeChangedSignal("CombatStamina"):Connect(update),
+	player:GetAttributeChangedSignal("MaxCombatStamina"):Connect(update),
+	player.CharacterAdded:Connect(bindCharacter),
+}
 if player.Character then
 	bindCharacter(player.Character)
 end
 update()
+stopImpl = function()
+	for _, connection in connections do
+		connection:Disconnect()
+	end
+	if combatReadyConnection then
+		combatReadyConnection:Disconnect()
+	end
+	container:Destroy()
+end
 end
 
-function StaminaController.Destroy()
+function StaminaController.Stop()
+	if stopImpl then
+		stopImpl()
+		stopImpl = nil
+	end
 end
 
 return StaminaController

@@ -339,13 +339,15 @@ For every system other than the documented combat exception, clients send an int
 
 Capture meters, Stamina, active Shield state, temporary knockback immunity, active combat buffs, and active Arena contests are server-owned runtime state. They are not persistent; they clear on disconnect or server shutdown unless a later approved design explicitly changes that rule.
 
-Private player UI state uses a client-ready snapshot request followed by revisioned incremental `UpdateState` packets. Only an explicit client-safe projection may be replicated; the complete ProfileStore document, permissions, internal flags, and server-only state must never be sent to the client. `LocalData` owns the client cache and change signal. A missed or out-of-order revision triggers a bounded snapshot resynchronization instead of polling.
+Private player UI state uses a client-ready `Network.State.Request` snapshot followed by revisioned incremental `Network.State.Update` packets. Only an explicit client-safe projection may be replicated; the complete ProfileStore document, permissions, internal flags, and server-only state must never be sent to the client. `LocalData` owns the client cache and change signal. A missed or out-of-order revision triggers a bounded snapshot resynchronization instead of polling.
+
+Rojo declares the production network contract and groups single-purpose endpoints by domain (`State`, `Inventory`, `Production`, `Base`, `Combat`, and `World`). Every client-triggered endpoint is treated as untrusted, validates its complete payload and current server state, and has a server-side rate limit. Use `RemoteFunction` only when the caller requires an immediate result; never synchronously invoke a client from the server. Reliable gameplay state stays on `RemoteEvent`, while an `UnreliableRemoteEvent` is reserved for disposable cosmetic traffic where loss and reordering are acceptable.
 
 ### UI composition and ownership
 
 - Renderable feature `ScreenGui` roots remain direct children of `StarterGui`; a plain organizational `Folder` must not wrap them in Roblox Explorer.
 - Studio owns visual composition such as frames, constraints, layouts, typography, gradients, responsive sizing, selection navigation, and viewport presentation. Stable semantic descendants use `PascalCase` names.
-- Rojo owns `MainClient`, UI controllers, state bindings, input behavior, themes/tokens, component APIs, and network contracts. Requiring a controller must not start work before its lifecycle method is called.
+- Rojo owns `MainClient`, UI controllers, state bindings, input behavior, themes/tokens, component APIs, and network contracts. Bootstrapped server services and client controllers both use `Init(context)`, `Start()`, and `Stop()`; requiring one must not start work. Runtime logs are failure-only and must never contain complete profiles or sensitive remote payloads.
 - Dynamically cloned client-visible UI templates live under `ReplicatedStorage.Assets.UI.Components`. Static elements remain inside their owning `ScreenGui`.
 - Studio-authored production GUI and reusable components must be backed up as versioned model artifacts when they are not fully represented by Rojo source.
 - Controllers resolve required descendants once and react to `LocalData` or server-confirmed domain events. They must not poll, duplicate remote subscriptions, or treat displayed values as authoritative.

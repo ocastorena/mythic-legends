@@ -8,6 +8,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local ServerModules = ServerScriptService:WaitForChild("ServerModules")
 local Infrastructure = ServerModules:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 local ProfileStore = require(ServerModules:WaitForChild("Packages"):WaitForChild("ProfileStore"))
 local PlayerDataTemplate = require(ServerStorage:WaitForChild("Databases"):WaitForChild("PlayerDataTemplate"))
 
@@ -52,6 +53,7 @@ DataManager.OnReleased = releasedBindable.Event
 
 local updateState: RemoteEvent?
 local requestState: RemoteFunction?
+local stateRequestLimiter = RateLimiter.new(6, 1)
 
 local function deepClone(value: any): any
 	if type(value) ~= "table" then
@@ -149,17 +151,22 @@ local function publishChanges(player: Player, forceFull: boolean?)
 end
 
 function DataManager.Init(context: any)
-	updateState = context.Remotes.UpdateState
-	requestState = context.Remotes.RequestState
+	updateState = context.Remotes.State.Update
+	requestState = context.Remotes.State.Request
+end
+
+function DataManager.Start()
 	if requestState then
 		requestState.OnServerInvoke = function(player: Player)
+			if not stateRequestLimiter:Allow(player) then
+				return nil
+			end
 			if not DataManager.Load(player) then
 				return nil
 			end
 			return makeSnapshot(player)
 		end
 	end
-	log.info(`Initialized with {if RunService:IsStudio() then "mock" else "live"} store {STORE_NAME}`)
 end
 
 function DataManager.Load(player: Player): boolean
@@ -237,12 +244,12 @@ function DataManager.Load(player: Player): boolean
 	projections[player] = {}
 	publishChanges(player, true)
 	loadedBindable:Fire(player, playerData)
-	log.debug(`Loaded profile for userId {player.UserId}`)
 	return true
 end
 
 function DataManager.Release(player: Player)
 	loading[player] = nil
+	stateRequestLimiter:Forget(player)
 	local profile = profiles[player]
 	if not profile then
 		return
@@ -360,6 +367,10 @@ function DataManager.WipeAsync(player: Player): boolean
 end
 
 function DataManager.Stop()
+	if requestState then
+		requestState.OnServerInvoke = nil
+	end
+	stateRequestLimiter:Clear()
 	if ProfileStore.IsClosing then
 		return
 	end

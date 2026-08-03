@@ -1,9 +1,9 @@
--- StarterPlayer/StarterPlayerScripts/ClientModules/ShieldSlideController
+-- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/CombatController/ShieldSlide
 -- airborne knockback/tumble state. Only horizontal velocity is constrained.
 
 local RunService = game:GetService("RunService")
 
-local ShieldSlideController = {}
+local ShieldSlide = {}
 
 type SlideState = {
 	character: Model,
@@ -48,7 +48,7 @@ local function cleanup(state: SlideState)
 	end
 end
 
-function ShieldSlideController.Apply(
+function ShieldSlide.Apply(
 	character: Model,
 	hitId: number,
 	launchVelocity: Vector3,
@@ -146,11 +146,11 @@ function ShieldSlideController.Apply(
 	return true
 end
 
-function ShieldSlideController.Clear(character: Model)
+function ShieldSlide.Clear(character: Model)
 	local state = activeStates[character]
 	if state then
 		cleanup(state)
 	end
 end
 
-return ShieldSlideController
+return ShieldSlide

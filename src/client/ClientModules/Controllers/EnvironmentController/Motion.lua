@@ -1,8 +1,12 @@
--- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/EnvironmentMotionController
+-- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/EnvironmentController/Motion
 
-local EnvironmentMotionController = {}
+local Motion = {}
+local connections: { RBXScriptConnection } = {}
 
-function EnvironmentMotionController.Start(_context: any)
+function Motion.Init(_context: any)
+end
+
+function Motion.Start()
 -- Lightweight client-only motion for tagged ambient lights and arena banners.
 
 local CollectionService = game:GetService("CollectionService")
@@ -73,21 +77,21 @@ for _, instance in ipairs(CollectionService:GetTagged(BANNER_TAG)) do
 	registerBanner(instance)
 end
 
-CollectionService:GetInstanceAddedSignal(LIGHT_TAG):Connect(registerLight)
-CollectionService:GetInstanceRemovedSignal(LIGHT_TAG):Connect(function(instance)
+table.insert(connections, CollectionService:GetInstanceAddedSignal(LIGHT_TAG):Connect(registerLight))
+table.insert(connections, CollectionService:GetInstanceRemovedSignal(LIGHT_TAG):Connect(function(instance)
 	if instance:IsA("Light") then
 		lightStates[instance] = nil
 	end
-end)
+end))
 
-CollectionService:GetInstanceAddedSignal(BANNER_TAG):Connect(registerBanner)
-CollectionService:GetInstanceRemovedSignal(BANNER_TAG):Connect(function(instance)
+table.insert(connections, CollectionService:GetInstanceAddedSignal(BANNER_TAG):Connect(registerBanner))
+table.insert(connections, CollectionService:GetInstanceRemovedSignal(BANNER_TAG):Connect(function(instance)
 	if instance:IsA("Model") then
 		bannerStates[instance] = nil
 	end
-end)
+end))
 
-RunService.RenderStepped:Connect(function(deltaTime)
+table.insert(connections, RunService.RenderStepped:Connect(function(deltaTime)
 	accumulator += deltaTime
 	if accumulator < UPDATE_INTERVAL then
 		return
@@ -119,10 +123,14 @@ RunService.RenderStepped:Connect(function(deltaTime)
 			)
 		end
 	end
-end)
+end))
 end
 
-function EnvironmentMotionController.Destroy()
+function Motion.Stop()
+	for _, connection in connections do
+		connection:Disconnect()
+	end
+	table.clear(connections)
 end
 
-return EnvironmentMotionController
+return Motion

@@ -1,14 +1,18 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/ClaimController
 
 local ClaimController = {}
+local stopImpl: (() -> ())?
 
-function ClaimController.Start(_context: any)
+function ClaimController.Init(_context: any)
+end
+
+function ClaimController.Start()
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService      = game:GetService("TweenService")
 
-local ClaimEvent        = ReplicatedStorage.Network.ClaimEvent
+local ClaimEvent = ReplicatedStorage.Network.World.ClaimState
 
 local Player = Players.LocalPlayer
 
@@ -169,7 +173,7 @@ end
 
 -- Listen for server events (state + claimed)
 
-ClaimEvent.OnClientEvent:Connect(function(verb, payload)
+local claimConnection = ClaimEvent.OnClientEvent:Connect(function(verb, payload)
 	if verb == "StateUpdate" then
 		updateOverheadFromState(payload)
 
@@ -194,9 +198,19 @@ end)
 
 -- Zone detection lives entirely on the server now. It reads the character's position
 -- directly, so this controller only renders the progress bars the server broadcasts.
+stopImpl = function()
+	claimConnection:Disconnect()
+	for userId in OverheadBars do
+		hideOverheadBar(userId)
+	end
+end
 end
 
-function ClaimController.Destroy()
+function ClaimController.Stop()
+	if stopImpl then
+		stopImpl()
+		stopImpl = nil
+	end
 end
 
 return ClaimController

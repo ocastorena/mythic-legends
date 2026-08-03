@@ -110,6 +110,27 @@ export type StatePacket = {
 	full: boolean?,
 }
 
+export type ActionResult<T> =
+	{ ok: true, value: T? }
+	| { ok: false, code: string }
+
+export type Network = {
+	State: { Update: RemoteEvent, Request: RemoteFunction },
+	Inventory: { DeleteMythling: RemoteFunction },
+	Production: { GetStatus: RemoteFunction, Collect: RemoteFunction },
+	Base: { PlaceMythling: RemoteFunction, RemoveMythling: RemoteFunction },
+	Combat: {
+		StartAttack: RemoteEvent,
+		ReportHit: RemoteEvent,
+		SetShieldGuard: RemoteEvent,
+		Reaction: RemoteEvent,
+		Impact: RemoteEvent,
+		GetLoadout: RemoteFunction,
+		Equip: RemoteFunction,
+	},
+	World: { Spawned: RemoteEvent, ClaimState: RemoteEvent },
+}
+
 -- Injected into every service's Init by MainServer.
 export type Context = {
 	Instances: { [string]: Instance },
@@ -120,7 +141,7 @@ export type Context = {
 		Spawns: { [string]: any },
 		Equipment: EquipmentMetadata,
 	},
-	Remotes: { [string]: RemoteEvent | RemoteFunction },
+	Remotes: Network,
 	Services: { [string]: any },
 }
 

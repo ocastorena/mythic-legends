@@ -1,4 +1,4 @@
--- ServerScriptService/ServerModules/Services/DivineInterventionService
+-- ServerScriptService/ServerModules/PostLaunch/DivineInterventionService
 --
 -- Owns the server-authoritative lifecycle for Divine Intervention events. The first event
 -- is a safe visual test: Blockstorm makes non-colliding blocks fall through the Arena
@@ -6,8 +6,12 @@
 
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
 local TextChatService = game:GetService("TextChatService")
 local TweenService = game:GetService("TweenService")
+
+local LogUtil = require(ServerScriptService.ServerModules.Infrastructure.LogUtil)
+local log = LogUtil.For("DivineInterventionService")
 
 local DivineInterventionService = {
 	Priority = 140,
@@ -18,6 +22,7 @@ local arena: BasePart
 local effectsFolder: Folder
 local activeEventId: string? = nil
 local eventGeneration = 0
+local commandConnection: RBXScriptConnection?
 
 -- A short, low-density presentation test: at most 96 temporary, non-colliding parts.
 local BLOCKSTORM = {
@@ -113,15 +118,8 @@ local function handleCommand(originTextSource: TextSource, unfilteredText: strin
 
 	local requestedEvent = getRequestedEvent(unfilteredText)
 	if requestedEvent == BLOCKSTORM.id then
-		local started, message = startBlockstorm()
-		print("[DivineIntervention]", message)
-		if not started then
-			warn("[DivineIntervention]", message)
-		end
-		return
+		startBlockstorm()
 	end
-
-	print("[DivineIntervention] Usage: /admin blockstorm")
 end
 
 function DivineInterventionService.Init(serviceContext)
@@ -133,11 +131,25 @@ end
 function DivineInterventionService.Start()
 	local command = TextChatService:FindFirstChild("AdminCommand")
 	if not command or not command:IsA("TextChatCommand") then
-		warn("[DivineIntervention] AdminCommand is missing from TextChatService.")
+		log.warn("AdminCommand is missing from TextChatService")
 		return
 	end
 
-	command.Triggered:Connect(handleCommand)
+	commandConnection = command.Triggered:Connect(handleCommand)
+end
+
+function DivineInterventionService.Stop()
+	if commandConnection then
+		commandConnection:Disconnect()
+		commandConnection = nil
+	end
+	eventGeneration += 1
+	activeEventId = nil
+	if effectsFolder then
+		for _, child in effectsFolder:GetChildren() do
+			child:Destroy()
+		end
+	end
 end
 
 return DivineInterventionService

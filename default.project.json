@@ -42,22 +42,40 @@
       "$ignoreUnknownInstances": true,
       "Network": {
         "$className": "Folder",
-        "AdminEvent": { "$className": "RemoteEvent" },
-        "BaseEvent": { "$className": "RemoteEvent" },
-        "ClaimEvent": { "$className": "RemoteEvent" },
-        "CombatImpact": { "$className": "RemoteEvent" },
-        "CurrencyEvent": { "$className": "RemoteEvent" },
-        "MythlingsEvent": { "$className": "RemoteEvent" },
-        "PerformAttack": { "$className": "RemoteEvent" },
-        "SetShieldGuard": { "$className": "RemoteEvent" },
-        "SpawnEvent": { "$className": "RemoteEvent" },
-        "UpdateState": { "$className": "RemoteEvent" },
-        "CombatLoadoutRequest": { "$className": "RemoteFunction" },
-        "ConsumablesRequest": { "$className": "RemoteFunction" },
-        "GetStands": { "$className": "RemoteFunction" },
-        "MaterialsRequest": { "$className": "RemoteFunction" },
-        "MythlingsRequest": { "$className": "RemoteFunction" },
-        "RequestState": { "$className": "RemoteFunction" }
+        "State": {
+          "$className": "Folder",
+          "Update": { "$className": "RemoteEvent" },
+          "Request": { "$className": "RemoteFunction" }
+        },
+        "Inventory": {
+          "$className": "Folder",
+          "DeleteMythling": { "$className": "RemoteFunction" }
+        },
+        "Production": {
+          "$className": "Folder",
+          "GetStatus": { "$className": "RemoteFunction" },
+          "Collect": { "$className": "RemoteFunction" }
+        },
+        "Base": {
+          "$className": "Folder",
+          "PlaceMythling": { "$className": "RemoteFunction" },
+          "RemoveMythling": { "$className": "RemoteFunction" }
+        },
+        "Combat": {
+          "$className": "Folder",
+          "StartAttack": { "$className": "RemoteEvent" },
+          "ReportHit": { "$className": "RemoteEvent" },
+          "SetShieldGuard": { "$className": "RemoteEvent" },
+          "Reaction": { "$className": "RemoteEvent" },
+          "Impact": { "$className": "RemoteEvent" },
+          "GetLoadout": { "$className": "RemoteFunction" },
+          "Equip": { "$className": "RemoteFunction" }
+        },
+        "World": {
+          "$className": "Folder",
+          "Spawned": { "$className": "RemoteEvent" },
+          "ClaimState": { "$className": "RemoteEvent" }
+        }
       },
       "SharedModules": {
         "$path": "src/shared/SharedModules"

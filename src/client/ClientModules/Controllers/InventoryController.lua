@@ -1,8 +1,16 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/InventoryController
 
 local InventoryController = {}
+local stopImpl: (() -> ())?
+local Context: any
 
-function InventoryController.Start(context: any)
+function InventoryController.Init(context: any)
+	Context = context
+end
+
+function InventoryController.Start()
+local connections: { RBXScriptConnection } = {}
+local characterConnections: { RBXScriptConnection } = {}
 --
 -- The inventory is the panel the design system was derived from, so it composes the shell
 -- verbatim: header (identity · 88px tabs · coin pill + ✕), body split grid 2/3 · details
@@ -16,7 +24,7 @@ function InventoryController.Start(context: any)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local LocalData = context.LocalData
+local LocalData = Context.LocalData
 
 -- Identifies this panel to ModalUtil, which owns the backdrop and input guard.
 local PANEL_NAME = "Inventory"
@@ -36,11 +44,11 @@ local EquipmentMeta = require(ReplicatedStorage.SharedModules.Metadata.Equipment
 local ConsumablesMeta = require(ReplicatedStorage.SharedModules.Metadata.Consumables)
 -- The authored Studio folder keeps its existing name so Rojo does not orphan its models.
 local EquipmentAssets = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Equipment")
-local CombatLoadoutRequest = ReplicatedStorage:WaitForChild("Network"):WaitForChild("CombatLoadoutRequest") :: RemoteFunction
-
--- Remotes
-local Remotes = ReplicatedStorage:WaitForChild("Network")
-local MythlingsEvent = Remotes:WaitForChild("MythlingsEvent") :: RemoteEvent
+local Network = ReplicatedStorage:WaitForChild("Network")
+local CombatNetwork = Network:WaitForChild("Combat")
+local GetCombatLoadout = CombatNetwork:WaitForChild("GetLoadout") :: RemoteFunction
+local EquipCombatItem = CombatNetwork:WaitForChild("Equip") :: RemoteFunction
+local DeleteMythling = Network:WaitForChild("Inventory"):WaitForChild("DeleteMythling") :: RemoteFunction
 
 -- Art already in the place file.
 local INVENTORY_ICON = "rbxassetid://135273755533681"
@@ -109,9 +117,9 @@ inventoryScale.Scale = inventoryContentScale(workspace.CurrentCamera and workspa
 inventoryScale.Parent = panel.Card
 
 if workspace.CurrentCamera then
-	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+	table.insert(connections, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 		inventoryScale.Scale = inventoryContentScale(workspace.CurrentCamera.ViewportSize)
-	end)
+	end))
 end
 
 local mythlingsTab = panel.Tabs.Mythlings
@@ -592,13 +600,12 @@ local function setMythlingButtons()
 				return
 			end
 
-			clearMythlingInfo()
-			mythlingList:Remove(pendingDeleteId)
-
-			MythlingsEvent:FireServer("Delete", pendingDeleteId)
-
-			pendingDeleteId = nil
-			closeConfirmDeleteModal()
+			local ok, response = pcall(DeleteMythling.InvokeServer, DeleteMythling, pendingDeleteId)
+			if ok and type(response) == "table" and response.ok == true then
+				clearMythlingInfo()
+				pendingDeleteId = nil
+				closeConfirmDeleteModal()
+			end
 		end)
 	end
 
@@ -672,7 +679,7 @@ local function selectTab(tab)
 	end
 end
 
-LocalData.OnStateChanged:Connect(function(key, value)
+table.insert(connections, LocalData.OnStateChanged:Connect(function(key, value)
 	if key == "mythlings" then
 		mythlingList:Replace(value or {})
 	elseif key == "consumables" then
@@ -680,7 +687,7 @@ LocalData.OnStateChanged:Connect(function(key, value)
 	elseif key == "materials" then
 		materialList:Replace(value or {})
 	end
-end)
+end))
 
 ButtonUtil.hookClick(mythlingsTab, function()
 	selectTab(mythlingsTab)
@@ -700,7 +707,7 @@ end)
 
 local function collectEquipment()
 	local equipment = {}
-	local success, response = pcall(CombatLoadoutRequest.InvokeServer, CombatLoadoutRequest, "Get")
+	local success, response = pcall(GetCombatLoadout.InvokeServer, GetCombatLoadout)
 	if not success or type(response) ~= "table" or response.ok ~= true or type(response.snapshot) ~= "table" then
 		return equipment
 	end
@@ -746,14 +753,16 @@ local function queueEquipmentRefresh()
 	end)
 end
 
-localPlayer.CharacterAdded:Connect(function(character)
-	character:GetAttributeChangedSignal("RightEquipped"):Connect(queueEquipmentRefresh)
-	character:GetAttributeChangedSignal("LeftEquipped"):Connect(queueEquipmentRefresh)
+table.insert(connections, localPlayer.CharacterAdded:Connect(function(character)
+	for _, connection in characterConnections do connection:Disconnect() end
+	table.clear(characterConnections)
+	table.insert(characterConnections, character:GetAttributeChangedSignal("RightEquipped"):Connect(queueEquipmentRefresh))
+	table.insert(characterConnections, character:GetAttributeChangedSignal("LeftEquipped"):Connect(queueEquipmentRefresh))
 	queueEquipmentRefresh()
-end)
+end))
 if localPlayer.Character then
-	localPlayer.Character:GetAttributeChangedSignal("RightEquipped"):Connect(queueEquipmentRefresh)
-	localPlayer.Character:GetAttributeChangedSignal("LeftEquipped"):Connect(queueEquipmentRefresh)
+	table.insert(characterConnections, localPlayer.Character:GetAttributeChangedSignal("RightEquipped"):Connect(queueEquipmentRefresh))
+	table.insert(characterConnections, localPlayer.Character:GetAttributeChangedSignal("LeftEquipped"):Connect(queueEquipmentRefresh))
 end
 
 if equipmentInfo.PrimaryButton then
@@ -763,9 +772,7 @@ if equipmentInfo.PrimaryButton then
 		if not entry or type(entry.instanceId) ~= "string" then
 			return
 		end
-		local success, response = pcall(CombatLoadoutRequest.InvokeServer, CombatLoadoutRequest, "Equip", {
-			instanceId = entry.instanceId,
-		})
+		local success, response = pcall(EquipCombatItem.InvokeServer, EquipCombatItem, entry.instanceId)
 		if success and type(response) == "table" and response.ok == true then
 			equipmentList:Replace(collectEquipment())
 		end
@@ -788,7 +795,7 @@ PanelUtil.rescaleText(inventoryGui, panel.Root)
 -- This ScreenGui's own Enabled property is the open/close contract. HUDController owns the
 -- button in HUDGui that toggles it, so this controller no longer reaches across into
 -- another GUI, and anything else that wants the inventory open just sets this flag.
-inventoryGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+table.insert(connections, inventoryGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if inventoryGui.Enabled then
 		-- Claim the shared backdrop before any yielding server requests. During a direct
 		-- Shop -> Inventory handoff, delaying this until after data refresh briefly left
@@ -804,10 +811,18 @@ inventoryGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 		closeConfirmDeleteModal()
 		ModalUtil.Close(PANEL_NAME)
 	end
-end)
+end))
+stopImpl = function()
+	for _, connection in connections do connection:Disconnect() end
+	for _, connection in characterConnections do connection:Disconnect() end
+	table.clear(connections)
+	table.clear(characterConnections)
+	ModalUtil.Close(PANEL_NAME)
+end
 end
 
-function InventoryController.Destroy()
+function InventoryController.Stop()
+	if stopImpl then stopImpl(); stopImpl = nil end
 end
 
 return InventoryController

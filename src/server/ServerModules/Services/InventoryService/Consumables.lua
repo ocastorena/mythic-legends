@@ -16,9 +16,4 @@ function Consumables.LoadPlayer(player: Player)
 	session.consumables = DataManager.GetSection(player, "consumables")
 end
 
-function Consumables.List(player: Player): any
-	local session = sessionsByUserId[player.UserId]
-	return session and session.consumables or {}
-end
-
 return Consumables

@@ -6,15 +6,21 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local TweenService = game:GetService("TweenService")
+local RateLimiter = require(ServerScriptService.ServerModules.Infrastructure.RateLimiter)
+local LogUtil = require(ServerScriptService.ServerModules.Infrastructure.LogUtil)
+local log = LogUtil.For("EquipmentStateService")
 
 local Equipment: any
 local ArenaBounds: any
 local DataManager: any
 local EquipmentAssets: Folder
-local PerformAttack: RemoteEvent
+local StartAttack: RemoteEvent
+local ReportHit: RemoteEvent
 local SetShieldGuard: RemoteEvent
+local CombatReaction: RemoteEvent
 local CombatImpact: RemoteEvent
-local CombatLoadoutRequest: RemoteFunction
+local GetLoadoutRemote: RemoteFunction
+local EquipRemote: RemoteFunction
 local Arena: BasePart
 
 local EquipmentStateService = {}
@@ -64,6 +70,10 @@ local playerConnections: { [Player]: RBXScriptConnection } = {}
 local nextLoadoutRequestAt: { [Player]: number } = {}
 local nextHitId = 0
 local serviceConnections: { RBXScriptConnection } = {}
+local loadoutLimiter = RateLimiter.new(12, 4)
+local guardLimiter = RateLimiter.new(16, 8)
+local startAttackLimiter = RateLimiter.new(8, 4)
+local reportHitLimiter = RateLimiter.new(12, 6)
 
 local function getNumber(value: any, fallback: number, minimum: number, maximum: number): number
 	if type(value) ~= "number" or value ~= value then
@@ -316,19 +326,19 @@ end
 local function prepareEquipmentModel(model: Model): boolean
 	local primaryPart = model.PrimaryPart
 	if not primaryPart then
-		warn(`[EquipmentStateManager] {model:GetFullName()} has no PrimaryPart`)
+		log.warn(`{model:GetFullName()} has no PrimaryPart`)
 		return false
 	end
 	for _, attachmentName in { "HandGripAttachment", "SheathAttachment" } do
 		local attachment = model:FindFirstChild(attachmentName, true)
 		if not attachment or not attachment:IsA("Attachment") then
-			warn(`[EquipmentStateManager] {model:GetFullName()} needs {attachmentName}`)
+			log.warn(`{model:GetFullName()} needs {attachmentName}`)
 			return false
 		end
 	end
 	local hitbox = model:FindFirstChild("Hitbox", true)
 	if not hitbox or not hitbox:IsA("BasePart") then
-		warn(`[EquipmentStateManager] {model:GetFullName()} needs a Hitbox BasePart`)
+		log.warn(`{model:GetFullName()} needs a Hitbox BasePart`)
 		return false
 	end
 	-- Rebuild one predictable rigid assembly instead of stacking runtime welds on top of
@@ -361,7 +371,7 @@ local function cloneEquipment(character: Model, slot: string, definitionId: stri
 	local profile = getProfile(definitionId)
 	local asset = profile and EquipmentAssets:FindFirstChild(profile.modelName)
 	if not asset or not asset:IsA("Model") then
-		warn(`[EquipmentStateManager] Missing authored Equipment model for {definitionId}`)
+		log.warn(`Missing authored Equipment model for {definitionId}`)
 		return nil
 	end
 	local model = asset:Clone()
@@ -612,7 +622,7 @@ local function sendImpact(
 )
 	nextHitId += 1
 	local hitId = nextHitId
-	CombatImpact:FireClient(target, "ApplyLaunch", {
+	CombatReaction:FireClient(target, {
 		hitId = hitId,
 		launchVelocity = launchVelocity,
 		angularVelocity = angularVelocity,
@@ -622,7 +632,7 @@ local function sendImpact(
 		maximumReactionSeconds = maximumReactionSeconds,
 		landingRecoverySeconds = landingRecoverySeconds,
 	})
-	CombatImpact:FireAllClients("Impact", {
+	CombatImpact:FireAllClients({
 		hitId = hitId,
 		targetUserId = target.UserId,
 		attackerUserId = attacker.UserId,
@@ -765,14 +775,6 @@ local function handleHitReport(player: Player, payload: any)
 	end
 end
 
-local function performAttack(player: Player, action: unknown, payload: unknown)
-	if action == "MeleeSwing" then
-		handleMeleeSwing(player, payload)
-	elseif action == "HitReport" then
-		handleHitReport(player, payload)
-	end
-end
-
 local function disconnectCharacterConnections(player: Player)
 	local connections = characterConnections[player]
 	if connections then
@@ -797,7 +799,7 @@ local function onCharacterAdded(player: Player, character: Model)
 		return
 	end
 	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
-		warn(`[EquipmentStateManager] {player.Name} must use an R15 character`)
+		log.warn(`userId {player.UserId} must use an R15 character`)
 		return
 	end
 	refreshRuntime(player, os.clock())
@@ -869,6 +871,10 @@ local function onPlayerRemoving(player: Player)
 		restoreMovement(runtime)
 	end
 	runtimes[player] = nil
+	loadoutLimiter:Forget(player)
+	guardLimiter:Forget(player)
+	startAttackLimiter:Forget(player)
+	reportHitLimiter:Forget(player)
 end
 
 function EquipmentStateService.Init(context: any)
@@ -876,10 +882,13 @@ function EquipmentStateService.Init(context: any)
 	ArenaBounds = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("ArenaBounds"))
 	DataManager = context.Services.DataManager
 	EquipmentAssets = context.Instances.EquipmentAssets
-	PerformAttack = context.Remotes.PerformAttack
-	SetShieldGuard = context.Remotes.SetShieldGuard
-	CombatImpact = context.Remotes.CombatImpact
-	CombatLoadoutRequest = context.Remotes.CombatLoadoutRequest
+	StartAttack = context.Remotes.Combat.StartAttack
+	ReportHit = context.Remotes.Combat.ReportHit
+	SetShieldGuard = context.Remotes.Combat.SetShieldGuard
+	CombatReaction = context.Remotes.Combat.Reaction
+	CombatImpact = context.Remotes.Combat.Impact
+	GetLoadoutRemote = context.Remotes.Combat.GetLoadout
+	EquipRemote = context.Remotes.Combat.Equip
 	Arena = context.Instances.Arena
 end
 
@@ -891,29 +900,41 @@ function EquipmentStateService.Start()
 		end
 	end
 
-	CombatLoadoutRequest.OnServerInvoke = function(player: Player, action: unknown, payload: unknown)
-		if action == "Get" then
-			resolveLoadout(player)
-			return { ok = true, snapshot = snapshotLoadout(player) }
-		elseif action == "Equip" then
-			local now = os.clock()
-			if now < (nextLoadoutRequestAt[player] or 0) then
-				return { ok = false, reason = "RateLimited", snapshot = snapshotLoadout(player) }
-			end
-			nextLoadoutRequestAt[player] = now + 0.5
-			local instanceId = type(payload) == "table" and payload.instanceId or nil
-			local ok, reason = equipOwnedInstance(player, instanceId)
-			return { ok = ok, reason = reason, snapshot = snapshotLoadout(player) }
+	GetLoadoutRemote.OnServerInvoke = function(player: Player)
+		if not loadoutLimiter:Allow(player) then
+			return { ok = false, code = "RateLimited", snapshot = snapshotLoadout(player) }
 		end
-		return { ok = false, reason = "InvalidAction" }
+		resolveLoadout(player)
+		return { ok = true, snapshot = snapshotLoadout(player) }
+	end
+	EquipRemote.OnServerInvoke = function(player: Player, instanceId: unknown)
+		if not loadoutLimiter:Allow(player) then
+			return { ok = false, code = "RateLimited", snapshot = snapshotLoadout(player) }
+		end
+		local now = os.clock()
+		if now < (nextLoadoutRequestAt[player] or 0) then
+			return { ok = false, code = "RateLimited", snapshot = snapshotLoadout(player) }
+		end
+		nextLoadoutRequestAt[player] = now + 0.5
+		local ok, reason = equipOwnedInstance(player, instanceId)
+		return { ok = ok, code = reason, snapshot = snapshotLoadout(player) }
 	end
 
 	table.insert(serviceConnections, SetShieldGuard.OnServerEvent:Connect(function(player: Player, enabled: unknown)
-		if type(enabled) == "boolean" then
+		if guardLimiter:Allow(player) and type(enabled) == "boolean" then
 			setShieldGuard(player, enabled)
 		end
 	end))
-	table.insert(serviceConnections, PerformAttack.OnServerEvent:Connect(performAttack))
+	table.insert(serviceConnections, StartAttack.OnServerEvent:Connect(function(player: Player, payload: unknown)
+		if startAttackLimiter:Allow(player) then
+			handleMeleeSwing(player, payload)
+		end
+	end))
+	table.insert(serviceConnections, ReportHit.OnServerEvent:Connect(function(player: Player, payload: unknown)
+		if reportHitLimiter:Allow(player) then
+			handleHitReport(player, payload)
+		end
+	end))
 
 	local stateAccumulator = 0
 	table.insert(serviceConnections, RunService.Heartbeat:Connect(function(deltaTime: number)
@@ -953,7 +974,8 @@ function EquipmentStateService.Start()
 end
 
 function EquipmentStateService.Stop()
-	CombatLoadoutRequest.OnServerInvoke = nil
+	GetLoadoutRemote.OnServerInvoke = nil
+	EquipRemote.OnServerInvoke = nil
 	for _, connection in serviceConnections do
 		connection:Disconnect()
 	end
@@ -961,6 +983,10 @@ function EquipmentStateService.Stop()
 	for player in pairs(playerConnections) do
 		onPlayerRemoving(player)
 	end
+	loadoutLimiter:Clear()
+	guardLimiter:Clear()
+	startAttackLimiter:Clear()
+	reportHitLimiter:Clear()
 end
 
 return EquipmentStateService

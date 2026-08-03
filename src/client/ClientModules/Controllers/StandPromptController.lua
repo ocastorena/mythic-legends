@@ -1,8 +1,12 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/StandPromptController
 
 local StandPromptController = {}
+local connection: RBXScriptConnection?
 
-function StandPromptController.Start(_context: any)
+function StandPromptController.Init(_context: any)
+end
+
+function StandPromptController.Start()
 -- Enables local player's stand prompts only for local player
 
 local Players = game:GetService("Players")
@@ -17,12 +21,16 @@ local function enablePrompt(prompt: ProximityPrompt)
 	end
 end
 
-CollectionService:GetInstanceAddedSignal(TAG):Connect(function(inst)
+connection = CollectionService:GetInstanceAddedSignal(TAG):Connect(function(inst)
 	if inst:IsA("ProximityPrompt") then enablePrompt(inst) end
 end)
 end
 
-function StandPromptController.Destroy()
+function StandPromptController.Stop()
+	if connection then
+		connection:Disconnect()
+		connection = nil
+	end
 end
 
 return StandPromptController

@@ -56,7 +56,6 @@ function Mythlings.SaveWon(player: Player, params: any): string?
 		claimedAt = os.time(),
 	}
 
-	log.debug(`Saved won mythling {id} for userId {player.UserId}`)
 	DataManager.MarkDirty(player)
 	DataManager.SaveNow(player)
 	return id
@@ -74,11 +73,6 @@ function Mythlings.Remove(player: Player, mythlingId: string): boolean
 	DataManager.MarkDirty(player)
 	DataManager.SaveNow(player)
 	return true
-end
-
-function Mythlings.List(player: Player): { any }
-	assert(player and player.UserId, "[InventoryService.ListMythlings] invalid player")
-	return getOwned(player) or {}
 end
 
 function Mythlings.Get(player: Player, mythlingId: string): any?

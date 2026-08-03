@@ -1,8 +1,13 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/MythlingTimerController
 
 local MythlingTimerController = {}
+local stopImpl: (() -> ())?
 
-function MythlingTimerController.Start(_context: any)
+function MythlingTimerController.Init(_context: any)
+end
+
+function MythlingTimerController.Start()
+local connections: { RBXScriptConnection } = {}
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -55,21 +60,21 @@ for _, child in ipairs(mythlingsFolder:GetChildren()) do
 	tryAttach(child)
 end
 
-mythlingsFolder.ChildAdded:Connect(function(child)
+table.insert(connections, mythlingsFolder.ChildAdded:Connect(function(child)
 	tryAttach(child)
-end)
+end))
 
-mythlingsFolder.ChildRemoved:Connect(function(child)
+table.insert(connections, mythlingsFolder.ChildRemoved:Connect(function(child)
 	detach(child)
-end)
+end))
 
 -- If server edits ExpireAt later (rare), catch it:
-mythlingsFolder.DescendantAdded:Connect(function(desc)
+table.insert(connections, mythlingsFolder.DescendantAdded:Connect(function(desc)
 	local model = desc:FindFirstAncestorOfClass("Model")
 	if model and model.Parent == mythlingsFolder then
 		tryAttach(model)
 	end
-end)
+end))
 
 -- -- Update loop (throttled) ----------------------------------------------
 
@@ -77,7 +82,7 @@ local accumulator = 0
 local UPDATE_HZ = 5               -- 5 times per second is plenty for a timer
 local UPDATE_DT = 1 / UPDATE_HZ
 
-RunService.RenderStepped:Connect(function(dt)
+table.insert(connections, RunService.RenderStepped:Connect(function(dt)
 	accumulator += dt
 	if accumulator < UPDATE_DT then return end
 	accumulator -= UPDATE_DT
@@ -98,10 +103,17 @@ RunService.RenderStepped:Connect(function(dt)
 			end
 		end
 	end
-end)
+end))
+stopImpl = function()
+	for _, connection in connections do connection:Disconnect() end
+	table.clear(connections)
+	for _, entry in tracked do entry.gui:Destroy() end
+	table.clear(tracked)
+end
 end
 
-function MythlingTimerController.Destroy()
+function MythlingTimerController.Stop()
+	if stopImpl then stopImpl(); stopImpl = nil end
 end
 
 return MythlingTimerController

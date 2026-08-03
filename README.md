@@ -51,8 +51,9 @@ src/
 
 `ReplicatedStorage.Network` is declared in `default.project.json`. Persistent player data uses
 the vendored `ProfileStore` package and the `MythicLegends_PlayerData_v1` store. The server
-replicates only a client-safe projection through revisioned `UpdateState` packets and the
-`RequestState` recovery snapshot; clients cannot access profiles or mutate server memory.
+replicates only a client-safe projection through revisioned `Network.State.Update` packets and
+the `Network.State.Request` recovery snapshot; clients cannot access profiles or mutate server
+memory.
 
 ## Target Roblox Explorer Structure
 
@@ -111,18 +112,20 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
   is available.
 - Name events and signals for occurrences: `OnStateChanged`, `OnProfileLoaded`, and
   `OnSessionEnded`.
-- Name `RemoteEvent` instances as actions or notifications: `UpdateState`, `PerformAttack`,
-  and `ToggleCombatState`. Name `RemoteFunction` instances as requests or queries:
-  `RequestState`, `GetInventory`, and `GetStands`.
+- Group remotes by domain and give each one a single direction and responsibility. Name
+  `RemoteEvent` instances as actions or notifications (`StartAttack`, `ClaimState`) and
+  `RemoteFunction` instances as requests or commands that return a result (`Request`,
+  `DeleteMythling`, `GetStatus`).
 - Use singular nouns for data types and owned records: `PlayerData`, `StatePacket`, and
   `MythlingEntry`. Collection metadata modules are plural: `Metadata/Mythlings.lua`.
 - Use **camelCase** for serialized field and remote-payload keys. Stable metadata IDs use
   lowercase `snake_case`; they are identifiers, not display names.
 - Keep module-private state `local` without an underscore prefix: use `profiles` and
   `localCache`, not `_profiles` or `_localCache`.
-- Use the lifecycle names `Init(context)`, `Start()`, and `Stop()` for server modules, and
-  `Init(context)`, `Start()`, and `Destroy()` for client controllers. Requiring a module must
-  not connect events or start tasks before its lifecycle method is called.
+- Use `Init(context)`, `Start()`, and `Stop()` for every bootstrapped server service and client
+  controller. `Init` captures dependencies, `Start` connects events and starts tasks, and `Stop`
+  releases runtime resources. Reserve `Destroy()` for constructed objects that are permanently
+  unusable afterward. Requiring a module must not connect events or start tasks.
 - Use `.server.lua` and `.client.lua` only for executable bootstrap scripts or intentionally
   self-running scripts. Bootstrapped controllers are ordinary ModuleScripts named
   `<Domain>Controller.lua`; do not use redundant names such as `CombatClient.client.lua`.
@@ -132,6 +135,47 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
   domain internals cohesive.
 - The first line of every Luau source file is its exact Roblox instance path, for example
   `-- ServerScriptService/ServerModules/DataManager`.
+
+## Logging Conventions
+
+- Project-owned runtime code logs only abnormal conditions. Successful initialization, startup,
+  profile loading, saves, requests, and gameplay actions must not emit console output.
+- Server code uses `LogUtil.warn` for recoverable anomalies and `LogUtil.error` for serious
+  failures that were safely contained. Use `error()` or `assert()` only when continuing would
+  leave the runtime invalid.
+- Client code uses `warn` only when a required operation fails, such as controller startup or
+  state synchronization.
+- Invalid and rate-limited remote requests are rejected silently. Never let exploit traffic
+  flood logs, and never log complete profiles or sensitive payloads.
+- Include stable diagnostic context such as a service tag, `userId`, metadata ID, or error code.
+  Prefer `userId` over player display names.
+
+## Network Contract
+
+Rojo is the only creator of production remotes. `RemoteUtil.Resolve` validates their classes
+and returns the typed domain structure; it must not silently create or replace missing remotes.
+
+```text
+Network
+  State       Update, Request
+  Inventory   DeleteMythling
+  Production  GetStatus, Collect
+  Base        PlaceMythling, RemoveMythling
+  Combat      StartAttack, ReportHit, SetShieldGuard, Reaction, Impact, GetLoadout, Equip
+  World       Spawned, ClaimState
+```
+
+- Client-to-server messages are untrusted intent. The owning service validates types, lengths,
+  ranges, ownership, permissions, world state, and cooldowns before mutating anything.
+- Every client-triggered endpoint must have an appropriate server-side rate limit. Client-side
+  debounce exists only for responsiveness and is never a security boundary.
+- Use a `RemoteEvent` when no immediate response is required. Use a client-to-server
+  `RemoteFunction` only when the caller needs an explicit success or error result. Never invoke
+  a client synchronously from the server.
+- Reliable gameplay state uses `RemoteEvent`; disposable high-frequency cosmetic telemetry may
+  use `UnreliableRemoteEvent` only when loss and reordering are acceptable.
+- Persistent state is confirmed through the revisioned State channel. Domain remotes do not
+  accept arbitrary state keys, Instance paths, or generic mutation commands.
 
 ## GUI Components and Controllers
 
@@ -162,9 +206,9 @@ state flow, contracts, and versioned reusable assets.
 
 - Keep GUI behavior in bootstrapped modules under `StarterPlayerScripts/ClientModules`.
   `MainClient` initializes state and networking first, then feature and view controllers.
-- A controller receives its `ScreenGui` root through `Init(context)`, resolves required
-  descendants once, subscribes to state/domain events, and releases every connection in
-  `Destroy()`.
+- A controller captures shared dependencies through `Init(context)`, resolves required UI
+  descendants and subscribes to state/domain events in `Start()`, and releases every owned
+  connection or task in `Stop()`.
 - Controllers must update views from `LocalData` or a server-confirmed domain event. Do not use
   polling loops, duplicate remote listeners, or UI properties as authoritative game state.
 - `UIController` coordinates replication and screen lifecycle; focused controllers such as

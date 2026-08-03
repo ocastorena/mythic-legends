@@ -1,8 +1,15 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/StandController
 
 local StandController = {}
+local stopImpl: (() -> ())?
+local Context: any
 
-function StandController.Start(context: any)
+function StandController.Init(context: any)
+	Context = context
+end
+
+function StandController.Start()
+local connections: { RBXScriptConnection } = {}
 --
 -- The stand panel is the design's shrine panel: same shell, a roster grid in the 2/3
 -- column under a section label, and a details column of hero art, hero stats, a storage
@@ -23,7 +30,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
-local LocalData = context.LocalData
+local LocalData = Context.LocalData
 
 --// Modules
 local Client = script:FindFirstAncestor("ClientModules")
@@ -120,8 +127,13 @@ removeButton.LayoutOrder = 2
 -- Remotes
 --------------------------------------------------------------------------------
 
-local MythlingsRequest = ReplicatedStorage:WaitForChild("Network"):WaitForChild("MythlingsRequest")
-local BaseEvent = ReplicatedStorage:WaitForChild("Network"):WaitForChild("BaseEvent")
+local Network = ReplicatedStorage:WaitForChild("Network")
+local ProductionNetwork = Network:WaitForChild("Production")
+local BaseNetwork = Network:WaitForChild("Base")
+local GetProductionStatus = ProductionNetwork:WaitForChild("GetStatus") :: RemoteFunction
+local CollectProduction = ProductionNetwork:WaitForChild("Collect") :: RemoteFunction
+local PlaceMythling = BaseNetwork:WaitForChild("PlaceMythling") :: RemoteFunction
+local RemoveMythling = BaseNetwork:WaitForChild("RemoveMythling") :: RemoteFunction
 
 --------------------------------------------------------------------------------
 -- State
@@ -177,7 +189,7 @@ local function startProductionTween(production: number, capacity: number, rate: 
 
 	if not productionConnected then
 		productionConnected = true
-		productionValue:GetPropertyChangedSignal("Value"):Connect(function()
+		table.insert(connections, productionValue:GetPropertyChangedSignal("Value"):Connect(function()
 			renderProduction()
 			-- Only the Collect state belongs to production. While another card is selected
 			-- the footer is showing Station/Swap In, and repainting it here would recolour
@@ -185,7 +197,7 @@ local function startProductionTween(production: number, capacity: number, rate: 
 			if mythlingList and mythlingList:GetSelectedId() == activeId then
 				PanelUtil.setButtonEnabled(collectButton, productionValue.Value >= 1, ThemeUtil.Accent.green)
 			end
-		end)
+		end))
 	end
 
 	if duration > 0 then
@@ -284,10 +296,11 @@ local function showMythlingInfo(): ()
 	details.ElementIcon.Image = materialMeta.thumbnail
 	details.ElementIcon.BackgroundColor3 = tint
 
-	local response = MythlingsRequest:InvokeServer("GetProduction", { mythlingId = id })
-	local production = response.production or 0
-	local rate = response.rate
-	local capacity = response.capacity or 0
+	local ok, response = pcall(GetProductionStatus.InvokeServer, GetProductionStatus, id)
+	local status = if ok and type(response) == "table" and response.ok == true then response.value else {}
+	local production = status.production or 0
+	local rate = status.rate or 0
+	local capacity = status.capacity or 0
 
 	details.Stats[1].Value.Text = `{rate}/min`
 	details.Stats[1].Label.Text = "Total Yield"
@@ -372,7 +385,7 @@ end
 -- This ScreenGui's own Enabled property is the open/close contract; ModalUtil handles the
 -- backdrop, input guard and backpack. The old version called InputGuardUtil.close() here
 -- AND again from the backdrop handler -- one open, two closes.
-standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+table.insert(connections, standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 	if standGui.Enabled then
 		ModalUtil.Open(PANEL_NAME)
 	else
@@ -385,7 +398,7 @@ standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
 		updateButtons()
 		ModalUtil.Close(PANEL_NAME)
 	end
-end)
+end))
 
 -- The primary button carries whichever verb updateButtons settled on.
 ButtonUtil.hookClick(collectButton, function()
@@ -394,7 +407,7 @@ ButtonUtil.hookClick(collectButton, function()
 	if selectedId and selectedId == activeId then
 		-- Collect
 		if productionValue.Value > 0 then
-			MythlingsRequest:InvokeServer("CollectProduction", { mythlingId = activeId })
+			pcall(CollectProduction.InvokeServer, CollectProduction, activeId)
 			showMythlingInfo()
 		end
 		return
@@ -406,9 +419,18 @@ ButtonUtil.hookClick(collectButton, function()
 
 	if activeId then
 		-- Swap In: remove the current occupant, then place the selection.
-		BaseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = activeId })
+		pcall(RemoveMythling.InvokeServer, RemoveMythling, {
+			standId = standId,
+			mythlingId = activeId,
+		})
 	end
-	BaseEvent:FireServer("PlaceMythling", { standId = standId, mythlingId = selectedId })
+	local placed, response = pcall(PlaceMythling.InvokeServer, PlaceMythling, {
+		standId = standId,
+		mythlingId = selectedId,
+	})
+	if not placed or type(response) ~= "table" or response.ok ~= true then
+		return
+	end
 
 	activeId = selectedId
 	refreshCards()
@@ -421,7 +443,13 @@ ButtonUtil.hookClick(removeButton, function()
 	if not activeId then
 		return
 	end
-	BaseEvent:FireServer("RemoveMythling", { standId = standId, mythlingId = activeId })
+	local removed, response = pcall(RemoveMythling.InvokeServer, RemoveMythling, {
+		standId = standId,
+		mythlingId = activeId,
+	})
+	if not removed or type(response) ~= "table" or response.ok ~= true then
+		return
+	end
 	activeId = nil
 	refreshCards()
 	updateButtons()
@@ -429,16 +457,16 @@ ButtonUtil.hookClick(removeButton, function()
 end)
 
 -- The replicated private state cache keeps this view current without polling.
-LocalData.OnStateChanged:Connect(function(key, value)
+table.insert(connections, LocalData.OnStateChanged:Connect(function(key, value)
 	if key == "mythlings" and standGui.Enabled then
 		addMythlingCards(value or {})
 	end
-end)
+end))
 
 --------------------------------------------------------------------------------
 -- Proximity prompt -> open Stand GUI
 --------------------------------------------------------------------------------
-ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
+table.insert(connections, ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 	-- Original approach: prompt.Parent.Parent:GetAttribute("Id")
 	local parent = prompt.Parent
 	local grandparent = parent and parent.Parent or nil
@@ -455,10 +483,18 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 	updateButtons()
 
 	standGui.Enabled = true
-end)
+end))
+stopImpl = function()
+	for _, connection in connections do connection:Disconnect() end
+	table.clear(connections)
+	if productionTween then productionTween:Cancel() end
+	productionValue:Destroy()
+	ModalUtil.Close(PANEL_NAME)
+end
 end
 
-function StandController.Destroy()
+function StandController.Stop()
+	if stopImpl then stopImpl(); stopImpl = nil end
 end
 
 return StandController

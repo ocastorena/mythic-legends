@@ -2092,10 +2092,9 @@ if IsStudio == true then
 				no_internet_access == true) then -- No internet access
 
 			new_state = if no_internet_access == true then "NoInternet" else "NoAccess"
-			print(`[{script.Name}]: Roblox API services unavailable - data will not be saved`)
+			warn(`[{script.Name}]: Roblox API services unavailable - data will not be saved`)
 		else
 			new_state = "Access"
-			print(`[{script.Name}]: Roblox API services available - data will be saved`)
 		end
 
 		DataStoreState = new_state

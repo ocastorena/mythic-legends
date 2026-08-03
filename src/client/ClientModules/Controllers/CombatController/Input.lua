@@ -1,8 +1,12 @@
--- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/CombatClient
+-- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/CombatController/Input
 
-local CombatClient = {}
+local Input = {}
+local stopImpl: (() -> ())?
 
-function CombatClient.Start(_context: any)
+function Input.Init(_context: any)
+end
+
+function Input.Start()
 -- Local R15 input, animation, blade contact, and target-owned launch presentation.
 
 local Players = game:GetService("Players")
@@ -13,16 +17,19 @@ local UserInputService = game:GetService("UserInputService")
 local Equipment = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Metadata"):WaitForChild("Equipment"))
 local EquipmentAssets = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Equipment")
 local Client = script:FindFirstAncestor("ClientModules")
-local ClientKnockbackController = require(Client:WaitForChild("ClientKnockbackController"))
-local ShieldSlideController = require(Client:WaitForChild("ShieldSlideController"))
-local presentationBus = require(Client:WaitForChild("CombatPresentationBus"))
+local Knockback = require(script.Parent.Knockback)
+local ShieldSlide = require(script.Parent.ShieldSlide)
+local PresentationBus = require(script.Parent.PresentationBus)
 local Ui = Client:WaitForChild("UI")
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
 local EquipmentPreviewUtil = require(Ui:WaitForChild("EquipmentPreviewUtil"))
-local PerformAttack = ReplicatedStorage:WaitForChild("Network"):WaitForChild("PerformAttack") :: RemoteEvent
-local SetShieldGuard = ReplicatedStorage:WaitForChild("Network"):WaitForChild("SetShieldGuard") :: RemoteEvent
-local CombatImpact = ReplicatedStorage:WaitForChild("Network"):WaitForChild("CombatImpact") :: RemoteEvent
+local CombatNetwork = ReplicatedStorage:WaitForChild("Network"):WaitForChild("Combat")
+local StartAttack = CombatNetwork:WaitForChild("StartAttack") :: RemoteEvent
+local ReportHit = CombatNetwork:WaitForChild("ReportHit") :: RemoteEvent
+local SetShieldGuard = CombatNetwork:WaitForChild("SetShieldGuard") :: RemoteEvent
+local CombatReaction = CombatNetwork:WaitForChild("Reaction") :: RemoteEvent
 local localPlayer = Players.LocalPlayer
+local lifecycleConnections: { RBXScriptConnection } = {}
 
 local NORMAL_BUTTON_COLOR = Color3.fromRGB(60, 60, 64)
 local PRESSED_BUTTON_COLOR = Color3.fromRGB(48, 48, 52)
@@ -90,7 +97,7 @@ local function playAnimation(
 	end
 	local success, track = pcall(animator.LoadAnimation, animator, animation)
 	if not success then
-		warn(`[CombatClient] Could not load animation {animationId}: {track}`)
+		warn(`[Input] Could not load animation {animationId}: {track}`)
 		return nil
 	end
 	track.Priority = priority or Enum.AnimationPriority.Action
@@ -455,9 +462,9 @@ local function attack(character: Model)
 					hitReported = true
 					local blockingShield = getPredictedBlockingShield(target)
 					if blockingShield then
-						presentationBus:Fire("LocalShieldImpact", target.Character, blockingShield, sequence)
+						PresentationBus.Fire("LocalShieldImpact", target.Character, blockingShield, sequence)
 					else
-						presentationBus:Fire("LocalImpact", target.Character, profile.impactSoundId, sequence)
+						PresentationBus.Fire("LocalImpact", target.Character, profile.impactSoundId, sequence)
 					end
 					if activeAttackTrack and (profile.hitStopSeconds or 0) > 0 then
 						local track = activeAttackTrack
@@ -468,7 +475,7 @@ local function attack(character: Model)
 							end
 						end)
 					end
-					PerformAttack:FireServer("HitReport", {
+					ReportHit:FireServer({
 						sequence = sequence,
 						targetUserId = target.UserId,
 					})
@@ -479,7 +486,7 @@ local function attack(character: Model)
 	end
 
 	-- Activation is charged by the server immediately, including a swing that misses.
-	PerformAttack:FireServer("MeleeSwing", { sequence = sequence })
+	StartAttack:FireServer({ sequence = sequence })
 	local track = playAnimation(character, profile.animationId, Enum.AnimationPriority.Action)
 	activeAttackTrack = track
 	if track then
@@ -519,8 +526,8 @@ local function applyLaunch(payload: any)
 		return
 	end
 	if payload.reactionType == "ShieldSlide" then
-		ClientKnockbackController.Clear(character)
-		ShieldSlideController.Apply(
+		Knockback.Clear(character)
+		ShieldSlide.Apply(
 			character,
 			payload.hitId,
 			payload.launchVelocity,
@@ -531,8 +538,8 @@ local function applyLaunch(payload: any)
 	if payload.reactionType ~= "Launch" then
 		return
 	end
-	ShieldSlideController.Clear(character)
-	ClientKnockbackController.Apply(
+	ShieldSlide.Clear(character)
+	Knockback.Apply(
 		character,
 		payload.hitId,
 		payload.launchVelocity,
@@ -541,16 +548,14 @@ local function applyLaunch(payload: any)
 		tonumber(payload.maximumReactionSeconds) or 3.5,
 		tonumber(payload.landingRecoverySeconds) or 0.2,
 		function()
-			presentationBus:Fire("Landed", character, nil, payload.hitId)
+			PresentationBus.Fire("Landed", character, nil, payload.hitId)
 		end
 	)
 end
 
-CombatImpact.OnClientEvent:Connect(function(action: unknown, payload: any)
-	if action == "ApplyLaunch" then
-		applyLaunch(payload)
-	end
-end)
+table.insert(lifecycleConnections, CombatReaction.OnClientEvent:Connect(function(payload: any)
+	applyLaunch(payload)
+end))
 
 local function createCombatButtons()
 	if not UserInputService.TouchEnabled then
@@ -650,13 +655,13 @@ local function createCombatButtons()
 		return ready, canAttack == true, canGuard == true
 	end
 
-	attackButton.Activated:Connect(function()
+	table.insert(lifecycleConnections, attackButton.Activated:Connect(function()
 		if not ModalUtil.AnyOpen() then
 			local character = getCharacter()
 			local _, canAttack = getButtonAvailability()
 			if character and canAttack then attack(character) end
 		end
-	end)
+	end))
 	local shieldButtonHeld = false
 	local function lowerShieldButton()
 		if not shieldButtonHeld then
@@ -667,7 +672,7 @@ local function createCombatButtons()
 			endGuard(getCharacter(), true)
 		end
 	end
-	shieldButton.MouseButton1Down:Connect(function()
+	table.insert(lifecycleConnections, shieldButton.MouseButton1Down:Connect(function()
 		if shieldButtonHeld or ModalUtil.AnyOpen() then return end
 		local character = getCharacter()
 		local _, _, canGuard = getButtonAvailability()
@@ -675,13 +680,13 @@ local function createCombatButtons()
 			shieldButtonHeld = true
 			beginGuard(character)
 		end
-	end)
-	shieldButton.MouseButton1Up:Connect(lowerShieldButton)
-	UserInputService.InputEnded:Connect(function(input: InputObject)
+	end))
+	table.insert(lifecycleConnections, shieldButton.MouseButton1Up:Connect(lowerShieldButton))
+	table.insert(lifecycleConnections, UserInputService.InputEnded:Connect(function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.Touch then
 			lowerShieldButton()
 		end
-	end)
+	end))
 	local modalOpen = ModalUtil.AnyOpen()
 	ModalUtil.OnChanged(function(isOpen: boolean)
 		modalOpen = isOpen
@@ -690,7 +695,7 @@ local function createCombatButtons()
 		end
 	end)
 	local elapsed = 0
-	RunService.Heartbeat:Connect(function(deltaTime: number)
+	table.insert(lifecycleConnections, RunService.Heartbeat:Connect(function(deltaTime: number)
 		elapsed += deltaTime
 		if elapsed < 0.1 then return end
 		elapsed = 0
@@ -713,11 +718,11 @@ local function createCombatButtons()
 		shieldButton.BackgroundTransparency = if canGuard then 0.12 else 0.5
 		shieldButton.BackgroundColor3 = if guardRequested then PRESSED_BUTTON_COLOR else NORMAL_BUTTON_COLOR
 		relayout()
-	end)
+	end))
 	relayout()
 end
 
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
+table.insert(lifecycleConnections, UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
 	if gameProcessed or UserInputService:GetFocusedTextBox() or ModalUtil.AnyOpen() then
 		return
 	end
@@ -730,13 +735,13 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 			beginGuard(character)
 		end
 	end
-end)
+end))
 
-UserInputService.InputEnded:Connect(function(input: InputObject)
+table.insert(lifecycleConnections, UserInputService.InputEnded:Connect(function(input: InputObject)
 	if input.UserInputType == Enum.UserInputType.MouseButton2 and guardRequested then
 		endGuard(getCharacter(), true)
 	end
-end)
+end))
 
 local function bindCharacter(character: Model)
 	if combatReadyConnection then combatReadyConnection:Disconnect() end
@@ -767,12 +772,28 @@ local function bindCharacter(character: Model)
 	end)
 end
 
-localPlayer.CharacterAdded:Connect(bindCharacter)
+table.insert(lifecycleConnections, localPlayer.CharacterAdded:Connect(bindCharacter))
 if localPlayer.Character then task.defer(bindCharacter, localPlayer.Character) end
 task.defer(createCombatButtons)
+
+stopImpl = function()
+	for _, connection in lifecycleConnections do
+		connection:Disconnect()
+	end
+	table.clear(lifecycleConnections)
+	if combatReadyConnection then combatReadyConnection:Disconnect() end
+	if shieldGuardingConnection then shieldGuardingConnection:Disconnect() end
+	clearActiveAttack()
+	clearGuardConnections()
+	stopGuardTracks(0)
+end
 end
 
-function CombatClient.Destroy()
+function Input.Stop()
+	if stopImpl then
+		stopImpl()
+		stopImpl = nil
+	end
 end
 
-return CombatClient
+return Input

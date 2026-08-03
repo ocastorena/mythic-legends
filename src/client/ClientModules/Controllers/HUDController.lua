@@ -1,8 +1,15 @@
 -- StarterPlayer/StarterPlayerScripts/ClientModules/Controllers/HUDController
 
 local HUDController = {}
+local stopImpl: (() -> ())?
+local Context: any
 
-function HUDController.Start(_context: any)
+function HUDController.Init(context: any)
+	Context = context
+end
+
+function HUDController.Start()
+local connections: { RBXScriptConnection } = {}
 -- Owns every widget in HUDGui: the always-on-screen HUD.
 --
 -- The inventory open button lives in HUDGui but used to be hooked by InventoryController
@@ -24,7 +31,7 @@ local Ui = Client:WaitForChild("UI")
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
-local WalletStore = require(Client:WaitForChild("Currency"):WaitForChild("WalletStore"))
+local LocalData = Context.LocalData
 
 -- Art already in the place file; the design only specifies the frame around it.
 local INVENTORY_ICON = "rbxassetid://135273755533681"
@@ -273,7 +280,7 @@ local function relayout()
 	end
 end
 
-mainFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+table.insert(connections, mainFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout))
 
 relayout()
 -- The ScreenGui's physical size can settle one frame after the controller starts.
@@ -281,17 +288,37 @@ relayout()
 task.defer(relayout)
 
 if camera then
-	camera:GetPropertyChangedSignal("ViewportSize"):Connect(relayout)
+	table.insert(connections, camera:GetPropertyChangedSignal("ViewportSize"):Connect(relayout))
 end
 -- Roblox can change its Core UI inset independently of the viewport, so keep the row
 -- vertically aligned when the top bar changes.
-pcall(function()
-	game:GetService("GuiService"):GetPropertyChangedSignal("TopbarInset"):Connect(relayout)
+local insetOk, insetConnection = pcall(function()
+	return game:GetService("GuiService"):GetPropertyChangedSignal("TopbarInset"):Connect(relayout)
 end)
+if insetOk then table.insert(connections, insetConnection) end
 
-WalletStore.OnRuniesChanged(function(amount)
-	runiesTotalLabel.Text = WalletStore.format(amount)
-end)
+local function formatRunies(amount: number): string
+	local formatted = tostring(math.floor(amount))
+	while true do
+		local replacements
+		formatted, replacements = formatted:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
+		if replacements == 0 then
+			return formatted
+		end
+	end
+end
+
+local function updateCurrency(payload: unknown)
+	local amount = if type(payload) == "table" then tonumber(payload.runies) or 0 else 0
+	runiesTotalLabel.Text = formatRunies(amount)
+end
+
+updateCurrency(LocalData.Peek("currency"))
+table.insert(connections, LocalData.OnStateChanged:Connect(function(key, payload)
+	if key == "currency" then
+		updateCurrency(payload)
+	end
+end))
 
 --- Panels are opened by toggling their ScreenGui's Enabled flag; that is the contract
 --- every panel controller already listens on, so the HUD never reaches inside another GUI.
@@ -328,9 +355,14 @@ end)
 ButtonUtil.hookClick(shopButton, function()
 	togglePanel("ShopGui")
 end)
+stopImpl = function()
+	for _, connection in connections do connection:Disconnect() end
+	table.clear(connections)
+end
 end
 
-function HUDController.Destroy()
+function HUDController.Stop()
+	if stopImpl then stopImpl(); stopImpl = nil end
 end
 
 return HUDController
