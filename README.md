@@ -16,7 +16,11 @@ rojo serve
 
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
 
-## Project Structure
+## Current Project Structure
+
+The current checkout still uses the following Rojo mapping. The approved architecture
+migration will replace it atomically; do not add a second bootstrap or data framework beside
+the existing one during the transition.
 
 ```
 src/
@@ -41,19 +45,188 @@ src/
     Types.lua          -> ReplicatedStorage.Shared.Types
 ```
 
+## Target Roblox Explorer Structure
+
+`default.project.json` is responsible for producing this structure in Roblox Studio. The
+repository layout may use additional folders for organization, but the synced Roblox instance
+paths are the architectural contract.
+
+```text
+Workspace
+  Map                 -- authored terrain, buildings, and static environment
+  Spawns              -- authored player spawn locations
+  Visuals             -- authored particles, lights, and decorations
+  Runtime             -- server-created Mythlings, bases, effects, and other session state
+ReplicatedStorage
+  Network             -- RemoteEvents and RemoteFunctions
+  SharedModules       -- metadata, types, and logic required by server and client
+  Assets              -- client-visible UI, audio, VFX, and preview assets
+ServerScriptService
+  MainServer          -- the only server bootstrap
+  ServerModules       -- services, infrastructure, data manager, and server-only packages
+ServerStorage
+  Databases           -- player-data templates and server-only mock/test definitions
+  ServerAssets        -- weapons, NPCs, base assets, and other server-only templates
+StarterGui
+  <Feature>Gui        -- renderable ScreenGuis remain direct StarterGui children
+StarterPlayer
+  StarterCharacterScripts
+  StarterPlayerScripts
+    MainClient        -- the only client bootstrap
+    ClientModules     -- controllers, local state, input, UI, and audio modules
+```
+
+`Runtime` is intentionally separate from authored Workspace content. `GameHUD` may be used as
+a repository directory for organization, but it must not become a plain Roblox `Folder` around
+renderable `ScreenGui` instances; the ScreenGuis must remain direct children of `StarterGui`.
+
 ## Naming Conventions
 
 | Role | Server | Client |
 | --- | --- | --- |
-| Main entry module | `<Domain>Service.lua` | `<Domain>Controller.client.lua` |
+| Bootstrap | `MainServer/init.server.lua` | `MainClient/init.client.lua` |
+| Domain module | `<Domain>Service.lua` | `<Domain>Controller.lua` |
 | Helper module | `<Thing>Util.lua` | `<Thing>Util.lua` |
-| Entry point with helpers | folder + `init.lua` | folder + `init.client.lua` |
+| Module with children | folder + `init.lua` | folder + `init.lua` |
 
-- **PascalCase** for every file and folder; the filename is the Roblox instance name.
-- **Singular domain** in module names (`MythlingService`, not `MythlingsService`). Metadata tables are the exception — they hold collections, so they stay plural (`Metadata/Mythlings.lua`).
-- **Helpers live under their owner.** A module that needs helpers becomes a folder with an `init` script; the helpers are its children, reached via `require(script.FooUtil)`. Helpers are never siblings of the services in `Services/`.
-- **The returned table matches the filename** (`local BaseUtil = {}` in `BaseUtil.lua`), and so do `print`/`warn` tags (`[BaseUtil]`).
-- **First line is the instance path**, e.g. `-- ServerScriptService/Services/BaseService/BaseUtil`.
-- **No redundant suffixes.** `.client.lua` already marks a LocalScript, so scripts don't repeat `Client`. GUI controllers are named for the feature, not the ScreenGui (`InventoryGui/InventoryController`, not `InventoryGui/InventoryGui`).
+- Use **PascalCase** for files, folders, Roblox instances, module tables, exported types,
+  services, and controllers: `DataManager.lua`, `UIController.lua`, and `PlayerData`.
+- Use **PascalCase** for public module methods: `DataManager.Load`, `Release`, `GetState`,
+  and `UIController.Init`.
+- Use **camelCase** for local functions, parameters, and variables: `loadProfile`,
+  `activeProfiles`, `playerData`, and `stateRevision`.
+- Use **UPPER_SNAKE_CASE** for immutable module constants: `STORE_NAME`,
+  `PROFILE_KEY_PREFIX`, and `LOAD_TIMEOUT_SECONDS`.
+- Name booleans as predicates: `isLoaded`, `hasInventorySpace`, `shouldReplicate`, and
+  `canAttack`. Avoid ambiguous names such as `flag`, `check`, or `status` when a precise name
+  is available.
+- Name events and signals for occurrences: `OnStateChanged`, `OnProfileLoaded`, and
+  `OnSessionEnded`.
+- Name `RemoteEvent` instances as actions or notifications: `UpdateState`, `PerformAttack`,
+  and `ToggleCombatState`. Name `RemoteFunction` instances as requests or queries:
+  `RequestState`, `GetInventory`, and `GetStands`.
+- Use singular nouns for data types and owned records: `PlayerData`, `StatePacket`, and
+  `MythlingEntry`. Collection metadata modules are plural: `Metadata/Mythlings.lua`.
+- Use **camelCase** for serialized field and remote-payload keys. Stable metadata IDs use
+  lowercase `snake_case`; they are identifiers, not display names.
+- Keep module-private state `local` without an underscore prefix: use `profiles` and
+  `localCache`, not `_profiles` or `_localCache`.
+- Use the lifecycle names `Init(context)`, `Start()`, and `Stop()` for server modules, and
+  `Init(context)`, `Start()`, and `Destroy()` for client controllers. Requiring a module must
+  not connect events or start tasks before its lifecycle method is called.
+- Use `.server.lua` and `.client.lua` only for executable bootstrap scripts or intentionally
+  self-running scripts. Bootstrapped controllers are ordinary ModuleScripts named
+  `<Domain>Controller.lua`; do not use redundant names such as `CombatClient.client.lua`.
+- A module's returned table must match its filename, and its log tag must match both:
+  `BaseUtil.lua` returns `BaseUtil` and logs with `[BaseUtil]`.
+- Helper modules live under their owning domain and are required through `script`, keeping
+  domain internals cohesive.
+- The first line of every Luau source file is its exact Roblox instance path, for example
+  `-- ServerScriptService/ServerModules/DataManager`.
 
-`Bootstrap` loads every `ModuleScript` directly under `Services/`, then calls `Init(context)` and `Start()` in priority order. A new service just needs to be dropped into that folder.
+## GUI Components and Controllers
+
+GUI uses a hybrid ownership model: Studio owns visual composition, while Rojo owns behavior,
+state flow, contracts, and versioned reusable assets.
+
+### ScreenGui roots
+
+- Keep each renderable feature root (`HUDGui`, `HotbarGui`, `InventoryGui`, `ShopGui`, and
+  `StandGui`) as a direct child of `StarterGui`.
+- `GameHUD` may organize these roots in the repository, but it must not become a plain Roblox
+  `Folder` around them in Explorer.
+- Studio-authored roots must use stable `PascalCase` descendant names. Controllers may depend
+  on documented semantic elements such as `MainPanel`, `ItemList`, and `CloseButton`, but not on
+  incidental decorative wrappers.
+
+### Visual ownership
+
+- Author frames, labels, buttons, constraints, layouts, padding, fonts, gradients, strokes,
+  corners, viewport presentation, responsive layout, and selection navigation in Studio.
+- Keep visual properties with the component that owns them. Put genuinely shared colors,
+  spacing, typography, and animation durations in a client-side `Theme` module.
+- Back up production GUI roots and reusable components as versioned `.rbxm` or `.rbxmx`
+  artifacts when they are not fully described by Rojo source. A clean build must not depend on
+  the only copy living in one Studio place.
+
+### Behavior ownership
+
+- Keep GUI behavior in bootstrapped modules under `StarterPlayerScripts/ClientModules`.
+  `MainClient` initializes state and networking first, then feature and view controllers.
+- A controller receives its `ScreenGui` root through `Init(context)`, resolves required
+  descendants once, subscribes to state/domain events, and releases every connection in
+  `Destroy()`.
+- Controllers must update views from `LocalData` or a server-confirmed domain event. Do not use
+  polling loops, duplicate remote listeners, or UI properties as authoritative game state.
+- `UIController` coordinates replication and screen lifecycle; focused controllers such as
+  `InventoryController` and `HUDController` own feature rules. Avoid a single monolithic UI
+  router.
+
+### Reusable components
+
+- Put dynamically cloned, client-visible templates under
+  `ReplicatedStorage.Assets.UI.Components`; keep static elements inside their owning
+  `ScreenGui`.
+- Give reusable components a small explicit API such as `new(root)`, `SetValue(value)`,
+  `SetVisible(isVisible)`, and `Destroy()`. Component modules never read or mutate server data
+  directly.
+- Store published image, font, sound, and animation IDs in metadata/configuration rather than
+  scattering IDs through view controllers.
+
+### Security and accessibility
+
+- The client may present input feedback, pending states, and cosmetic prediction, but it may
+  not grant currency/items, approve purchases or crafting, or mutate persistent data.
+- The server validates every intent and replicates the confirmed result that drives the final
+  UI state.
+- New components must support mobile safe areas, touch targets, flexible layouts, legible text,
+  non-color-only status communication, and Reduce Motion behavior where animation is used.
+
+## Roblox Studio and Rojo Ownership
+
+Rojo and Studio are complementary, but a given instance must have one clear owner. Never edit
+the same instance hierarchy independently in both places and expect Rojo to merge it safely.
+
+### Keep in the Rojo repository
+
+- All Luau source, bootstraps, services, controllers, utilities, types, tests, and vendored
+  packages.
+- The canonical Explorer hierarchy, instance classes, important properties, and all network
+  definitions in `default.project.json`.
+- Static metadata, balance values, feature configuration, schema versions, and player-data
+  templates. Mutable player state never belongs in source files.
+- UI logic and any UI hierarchy that can be represented reliably as Rojo source or a versioned
+  model artifact.
+- Published asset IDs and their configuration. Keep editable source assets such as `.blend`
+  files in the repository when practical; do not treat a published Roblox asset as the only
+  source copy.
+- Toolchain configuration, documentation, and migration notes.
+
+### Author in Roblox Studio
+
+- Terrain and large spatially authored map composition.
+- Spawn placement, lighting composition, attachments, particle emitters, and other content
+  whose authoring depends on the 3D viewport.
+- Complex Roblox models, rigs, animations, and UI layouts while they are being visually
+  authored.
+- Instance properties that cannot be represented safely or ergonomically through the current
+  Rojo source format.
+
+Studio-authored production content should still be backed up or exported into version control
+when practical. Reusable models can be checked in as model artifacts; external art source files
+belong under `art/`; published animations, sounds, meshes, and images must have their asset IDs
+recorded in metadata.
+
+### Runtime-only content
+
+- Objects created for a live server session belong under `Workspace.Runtime` and must never be
+  authored, persisted, or synced back through Rojo.
+- Player save data belongs only in the server data framework. Do not store it in replicated
+  Instances, attributes, source modules, or Studio mock objects.
+- Temporary combat state, cooldowns, capture progress, active effects, and spawned encounters
+  remain server-owned memory unless the data contract explicitly marks a client-safe projection.
+
+For mixed Studio/Rojo parents such as `Workspace.Map`, `Workspace.Visuals`, `ServerStorage.ServerAssets`,
+and the direct `StarterGui` roots, use `$ignoreUnknownInstances` deliberately so Rojo preserves
+Studio-authored children. Rojo owns the mapped container and source-backed descendants; Studio
+owns only the explicitly documented unknown descendants.
