@@ -3,6 +3,35 @@
   "tree": {
     "$className": "DataModel",
 
+    "Workspace": {
+      "$className": "Workspace",
+      "$ignoreUnknownInstances": true,
+      "Map": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true
+      },
+      "Spawns": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true
+      },
+      "Visuals": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true
+      },
+      "Runtime": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true,
+        "Bases": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Mythlings": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        }
+      }
+    },
+
     "ReplicatedFirst": {
       "$className": "ReplicatedFirst",
       "$path": "src/client/ReplicatedFirst"
@@ -10,74 +39,121 @@
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "WeaponAssets": {
+      "$ignoreUnknownInstances": true,
+      "Network": {
         "$className": "Folder",
-        "$ignoreUnknownInstances": true
+        "AdminEvent": { "$className": "RemoteEvent" },
+        "BaseEvent": { "$className": "RemoteEvent" },
+        "ClaimEvent": { "$className": "RemoteEvent" },
+        "CombatImpact": { "$className": "RemoteEvent" },
+        "CurrencyEvent": { "$className": "RemoteEvent" },
+        "MythlingsEvent": { "$className": "RemoteEvent" },
+        "PerformAttack": { "$className": "RemoteEvent" },
+        "SetShieldGuard": { "$className": "RemoteEvent" },
+        "SpawnEvent": { "$className": "RemoteEvent" },
+        "UpdateState": { "$className": "RemoteEvent" },
+        "CombatLoadoutRequest": { "$className": "RemoteFunction" },
+        "ConsumablesRequest": { "$className": "RemoteFunction" },
+        "GetStands": { "$className": "RemoteFunction" },
+        "MaterialsRequest": { "$className": "RemoteFunction" },
+        "MythlingsRequest": { "$className": "RemoteFunction" },
+        "RequestState": { "$className": "RemoteFunction" }
       },
-      "PerformAttack": {
-        "$className": "RemoteEvent"
+      "SharedModules": {
+        "$path": "src/shared/SharedModules"
       },
-      "SetShieldGuard": {
-        "$className": "RemoteEvent"
-      },
-      "CombatImpact": {
-        "$className": "RemoteEvent"
-      },
-      "CombatLoadoutRequest": {
-        "$className": "RemoteFunction"
-      },
-      "Metadata": {
-        "$path": "src/shared/Metadata"
-      },
-      "Shared": {
+      "Assets": {
         "$className": "Folder",
-        "ArenaBounds": {
-          "$path": "src/shared/ArenaBounds.lua"
+        "$ignoreUnknownInstances": true,
+        "Audio": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
         },
-        "Types": {
-          "$path": "src/shared/Types.lua"
+        "Equipment": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "MythlingPreviews": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Templates": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "UI": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true,
+          "Components": {
+            "$className": "Folder",
+            "$ignoreUnknownInstances": true
+          }
         }
-      },
-      "Client": {
-        "$path": "src/client/Modules"
       }
     },
 
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "EquipmentStateManager": {
-        "$path": "src/server/EquipmentStateManager.server.lua"
+      "$ignoreUnknownInstances": true,
+      "MainServer": {
+        "$path": "src/server/MainServer"
       },
-      "Infrastructure": {
-        "$path": "src/server/Infrastructure"
+      "ServerModules": {
+        "$path": "src/server/ServerModules"
+      }
+    },
+
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "$ignoreUnknownInstances": true,
+      "Databases": {
+        "$path": "src/server/Databases"
       },
-      "Services": {
-        "$path": "src/server/Services"
-      },
-      "Bootstrap": {
-        "$path": "src/server/Bootstrap.server.lua"
+      "ServerAssets": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true,
+        "Bases": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Mythlings": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        }
       }
     },
 
     "StarterPlayer": {
       "$className": "StarterPlayer",
+      "StarterCharacterScripts": {
+        "$className": "StarterCharacterScripts",
+        "$ignoreUnknownInstances": true
+      },
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "$path": "src/client/StarterPlayerScripts"
+        "$ignoreUnknownInstances": true,
+        "MainClient": {
+          "$path": "src/client/MainClient"
+        },
+        "ClientModules": {
+          "$path": "src/client/ClientModules"
+        }
       }
     },
+
     "StarterGui": {
       "$className": "StarterGui",
       "$ignoreUnknownInstances": true,
       "InventoryGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
-        "$path": "src/client/StarterGui/InventoryGui"
+        "$properties": {
+          "ResetOnSpawn": false
+        }
       },
       "ShopGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
-        "$path": "src/client/StarterGui/ShopGui",
         "$properties": {
           "Enabled": false,
           "ResetOnSpawn": false
@@ -86,17 +162,23 @@
       "StandGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
-        "$path": "src/client/StarterGui/StandGui"
+        "$properties": {
+          "ResetOnSpawn": false
+        }
       },
       "HUDGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
-        "$path": "src/client/StarterGui/HUDGui"
+        "$properties": {
+          "ResetOnSpawn": false
+        }
       },
       "HotbarGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
-        "$path": "src/client/StarterGui/HotbarGui"
+        "$properties": {
+          "ResetOnSpawn": false
+        }
       }
     }
   }

@@ -18,32 +18,41 @@ For more help, check out [the Rojo documentation](https://rojo.space/docs).
 
 ## Current Project Structure
 
-The current checkout still uses the following Rojo mapping. The approved architecture
-migration will replace it atomically; do not add a second bootstrap or data framework beside
-the existing one during the transition.
+The checkout uses the production Rojo architecture below. `MainServer` and `MainClient` are
+the only executable lifecycle owners; feature services and controllers are required as
+ModuleScripts and started by those bootstraps.
 
 ```
 src/
   server/
-    Bootstrap.server.lua -> ServerScriptService.Bootstrap
-    Services/          -> ServerScriptService.Services
+    MainServer/init.server.lua -> ServerScriptService.MainServer
+    Databases/PlayerDataTemplate.lua -> ServerStorage.Databases.PlayerDataTemplate
+    ServerModules/     -> ServerScriptService.ServerModules
+      DataManager.lua
+      EquipmentStateService.lua
+      Packages/ProfileStore.luau
+      Services/
       BaseService/       init.lua + BaseUtil.lua + StandUtil.lua
       ClaimService.lua
       ...
-    Infrastructure/    -> ServerScriptService.Infrastructure
+      Infrastructure/
   client/
-    Modules/              -> ReplicatedStorage.Client
-    StarterPlayerScripts/  -> StarterPlayer.StarterPlayerScripts
-      CombatClient.client.lua (server-authoritative model-based melee input)
-      ClaimController.client.lua
-      ...
-    StarterGui/            -> StarterGui.<Name>Gui (ScreenGui)
-      InventoryGui/InventoryController.client.lua
-      ...
+    MainClient/init.client.lua -> StarterPlayerScripts.MainClient
+    ClientModules/       -> StarterPlayerScripts.ClientModules
+      LocalData.lua
+      UIController.lua
+      Controllers/
+      UI/
   shared/
-    Metadata/          -> ReplicatedStorage.Metadata
-    Types.lua          -> ReplicatedStorage.Shared.Types
+    SharedModules/     -> ReplicatedStorage.SharedModules
+      Metadata/
+      Types.lua
 ```
+
+`ReplicatedStorage.Network` is declared in `default.project.json`. Persistent player data uses
+the vendored `ProfileStore` package and the `MythicLegends_PlayerData_v1` store. The server
+replicates only a client-safe projection through revisioned `UpdateState` packets and the
+`RequestState` recovery snapshot; clients cannot access profiles or mutate server memory.
 
 ## Target Roblox Explorer Structure
 
