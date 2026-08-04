@@ -28,14 +28,19 @@ src/
     MainServer/init.server.lua -> ServerScriptService.MainServer
     Databases/PlayerDataTemplate.lua -> ServerStorage.Databases.PlayerDataTemplate
     ServerModules/     -> ServerScriptService.ServerModules
-      DataManager.lua
-      EquipmentStateService.lua
-      Packages/ProfileStore.luau
-      Services/
-      BaseService/       init.lua + BaseUtil.lua + StandUtil.lua
-      ClaimService.lua
-      ...
       Infrastructure/
+      Packages/
+        ProfileStore.luau
+      PostLaunch/
+      Services/
+        DataManager/init.lua
+        CombatService/init.lua
+        BaseService/       init.lua + BaseUtil.lua + StandUtil.lua
+        InventoryService/
+        ProductionService/
+        SpawnService.lua
+        ClaimService.lua
+        MythlingPreviewService.lua
   client/
     MainClient/init.client.lua -> StarterPlayerScripts.MainClient
     ClientModules/       -> StarterPlayerScripts.ClientModules
@@ -100,7 +105,7 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
 | Module with children | folder + `init.lua` | folder + `init.lua` |
 
 - Use **PascalCase** for files, folders, Roblox instances, module tables, exported types,
-  services, and controllers: `DataManager.lua`, `UIController.lua`, and `PlayerData`.
+  services, and controllers: `DataManager/init.lua`, `UIController.lua`, and `PlayerData`.
 - Use **PascalCase** for public module methods: `DataManager.Load`, `Release`, `GetState`,
   and `UIController.Init`.
 - Use **camelCase** for local functions, parameters, and variables: `loadProfile`,
@@ -134,7 +139,7 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
 - Helper modules live under their owning domain and are required through `script`, keeping
   domain internals cohesive.
 - The first line of every Luau source file is its exact Roblox instance path, for example
-  `-- ServerScriptService/ServerModules/DataManager`.
+  `-- ServerScriptService/ServerModules/Services/DataManager`.
 
 ## Logging Conventions
 

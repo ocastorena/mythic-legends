@@ -1,4 +1,4 @@
--- ServerScriptService/ServerModules/DataManager
+-- ServerScriptService/ServerModules/Services/DataManager
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -38,7 +38,6 @@ local liveStore = ProfileStore.New(STORE_NAME, PlayerDataTemplate)
 local playerStore = if RunService:IsStudio() then liveStore.Mock else liveStore
 
 local DataManager = {}
-DataManager.Priority = 10
 
 local profiles: { [Player]: any } = {}
 local loading: { [Player]: boolean } = {}

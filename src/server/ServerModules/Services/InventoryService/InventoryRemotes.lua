@@ -3,9 +3,8 @@
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local RateLimiter = require(
-	ServerScriptService.ServerModules.Infrastructure:WaitForChild("RateLimiter")
-)
+local Infrastructure = ServerScriptService:WaitForChild("ServerModules"):WaitForChild("Infrastructure")
+local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 
 local InventoryRemotes = {}
 

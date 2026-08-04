@@ -3,12 +3,12 @@
 
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local LogUtil = require(ServerScriptService.ServerModules.Infrastructure.LogUtil)
+local Infrastructure = ServerScriptService:WaitForChild("ServerModules"):WaitForChild("Infrastructure")
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local log = LogUtil.For("MythlingPreviewService")
 
 local MythlingPreviewService = {}
 
-MythlingPreviewService.Priority = 5
 local Context: any
 
 local function clearPreviews(previews: Folder)

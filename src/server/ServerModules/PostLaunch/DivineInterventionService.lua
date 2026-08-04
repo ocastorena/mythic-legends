@@ -10,12 +10,11 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local TextChatService = game:GetService("TextChatService")
 local TweenService = game:GetService("TweenService")
 
-local LogUtil = require(ServerScriptService.ServerModules.Infrastructure.LogUtil)
+local Infrastructure = ServerScriptService:WaitForChild("ServerModules"):WaitForChild("Infrastructure")
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local log = LogUtil.For("DivineInterventionService")
 
-local DivineInterventionService = {
-	Priority = 140,
-}
+local DivineInterventionService = {}
 
 local context
 local arena: BasePart

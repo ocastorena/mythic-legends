@@ -9,19 +9,19 @@ local ServerModules = ServerScriptService:WaitForChild("ServerModules")
 local Infrastructure = ServerModules:WaitForChild("Infrastructure")
 local ServicesFolder = ServerModules:WaitForChild("Services")
 
-local DataManager = require(ServerModules:WaitForChild("DataManager"))
-local EquipmentStateService = require(ServerModules:WaitForChild("EquipmentStateService"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local RemoteUtil = require(Infrastructure:WaitForChild("RemoteUtil"))
 
 local log = LogUtil.For("MainServer")
 local SERVICE_ORDER = {
+	"DataManager",
 	"InventoryService",
 	"ProductionService",
 	"BaseService",
 	"SpawnService",
 	"ClaimService",
 	"MythlingPreviewService",
+	"CombatService",
 }
 
 local map = workspace:WaitForChild("Map")
@@ -57,22 +57,15 @@ local context = {
 	Services = {},
 }
 
-local services = {
-	DataManager = DataManager,
-	EquipmentStateService = EquipmentStateService,
-}
+local services = {}
+local ordered = {}
 for _, name in ipairs(SERVICE_ORDER) do
-	services[name] = require(ServicesFolder:WaitForChild(name))
+	local service = require(ServicesFolder:WaitForChild(name))
+	services[name] = service
+	table.insert(ordered, { name = name, service = service })
 end
 context.Services = services
-
-local ordered = {
-	{ name = "DataManager", service = DataManager },
-}
-for _, name in ipairs(SERVICE_ORDER) do
-	table.insert(ordered, { name = name, service = services[name] })
-end
-table.insert(ordered, { name = "EquipmentStateService", service = EquipmentStateService })
+local DataManager = services.DataManager
 
 for _, entry in ipairs(ordered) do
 	entry.service.Init(context)

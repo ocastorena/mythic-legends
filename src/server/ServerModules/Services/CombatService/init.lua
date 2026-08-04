@@ -1,4 +1,4 @@
--- ServerScriptService/ServerModules/EquipmentStateService
+-- ServerScriptService/ServerModules/Services/CombatService
 -- Server-owned R15 loadouts, Arena state, Stamina, guard validation, and hit authorization.
 
 local Players = game:GetService("Players")
@@ -6,9 +6,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local TweenService = game:GetService("TweenService")
-local RateLimiter = require(ServerScriptService.ServerModules.Infrastructure.RateLimiter)
-local LogUtil = require(ServerScriptService.ServerModules.Infrastructure.LogUtil)
-local log = LogUtil.For("EquipmentStateService")
+
+local Infrastructure = ServerScriptService:WaitForChild("ServerModules"):WaitForChild("Infrastructure")
+local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
+local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local log = LogUtil.For("CombatService")
 
 local Equipment: any
 local ArenaBounds: any
@@ -23,8 +25,7 @@ local GetLoadoutRemote: RemoteFunction
 local EquipRemote: RemoteFunction
 local Arena: BasePart
 
-local EquipmentStateService = {}
-EquipmentStateService.Priority = 20
+local CombatService = {}
 
 local EQUIPMENT_FOLDER_NAME = "EquippedEquipment"
 local STATE_STEP_SECONDS = 0.1
@@ -877,7 +878,7 @@ local function onPlayerRemoving(player: Player)
 	reportHitLimiter:Forget(player)
 end
 
-function EquipmentStateService.Init(context: any)
+function CombatService.Init(context: any)
 	Equipment = context.Metadata.Equipment
 	ArenaBounds = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("ArenaBounds"))
 	DataManager = context.Services.DataManager
@@ -892,7 +893,7 @@ function EquipmentStateService.Init(context: any)
 	Arena = context.Instances.Arena
 end
 
-function EquipmentStateService.Start()
+function CombatService.Start()
 	for _, authoringName in { "R15WeaponPositioningRig", "WeaponPosePreview" } do
 		local authoringInstance = workspace:FindFirstChild(authoringName)
 		if authoringInstance then
@@ -973,7 +974,7 @@ function EquipmentStateService.Start()
 	end
 end
 
-function EquipmentStateService.Stop()
+function CombatService.Stop()
 	GetLoadoutRemote.OnServerInvoke = nil
 	EquipRemote.OnServerInvoke = nil
 	for _, connection in serviceConnections do
@@ -989,4 +990,4 @@ function EquipmentStateService.Stop()
 	reportHitLimiter:Clear()
 end
 
-return EquipmentStateService
+return CombatService
