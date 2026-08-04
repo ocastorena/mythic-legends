@@ -6,7 +6,10 @@ local VFX = require(script.VFX)
 
 local CombatController = {}
 
-function CombatController.Init(context: any)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+
+function CombatController.Init(context: Types.ClientContext)
 	PresentationBus.Init(context)
 	VFX.Init(context)
 	Input.Init(context)

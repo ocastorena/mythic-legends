@@ -3,24 +3,34 @@
 -- through InventoryService.
 
 local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 local log = LogUtil.For("ProductionService")
 
 local Accrual = {}
 
-local InventoryService: any
-local MythlingsData: any
+type InventoryServiceApi = {
+	GetMythling: (Player, string) -> Types.MythlingEntry?,
+	AddMaterial: (Player, string, number) -> (),
+	MarkDirty: (Player) -> boolean,
+}
+export type ProductionStatus = {
+	production: number,
+	capacity: number,
+	rate: number,
+}
 
-local function getEntry(player: Player, mythlingId: any)
-	if type(mythlingId) ~= "string" then
-		return nil
-	end
+local InventoryService: InventoryServiceApi
+local MythlingsData: { [string]: Types.MythlingDef }
+
+local function getEntry(player: Player, mythlingId: string): Types.MythlingEntry?
 	return InventoryService.GetMythling(player, mythlingId)
 end
 
-local function calculate(player: Player, mythlingId: string)
+local function calculate(player: Player, mythlingId: string): (number, number, number)
 	local entry = getEntry(player, mythlingId)
 	if not entry then
 		return 0, 0, 0
@@ -37,8 +47,6 @@ local function calculate(player: Player, mythlingId: string)
 	local capacity = production.baseCapacity
 	local lastCollection = entry.lastCollectionAt
 	if not lastCollection then
-		entry.lastCollectionAt = os.time()
-		InventoryService.MarkDirty(player)
 		return 0, capacity, rate
 	end
 
@@ -46,13 +54,14 @@ local function calculate(player: Player, mythlingId: string)
 	return math.floor(math.min(currentAmount, capacity)), capacity, rate
 end
 
-function Accrual.Init(inventoryService, mythlingsData)
+function Accrual.Init(inventoryService: InventoryServiceApi, mythlingsData: { [string]: Types.MythlingDef })
 	InventoryService = inventoryService
 	MythlingsData = mythlingsData
 end
 
-function Accrual.Get(player: Player, mythlingId: any): any?
-	if not getEntry(player, mythlingId) then
+function Accrual.Get(player: Player, mythlingId: string): ProductionStatus?
+	local entry = getEntry(player, mythlingId)
+	if not entry or entry.lastCollectionAt == nil then
 		return nil
 	end
 
@@ -60,21 +69,25 @@ function Accrual.Get(player: Player, mythlingId: any): any?
 	return { production = production, capacity = capacity, rate = rate }
 end
 
-function Accrual.Collect(player: Player, mythlingId: any)
+function Accrual.Collect(player: Player, mythlingId: string): (boolean, string?)
 	local entry = getEntry(player, mythlingId)
 	if not entry then
-		return
+		return false, "NotOwned"
+	end
+	if entry.lastCollectionAt == nil then
+		return false, "NotProducing"
 	end
 
 	local definition = MythlingsData[entry.typeId]
 	if not definition then
-		return
+		return false, "InvalidDefinition"
 	end
 
 	local amount = calculate(player, mythlingId)
 	InventoryService.AddMaterial(player, definition.production.materialId, amount)
 	entry.lastCollectionAt = os.time()
 	InventoryService.MarkDirty(player)
+	return true
 end
 
 function Accrual.Start(player: Player, mythlingId: string)

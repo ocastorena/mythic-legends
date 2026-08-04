@@ -3,7 +3,7 @@
 local NotificationController = {}
 local connection: RBXScriptConnection?
 
-function NotificationController.Init(_context: any)
+function NotificationController.Init(_context: unknown)
 end
 
 function NotificationController.Start()

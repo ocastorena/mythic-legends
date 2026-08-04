@@ -2,9 +2,11 @@
 
 local InventoryController = {}
 local stopImpl: (() -> ())?
-local Context: any
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Context: Types.ClientContext
 
-function InventoryController.Init(context: any)
+function InventoryController.Init(context: Types.ClientContext)
 	Context = context
 end
 
@@ -22,7 +24,6 @@ local characterConnections: { RBXScriptConnection } = {}
 -- separate `Bottom` frame; §07 puts panel actions in the details footer, so that is where
 -- it is.
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local LocalData = Context.LocalData
 
@@ -34,7 +35,7 @@ local Ui = script:FindFirstAncestor("Controllers").Parent:WaitForChild("UI")
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local CardListUtil = require(Ui:WaitForChild("CardListUtil"))
 local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
-local MythlingPreviewUtil = require(Ui:WaitForChild("MythlingPreviewUtil"))
+local MythlingThumbnailUtil = require(Ui:WaitForChild("MythlingThumbnailUtil"))
 local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
 local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
 local EquipmentPreviewUtil = require(Ui:WaitForChild("EquipmentPreviewUtil"))
@@ -290,8 +291,7 @@ end
 local function clearMythlingInfo()
 	mythlingInfo.NameLabel.Text = ""
 	mythlingInfo.RarityLabel.Text = ""
-	mythlingInfo.Art.Image = ""
-	MythlingPreviewUtil.Clear(mythlingInfo.Art)
+	MythlingThumbnailUtil.Clear(mythlingInfo.Art)
 	for _, stat in ipairs(mythlingInfo.Stats) do
 		stat.Value.Text = "—"
 		stat.Label.Text = ""
@@ -306,8 +306,7 @@ local mythlingList = CardListUtil.new({
 		local metadata = MythlingsData[entry.typeId]
 		local variant = metadata.variants[entry.variantId]
 		local preview = card:WaitForChild("2dPreview")
-		preview.Image = ""
-		MythlingPreviewUtil.Render(preview, variant.model, entry.variantId)
+		MythlingThumbnailUtil.Render(preview, variant.thumbnail)
 		-- Read back by setRingHighlight, which only receives the card.
 		card:SetAttribute("Rarity", metadata.rarity)
 		PanelUtil.setCellRing(card, metadata.rarity, false)
@@ -324,8 +323,7 @@ local mythlingList = CardListUtil.new({
 		local variant = metadata.variants[entry.variantId]
 
 		mythlingInfo.NameLabel.Text = metadata.displayName
-		mythlingInfo.Art.Image = ""
-		MythlingPreviewUtil.Render(mythlingInfo.Art, variant.model, entry.variantId)
+		MythlingThumbnailUtil.Render(mythlingInfo.Art, variant.thumbnail)
 		PanelUtil.setHeroRarity(mythlingInfo, metadata.rarity)
 
 		-- This game has no elements; a mythling's identity colour is the material it

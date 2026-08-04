@@ -3,7 +3,7 @@
 local StaminaController = {}
 local stopImpl: (() -> ())?
 
-function StaminaController.Init(_context: any)
+function StaminaController.Init(_context: unknown)
 end
 
 function StaminaController.Start()

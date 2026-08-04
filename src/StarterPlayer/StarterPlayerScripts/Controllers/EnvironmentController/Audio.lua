@@ -4,7 +4,7 @@ local Audio = {}
 local ownedInstances: { Instance } = {}
 local ambienceThread: thread?
 
-function Audio.Init(_context: any)
+function Audio.Init(_context: unknown)
 end
 
 function Audio.Start()

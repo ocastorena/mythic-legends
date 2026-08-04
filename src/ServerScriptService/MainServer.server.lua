@@ -19,7 +19,6 @@ local SERVICE_ORDER = {
 	"BaseService",
 	"SpawnService",
 	"ClaimService",
-	"MythlingPreviewService",
 	"CombatService",
 }
 
@@ -43,7 +42,6 @@ local context = {
 		BaseAssets = serverAssets:WaitForChild("Bases"),
 		EquipmentAssets = assets:WaitForChild("Equipment"),
 		Templates = assets:WaitForChild("Templates"),
-		MythlingPreviews = assets:WaitForChild("MythlingPreviews"),
 	},
 	Configurations = {
 		Mythlings = require(configurations:WaitForChild("Mythlings")),

@@ -3,7 +3,7 @@
 local Motion = {}
 local connections: { RBXScriptConnection } = {}
 
-function Motion.Init(_context: any)
+function Motion.Init(_context: unknown)
 end
 
 function Motion.Start()

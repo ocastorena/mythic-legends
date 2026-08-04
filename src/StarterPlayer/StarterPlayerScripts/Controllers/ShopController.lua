@@ -3,7 +3,7 @@
 local ShopController = {}
 local stopImpl: (() -> ())?
 
-function ShopController.Init(_context: any)
+function ShopController.Init(_context: unknown)
 end
 
 function ShopController.Start()

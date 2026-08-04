@@ -3,7 +3,7 @@
 local Quality = {}
 local connections: { RBXScriptConnection } = {}
 
-function Quality.Init(_context: any)
+function Quality.Init(_context: unknown)
 end
 
 function Quality.Start()

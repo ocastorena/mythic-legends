@@ -41,7 +41,6 @@ src/
       ProductionService/
       SpawnService/init.lua
       ClaimService/init.lua
-      MythlingPreviewService/init.lua
     Infrastructure/         -- cross-service server utilities
     Packages/
       ProfileStore.luau
@@ -51,7 +50,7 @@ src/
     Databases/PlayerDataTemplate.lua
   StarterPlayer/
     StarterPlayerScripts/
-      MainClient/init.client.lua
+      MainClient.client.lua
       Controllers/          -- bootstrapped client controllers
       State/LocalData.lua
       Character/
@@ -109,7 +108,7 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
 
 | Role | Server | Client |
 | --- | --- | --- |
-| Bootstrap | `MainServer.server.lua` | `MainClient/init.client.lua` |
+| Bootstrap | `MainServer.server.lua` | `MainClient.client.lua` |
 | Domain module | `<Domain>Service/init.lua` | `<Domain>Controller.lua` |
 | Helper module | `<Thing>Util.lua` | `<Thing>Util.lua` |
 | Module with private children | service folder + `init.lua` | controller folder + `init.lua` |
@@ -246,6 +245,19 @@ state flow, contracts, and versioned reusable assets.
   directly.
 - Store published image, font, sound, and animation IDs in metadata/configuration rather than
   scattering IDs through view controllers.
+
+### Mythling thumbnails
+
+- Inventory and detail views render the `thumbnail` declared by each Mythling variant; clients
+  never receive cloned gameplay models solely for UI previews.
+- Generate thumbnails during authoring from the canonical model in
+  `ServerStorage.ServerAssets.Mythlings`, using consistent camera framing, lighting,
+  background, and output dimensions.
+- Upload the generated image as a Roblox Image asset and record its `rbxassetid://` value in
+  `ReplicatedStorage.Shared.Configurations.Mythlings`. API keys and upload credentials remain
+  outside the repository and are never available to runtime scripts.
+- Adding a Mythling requires its server model, configuration entry, and thumbnail asset ID;
+  it must not require changes to UI controllers or server services.
 
 ### Security and accessibility
 

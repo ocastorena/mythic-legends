@@ -2,9 +2,11 @@
 
 local StandController = {}
 local stopImpl: (() -> ())?
-local Context: any
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Context: Types.ClientContext
 
-function StandController.Init(context: any)
+function StandController.Init(context: Types.ClientContext)
 	Context = context
 end
 
@@ -26,7 +28,6 @@ local connections: { RBXScriptConnection } = {}
 -- obvious from what is selected.
 
 --// Services
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")

@@ -2,9 +2,11 @@
 -- Owns the player's mythling records. Production timing is owned by ProductionService.
 
 local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 local log = LogUtil.For("InventoryService.Mythlings")
 
 local Mythlings = {}
@@ -21,7 +23,7 @@ local function getOwned(player: Player)
 	return session and session.mythlings or nil
 end
 
-local function getOwnedEntry(player: Player, mythlingId: any)
+local function getOwnedEntry(player: Player, mythlingId: unknown): Types.MythlingEntry?
 	if type(mythlingId) ~= "string" then
 		return nil
 	end
@@ -39,7 +41,7 @@ function Mythlings.LoadPlayer(player: Player)
 	session.mythlings = DataService.GetSection(player, "mythlings")
 end
 
-function Mythlings.SaveWon(player: Player, params: any): string?
+function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: string }): string?
 	assert(player and player.UserId, "[InventoryService.SaveWonMythling] invalid player")
 	assert(params, "[InventoryService.SaveWonMythling] params required")
 
@@ -75,7 +77,7 @@ function Mythlings.Remove(player: Player, mythlingId: string): boolean
 	return true
 end
 
-function Mythlings.Get(player: Player, mythlingId: string): any?
+function Mythlings.Get(player: Player, mythlingId: string): Types.MythlingEntry?
 	assert(player and player.UserId, "[InventoryService.GetMythling] invalid player")
 	return getOwnedEntry(player, mythlingId)
 end

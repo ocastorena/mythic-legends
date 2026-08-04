@@ -110,6 +110,22 @@ export type StatePacket = {
 	full: boolean?,
 }
 
+export type LocalDataApi = {
+	OnStateChanged: RBXScriptSignal,
+	Peek: (string) -> any?,
+	GetRevision: () -> number,
+}
+
+export type UIControllerApi = {
+	Register: (string, (any, any) -> ()) -> RBXScriptConnection,
+}
+
+export type ClientContext = {
+	PlayerScripts: PlayerScripts,
+	LocalData: LocalDataApi,
+	UIController: UIControllerApi,
+}
+
 export type ActionResult<T> =
 	{ ok: true, value: T? }
 	| { ok: false, code: string }

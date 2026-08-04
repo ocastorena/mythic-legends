@@ -90,10 +90,6 @@
           "$className": "Folder",
           "$ignoreUnknownInstances": true
         },
-        "MythlingPreviews": {
-          "$className": "Folder",
-          "$ignoreUnknownInstances": true
-        },
         "Templates": {
           "$className": "Folder",
           "$ignoreUnknownInstances": true
@@ -157,7 +153,7 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "MainClient": {
-          "$path": "src/StarterPlayer/StarterPlayerScripts/MainClient"
+          "$path": "src/StarterPlayer/StarterPlayerScripts/MainClient.client.lua"
         },
         "Controllers": {
           "$path": "src/StarterPlayer/StarterPlayerScripts/Controllers"

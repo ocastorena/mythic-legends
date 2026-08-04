@@ -3,7 +3,7 @@
 local Input = {}
 local stopImpl: (() -> ())?
 
-function Input.Init(_context: any)
+function Input.Init(_context: unknown)
 end
 
 function Input.Start()

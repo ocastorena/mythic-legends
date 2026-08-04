@@ -3,7 +3,7 @@
 local VFX = {}
 local stopImpl: (() -> ())?
 
-function VFX.Init(_context: any)
+function VFX.Init(_context: unknown)
 end
 
 function VFX.Start()

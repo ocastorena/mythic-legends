@@ -261,18 +261,6 @@ function DataService.Release(player: Player)
 	revisions[player] = nil
 end
 
-function DataService.IsReadOnly(_player: Player): boolean
-	return false
-end
-
-function DataService.GetState(player: Player, key: string): any?
-	if not DataService.Load(player) then
-		return nil
-	end
-	local profile = profiles[player]
-	return if profile then profile.Data[key] else nil
-end
-
 function DataService.GetSection(player: Player, sectionName: string): { [any]: any }
 	assert(sectionName ~= "", "[DataService.GetSection] sectionName must not be empty")
 	assert(DataService.Load(player), "[DataService.GetSection] player profile is unavailable")
@@ -285,45 +273,6 @@ function DataService.GetSection(player: Player, sectionName: string): { [any]: a
 		publishChanges(player)
 	end
 	return section
-end
-
-function DataService.ModifyState(player: Player, key: string, newValue: any): boolean
-	if not DataService.Load(player) then
-		return false
-	end
-	local profile = profiles[player]
-	if not profile or not profile:IsActive() then
-		return false
-	end
-	profile.Data[key] = deepClone(newValue)
-	publishChanges(player)
-	return true
-end
-
-function DataService.MutateSection(
-	player: Player,
-	sectionName: string,
-	mutator: ({ [any]: any }) -> ()
-): (boolean, string?)
-	if not DataService.Load(player) then
-		return false, "ProfileUnavailable"
-	end
-	local profile = profiles[player]
-	if not profile or not profile:IsActive() then
-		return false, "SessionInactive"
-	end
-	local section = DataService.GetSection(player, sectionName)
-	local before = deepClone(section)
-	local ok, err = pcall(mutator, section)
-	if not ok then
-		profile.Data[sectionName] = before
-		return false, tostring(err)
-	end
-	if not profile:IsActive() then
-		return false, "SessionEnded"
-	end
-	publishChanges(player)
-	return true
 end
 
 function DataService.MarkDirty(player: Player): boolean
@@ -348,20 +297,6 @@ function DataService.SaveNow(player: Player): boolean
 		log.error(`Manual save failed for userId {player.UserId}`, err)
 	end
 	return ok
-end
-
-function DataService.WipeAsync(player: Player): boolean
-	local profile = profiles[player]
-	if not profile or not profile:IsActive() then
-		return false
-	end
-	profile.Data = deepClone(PlayerDataTemplate)
-	profile.Data.profile.userId = player.UserId
-	profile.Data.profile.createdAt = os.time()
-	profile.Data.profile.lastLoginAt = os.time()
-	projections[player] = {}
-	publishChanges(player, true)
-	return DataService.SaveNow(player)
 end
 
 function DataService.Stop()

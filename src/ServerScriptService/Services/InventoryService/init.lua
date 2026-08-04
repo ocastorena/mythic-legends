@@ -3,18 +3,18 @@
 -- this service owns their shared session state and exposes the feature-level API.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
-local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
 local Mythlings = require(script.Mythlings)
 local Materials = require(script.Materials)
 local Consumables = require(script.Consumables)
 local InventoryRemotes = require(script.InventoryRemotes)
 
-local log = LogUtil.For("InventoryService")
 local InventoryService = {}
 local DataService: any
 
@@ -28,7 +28,6 @@ function InventoryService.Init(context)
 	Materials.Init(context, sessionsByUserId)
 	Consumables.Init(context, sessionsByUserId)
 	InventoryRemotes.Init(context, Mythlings)
-
 end
 
 function InventoryService.Stop()
@@ -56,11 +55,14 @@ function InventoryService.Start()
 end
 
 -- Mythling inventory API used by claiming, base placement, and production.
-function InventoryService.SaveWonMythling(player: Player, params: any): string?
+function InventoryService.SaveWonMythling(
+	player: Player,
+	params: { typeId: string, variantId: string }
+): string?
 	return Mythlings.SaveWon(player, params)
 end
 
-function InventoryService.GetMythling(player: Player, mythlingId: string): any?
+function InventoryService.GetMythling(player: Player, mythlingId: string): Types.MythlingEntry?
 	return Mythlings.Get(player, mythlingId)
 end
 

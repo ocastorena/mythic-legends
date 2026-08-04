@@ -2,9 +2,11 @@
 
 local HUDController = {}
 local stopImpl: (() -> ())?
-local Context: any
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Context: Types.ClientContext
 
-function HUDController.Init(context: any)
+function HUDController.Init(context: Types.ClientContext)
 	Context = context
 end
 
@@ -23,7 +25,6 @@ local connections: { RBXScriptConnection } = {}
 -- source of colour and size.
 
 -- Services
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
 local Client = script:FindFirstAncestor("Controllers").Parent

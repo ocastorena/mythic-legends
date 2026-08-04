@@ -3,7 +3,7 @@
 local HotbarController = {}
 local stopImpl: (() -> ())?
 
-function HotbarController.Init(_context: any)
+function HotbarController.Init(_context: unknown)
 end
 
 function HotbarController.Start()

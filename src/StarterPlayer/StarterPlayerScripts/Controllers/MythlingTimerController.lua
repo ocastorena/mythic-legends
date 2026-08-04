@@ -3,7 +3,7 @@
 local MythlingTimerController = {}
 local stopImpl: (() -> ())?
 
-function MythlingTimerController.Init(_context: any)
+function MythlingTimerController.Init(_context: unknown)
 end
 
 function MythlingTimerController.Start()

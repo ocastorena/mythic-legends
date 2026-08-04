@@ -3,7 +3,7 @@
 local NoClimbController = {}
 local connections: { RBXScriptConnection } = {}
 
-function NoClimbController.Init(_context: any)
+function NoClimbController.Init(_context: unknown)
 end
 
 function NoClimbController.Start()

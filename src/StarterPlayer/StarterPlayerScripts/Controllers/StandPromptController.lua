@@ -3,7 +3,7 @@
 local StandPromptController = {}
 local connection: RBXScriptConnection?
 
-function StandPromptController.Init(_context: any)
+function StandPromptController.Init(_context: unknown)
 end
 
 function StandPromptController.Start()

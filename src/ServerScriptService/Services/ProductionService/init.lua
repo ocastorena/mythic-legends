@@ -45,8 +45,8 @@ function ProductionService.Start()
 		if type(mythlingId) ~= "string" or #mythlingId == 0 or #mythlingId > 128 then
 			return { ok = false, code = "InvalidMythlingId" }
 		end
-		ProductionService.CollectProduction(player, mythlingId)
-		return { ok = true }
+		local collected, code = ProductionService.CollectProduction(player, mythlingId)
+		return if collected then { ok = true } else { ok = false, code = code or "CollectFailed" }
 	end
 	removingConnection = Players.PlayerRemoving:Connect(function(player)
 		requestLimiter:Forget(player)
@@ -63,12 +63,12 @@ function ProductionService.Stop()
 	requestLimiter:Clear()
 end
 
-function ProductionService.GetProduction(player: Player, mythlingId: any): any?
+function ProductionService.GetProduction(player: Player, mythlingId: string): Accrual.ProductionStatus?
 	return Accrual.Get(player, mythlingId)
 end
 
-function ProductionService.CollectProduction(player: Player, mythlingId: any)
-	Accrual.Collect(player, mythlingId)
+function ProductionService.CollectProduction(player: Player, mythlingId: string): (boolean, string?)
+	return Accrual.Collect(player, mythlingId)
 end
 
 function ProductionService.StartProduction(player: Player, mythlingId: string)

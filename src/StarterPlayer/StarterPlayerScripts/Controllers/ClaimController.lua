@@ -3,7 +3,7 @@
 local ClaimController = {}
 local stopImpl: (() -> ())?
 
-function ClaimController.Init(_context: any)
+function ClaimController.Init(_context: unknown)
 end
 
 function ClaimController.Start()

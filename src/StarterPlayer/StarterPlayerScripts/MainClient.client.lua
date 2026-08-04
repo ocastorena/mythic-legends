@@ -29,11 +29,34 @@ local context = {
 UIController.Init(context)
 UIController.Start()
 
-local controllers = {}
+type Controller = {
+	Init: (typeof(context)) -> (),
+	Start: () -> (),
+	Stop: () -> (),
+}
+
+local controllers: { { name: string, controller: Controller } } = {}
 for _, name in ipairs(CONTROLLER_ORDER) do
-	local controller = require(controllersFolder:WaitForChild(name))
+	local loaded, controllerOrError = pcall(require, controllersFolder:WaitForChild(name))
+	if not loaded then
+		warn(`[MainClient] {name} failed to load: {controllerOrError}`)
+		continue
+	end
+	local controller = controllerOrError :: Controller
+	if type(controller) ~= "table"
+		or type(controller.Init) ~= "function"
+		or type(controller.Start) ~= "function"
+		or type(controller.Stop) ~= "function"
+	then
+		warn(`[MainClient] {name} does not implement Init, Start, and Stop`)
+		continue
+	end
+	local initialized, initError = pcall(controller.Init, context)
+	if not initialized then
+		warn(`[MainClient] {name} failed to initialize: {initError}`)
+		continue
+	end
 	table.insert(controllers, { name = name, controller = controller })
-	controller.Init(context)
 end
 for _, entry in ipairs(controllers) do
 	local ok, err = pcall(entry.controller.Start)

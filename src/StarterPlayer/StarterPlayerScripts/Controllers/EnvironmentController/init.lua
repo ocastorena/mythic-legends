@@ -6,7 +6,10 @@ local Audio = require(script.Audio)
 
 local EnvironmentController = {}
 
-function EnvironmentController.Init(context: any)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+
+function EnvironmentController.Init(context: Types.ClientContext)
 	Quality.Init(context)
 	Motion.Init(context)
 	Audio.Init(context)
