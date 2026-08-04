@@ -112,7 +112,7 @@
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "MainServer": {
-        "$path": "src/ServerScriptService/MainServer"
+        "$path": "src/ServerScriptService/MainServer.server.lua"
       },
       "Services": {
         "$path": "src/ServerScriptService/Services"

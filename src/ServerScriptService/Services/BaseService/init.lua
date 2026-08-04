@@ -8,7 +8,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
-local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
+local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
 
 local log = LogUtil.For("BaseService")
 
@@ -36,7 +36,7 @@ local MythlingsMeta: ModuleScript
 local DataService: any
 local InventoryService: any
 local ProductionService: any
-local placementLimiter = RateLimiter.new(6, 2)
+local placementLimiter = RateLimitUtil.new(6, 2)
 local connections: { RBXScriptConnection } = {}
 local characterConnections: { [Player]: RBXScriptConnection } = {}
 

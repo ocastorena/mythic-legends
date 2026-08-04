@@ -1,25 +1,25 @@
--- ServerScriptService/Infrastructure/RateLimiter
+-- ServerScriptService/Infrastructure/RateLimitUtil
 
-local RateLimiter = {}
-RateLimiter.__index = RateLimiter
+local RateLimitUtil = {}
+RateLimitUtil.__index = RateLimitUtil
 
-export type RateLimiter = typeof(setmetatable({
+export type RateLimitUtil = typeof(setmetatable({
 	capacity = 0,
 	refillPerSecond = 0,
 	buckets = {} :: { [number]: { tokens: number, updatedAt: number } },
-}, RateLimiter))
+}, RateLimitUtil))
 
-function RateLimiter.new(capacity: number, refillPerSecond: number): RateLimiter
-	assert(capacity > 0, "[RateLimiter] capacity must be positive")
-	assert(refillPerSecond > 0, "[RateLimiter] refillPerSecond must be positive")
+function RateLimitUtil.new(capacity: number, refillPerSecond: number): RateLimitUtil
+	assert(capacity > 0, "[RateLimitUtil] capacity must be positive")
+	assert(refillPerSecond > 0, "[RateLimitUtil] refillPerSecond must be positive")
 	return setmetatable({
 		capacity = capacity,
 		refillPerSecond = refillPerSecond,
 		buckets = {},
-	}, RateLimiter)
+	}, RateLimitUtil)
 end
 
-function RateLimiter.Allow(self: RateLimiter, player: Player, cost: number?): boolean
+function RateLimitUtil.Allow(self: RateLimitUtil, player: Player, cost: number?): boolean
 	local now = os.clock()
 	local userId = player.UserId
 	local bucket = self.buckets[userId]
@@ -40,12 +40,12 @@ function RateLimiter.Allow(self: RateLimiter, player: Player, cost: number?): bo
 	return true
 end
 
-function RateLimiter.Forget(self: RateLimiter, player: Player)
+function RateLimitUtil.Forget(self: RateLimitUtil, player: Player)
 	self.buckets[player.UserId] = nil
 end
 
-function RateLimiter.Clear(self: RateLimiter)
+function RateLimitUtil.Clear(self: RateLimitUtil)
 	table.clear(self.buckets)
 end
 
-return RateLimiter
+return RateLimitUtil

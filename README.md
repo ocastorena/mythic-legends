@@ -32,7 +32,7 @@ src/
       ArenaBounds.lua
       Types.lua
   ServerScriptService/
-    MainServer/init.server.lua
+    MainServer.server.lua
     Services/               -- bootstrapped domain services
       DataService/init.lua
       CombatService/init.lua
@@ -109,7 +109,7 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
 
 | Role | Server | Client |
 | --- | --- | --- |
-| Bootstrap | `MainServer/init.server.lua` | `MainClient/init.client.lua` |
+| Bootstrap | `MainServer.server.lua` | `MainClient/init.client.lua` |
 | Domain module | `<Domain>Service/init.lua` | `<Domain>Controller.lua` |
 | Helper module | `<Thing>Util.lua` | `<Thing>Util.lua` |
 | Module with private children | service folder + `init.lua` | controller folder + `init.lua` |

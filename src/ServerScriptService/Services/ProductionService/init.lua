@@ -7,7 +7,7 @@ local Players = game:GetService("Players")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
-local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
+local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
 
 local Accrual = require(script.Accrual)
 
@@ -15,7 +15,7 @@ local log = LogUtil.For("ProductionService")
 local ProductionService = {}
 local getStatus: RemoteFunction
 local collect: RemoteFunction
-local requestLimiter = RateLimiter.new(8, 3)
+local requestLimiter = RateLimitUtil.new(8, 3)
 local removingConnection: RBXScriptConnection?
 
 function ProductionService.Init(context)

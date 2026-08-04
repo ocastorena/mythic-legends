@@ -8,7 +8,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local TweenService = game:GetService("TweenService")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
+local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local log = LogUtil.For("CombatService")
 
@@ -71,10 +71,10 @@ local playerConnections: { [Player]: RBXScriptConnection } = {}
 local nextLoadoutRequestAt: { [Player]: number } = {}
 local nextHitId = 0
 local serviceConnections: { RBXScriptConnection } = {}
-local loadoutLimiter = RateLimiter.new(12, 4)
-local guardLimiter = RateLimiter.new(16, 8)
-local startAttackLimiter = RateLimiter.new(8, 4)
-local reportHitLimiter = RateLimiter.new(12, 6)
+local loadoutLimiter = RateLimitUtil.new(12, 4)
+local guardLimiter = RateLimitUtil.new(16, 8)
+local startAttackLimiter = RateLimitUtil.new(8, 4)
+local reportHitLimiter = RateLimitUtil.new(12, 6)
 
 local function getNumber(value: any, fallback: number, minimum: number, maximum: number): number
 	if type(value) ~= "number" or value ~= value then

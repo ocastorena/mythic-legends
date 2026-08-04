@@ -7,7 +7,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
-local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
+local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
 local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
 local PlayerDataTemplate = require(ServerStorage:WaitForChild("Databases"):WaitForChild("PlayerDataTemplate"))
 
@@ -51,7 +51,7 @@ DataService.OnReleased = releasedBindable.Event
 
 local updateState: RemoteEvent?
 local requestState: RemoteFunction?
-local stateRequestLimiter = RateLimiter.new(6, 1)
+local stateRequestLimiter = RateLimitUtil.new(6, 1)
 
 local function deepClone(value: any): any
 	if type(value) ~= "table" then
