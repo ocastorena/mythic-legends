@@ -24,34 +24,38 @@ ModuleScripts and started by those bootstraps.
 
 ```
 src/
-  server/
-    MainServer/init.server.lua -> ServerScriptService.MainServer
-    Databases/PlayerDataTemplate.lua -> ServerStorage.Databases.PlayerDataTemplate
-    ServerModules/     -> ServerScriptService.ServerModules
-      Infrastructure/
-      Packages/
-        ProfileStore.luau
-      PostLaunch/
-      Services/
-        DataManager/init.lua
-        CombatService/init.lua
-        BaseService/       init.lua + BaseUtil.lua + StandUtil.lua
-        InventoryService/
-        ProductionService/
-        SpawnService.lua
-        ClaimService.lua
-        MythlingPreviewService.lua
-  client/
-    MainClient/init.client.lua -> StarterPlayerScripts.MainClient
-    ClientModules/       -> StarterPlayerScripts.ClientModules
-      LocalData.lua
-      UIController.lua
-      Controllers/
-      UI/
-  shared/
-    SharedModules/     -> ReplicatedStorage.SharedModules
-      Metadata/
+  ReplicatedFirst/
+    LoadingScreen.client.lua
+  ReplicatedStorage/
+    Shared/
+      Configurations/       -- static content and balance definitions
+      ArenaBounds.lua
       Types.lua
+  ServerScriptService/
+    MainServer/init.server.lua
+    Services/               -- bootstrapped domain services
+      DataService/init.lua
+      CombatService/init.lua
+      BaseService/          -- init.lua + private domain helpers
+      InventoryService/
+      ProductionService/
+      SpawnService/init.lua
+      ClaimService/init.lua
+      MythlingPreviewService/init.lua
+    Infrastructure/         -- cross-service server utilities
+    Packages/
+      ProfileStore.luau
+    PostLaunch/
+      DivineInterventionService/init.lua
+  ServerStorage/
+    Databases/PlayerDataTemplate.lua
+  StarterPlayer/
+    StarterPlayerScripts/
+      MainClient/init.client.lua
+      Controllers/          -- bootstrapped client controllers
+      State/LocalData.lua
+      Character/
+      UI/                   -- focused client-side UI utilities
 ```
 
 `ReplicatedStorage.Network` is declared in `default.project.json`. Persistent player data uses
@@ -74,11 +78,14 @@ Workspace
   Runtime             -- server-created Mythlings, bases, effects, and other session state
 ReplicatedStorage
   Network             -- RemoteEvents and RemoteFunctions
-  SharedModules       -- metadata, types, and logic required by server and client
+  Shared              -- configurations, types, and logic required by server and client
   Assets              -- client-visible UI, audio, VFX, and preview assets
 ServerScriptService
   MainServer          -- the only server bootstrap
-  ServerModules       -- services, infrastructure, data manager, and server-only packages
+  Services            -- authoritative domain services
+  Infrastructure      -- logging, rate limits, remotes, and server utilities
+  Packages            -- server-only external libraries such as ProfileStore
+  PostLaunch          -- approved but inactive post-launch modules
 ServerStorage
   Databases           -- player-data templates and server-only mock/test definitions
   ServerAssets        -- weapons, NPCs, base assets, and other server-only templates
@@ -88,7 +95,10 @@ StarterPlayer
   StarterCharacterScripts
   StarterPlayerScripts
     MainClient        -- the only client bootstrap
-    ClientModules     -- controllers, local state, input, UI, and audio modules
+    Controllers       -- bootstrapped feature, input, UI, audio, and VFX controllers
+    State             -- private replicated client state
+    Character         -- shared client character helpers
+    UI                -- focused UI utilities and component helpers
 ```
 
 `Runtime` is intentionally separate from authored Workspace content. `GameHUD` may be used as
@@ -100,16 +110,21 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
 | Role | Server | Client |
 | --- | --- | --- |
 | Bootstrap | `MainServer/init.server.lua` | `MainClient/init.client.lua` |
-| Domain module | `<Domain>Service.lua` | `<Domain>Controller.lua` |
+| Domain module | `<Domain>Service/init.lua` | `<Domain>Controller.lua` |
 | Helper module | `<Thing>Util.lua` | `<Thing>Util.lua` |
-| Module with children | folder + `init.lua` | folder + `init.lua` |
+| Module with private children | service folder + `init.lua` | controller folder + `init.lua` |
 
 - Use **PascalCase** for files, folders, Roblox instances, module tables, exported types,
-  services, and controllers: `DataManager/init.lua`, `UIController.lua`, and `PlayerData`.
-- Use **PascalCase** for public module methods: `DataManager.Load`, `Release`, `GetState`,
+  services, and controllers: `DataService/init.lua`, `UIController.lua`, and `PlayerData`.
+- Every server service owns a directory named `<Domain>Service`, even when it has no private
+  child modules. Its public entry point is always `init.lua`. This keeps service paths uniform
+  and leaves room for cohesive private modules without a later structural migration.
+- Use **PascalCase** for public module methods: `DataService.Load`, `Release`, `GetState`,
   and `UIController.Init`.
-- Use **camelCase** for local functions, parameters, and variables: `loadProfile`,
-  `activeProfiles`, `playerData`, and `stateRevision`.
+- Use **PascalCase** for local references to Roblox services and required module tables:
+  `Players`, `ReplicatedStorage`, and `LogUtil`.
+- Use **camelCase** for local functions, parameters, mutable module state, and ordinary runtime
+  values: `loadProfile`, `activeProfiles`, `playerData`, and `stateRevision`.
 - Use **UPPER_SNAKE_CASE** for immutable module constants: `STORE_NAME`,
   `PROFILE_KEY_PREFIX`, and `LOAD_TIMEOUT_SECONDS`.
 - Name booleans as predicates: `isLoaded`, `hasInventorySpace`, `shouldReplicate`, and
@@ -122,7 +137,8 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
   `RemoteFunction` instances as requests or commands that return a result (`Request`,
   `DeleteMythling`, `GetStatus`).
 - Use singular nouns for data types and owned records: `PlayerData`, `StatePacket`, and
-  `MythlingEntry`. Collection metadata modules are plural: `Metadata/Mythlings.lua`.
+  `MythlingEntry`. Collection configuration modules are plural:
+  `Configurations/Mythlings.lua`.
 - Use **camelCase** for serialized field and remote-payload keys. Stable metadata IDs use
   lowercase `snake_case`; they are identifiers, not display names.
 - Keep module-private state `local` without an underscore prefix: use `profiles` and
@@ -139,7 +155,7 @@ renderable `ScreenGui` instances; the ScreenGuis must remain direct children of 
 - Helper modules live under their owning domain and are required through `script`, keeping
   domain internals cohesive.
 - The first line of every Luau source file is its exact Roblox instance path, for example
-  `-- ServerScriptService/ServerModules/Services/DataManager`.
+  `-- ServerScriptService/Services/DataService`.
 
 ## Logging Conventions
 
@@ -209,7 +225,7 @@ state flow, contracts, and versioned reusable assets.
 
 ### Behavior ownership
 
-- Keep GUI behavior in bootstrapped modules under `StarterPlayerScripts/ClientModules`.
+- Keep GUI behavior in bootstrapped modules under `StarterPlayerScripts.Controllers`.
   `MainClient` initializes state and networking first, then feature and view controllers.
 - A controller captures shared dependencies through `Init(context)`, resolves required UI
   descendants and subscribes to state/domain events in `Start()`, and releases every owned
@@ -288,3 +304,7 @@ For mixed Studio/Rojo parents such as `Workspace.Map`, `Workspace.Visuals`, `Ser
 and the direct `StarterGui` roots, use `$ignoreUnknownInstances` deliberately so Rojo preserves
 Studio-authored children. Rojo owns the mapped container and source-backed descendants; Studio
 owns only the explicitly documented unknown descendants.
+
+`ReplicatedStorage`, `ServerScriptService`, and `StarterPlayerScripts` are strict Rojo-owned
+code boundaries. Unknown descendants there are architectural drift and are removed by a clean
+sync; Studio-authored content belongs only in the documented mixed-ownership containers.

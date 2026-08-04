@@ -34,12 +34,11 @@
 
     "ReplicatedFirst": {
       "$className": "ReplicatedFirst",
-      "$path": "src/client/ReplicatedFirst"
+      "$path": "src/ReplicatedFirst"
     },
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "$ignoreUnknownInstances": true,
       "Network": {
         "$className": "Folder",
         "State": {
@@ -77,8 +76,8 @@
           "ClaimState": { "$className": "RemoteEvent" }
         }
       },
-      "SharedModules": {
-        "$path": "src/shared/SharedModules"
+      "Shared": {
+        "$path": "src/ReplicatedStorage/Shared"
       },
       "Assets": {
         "$className": "Folder",
@@ -112,12 +111,20 @@
 
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "$ignoreUnknownInstances": true,
       "MainServer": {
-        "$path": "src/server/MainServer"
+        "$path": "src/ServerScriptService/MainServer"
       },
-      "ServerModules": {
-        "$path": "src/server/ServerModules"
+      "Services": {
+        "$path": "src/ServerScriptService/Services"
+      },
+      "Infrastructure": {
+        "$path": "src/ServerScriptService/Infrastructure"
+      },
+      "Packages": {
+        "$path": "src/ServerScriptService/Packages"
+      },
+      "PostLaunch": {
+        "$path": "src/ServerScriptService/PostLaunch"
       }
     },
 
@@ -125,7 +132,7 @@
       "$className": "ServerStorage",
       "$ignoreUnknownInstances": true,
       "Databases": {
-        "$path": "src/server/Databases"
+        "$path": "src/ServerStorage/Databases"
       },
       "ServerAssets": {
         "$className": "Folder",
@@ -149,12 +156,20 @@
       },
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "$ignoreUnknownInstances": true,
         "MainClient": {
-          "$path": "src/client/MainClient"
+          "$path": "src/StarterPlayer/StarterPlayerScripts/MainClient"
         },
-        "ClientModules": {
-          "$path": "src/client/ClientModules"
+        "Controllers": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/Controllers"
+        },
+        "State": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/State"
+        },
+        "Character": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/Character"
+        },
+        "UI": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/UI"
         }
       }
     },

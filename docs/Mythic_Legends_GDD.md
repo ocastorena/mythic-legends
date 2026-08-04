@@ -319,12 +319,12 @@ This system is **not part of the first release and is not ready for implementati
 
 The first release uses the approved Rojo Bootstrap architecture and ProfileStore-backed player persistence. `default.project.json` defines the canonical Roblox Explorer hierarchy; Studio-authored descendants are preserved only at explicitly mixed-ownership containers.
 
-- **MainServer** is the only server bootstrap. It initializes modules under `ServerScriptService.ServerModules` in deterministic lifecycle order and owns the player join/leave wiring.
+- **MainServer** is the only server bootstrap. It initializes modules under `ServerScriptService.Services` in deterministic lifecycle order and owns the player join/leave wiring.
 - **Server services** own validation, authoritative simulation, mutations, persistence requests, and grants. No domain service independently loads a profile or writes a Roblox DataStore.
-- **MainClient** is the only client bootstrap. It initializes state/networking before feature controllers under `StarterPlayerScripts.ClientModules`.
+- **MainClient** is the only client bootstrap. It initializes state/networking before feature controllers under `StarterPlayerScripts.Controllers`.
 - **Client controllers** own input, UI, local animation, sound, VFX, and rendering of server-confirmed state. They cannot mutate persistent player data, Arena ownership, capture state, or economy state.
-- **Shared metadata** is version-controlled Luau content under `ReplicatedStorage.SharedModules`. It contains static definitions and balance values only; it must never be written at runtime.
-- **DataManager** owns one versioned ProfileStore session per Roblox user ID using `MythicLegends_PlayerData_v1`. It reconciles the schema, associates the user ID, handles session termination, and ends the session when the player leaves. Studio uses an isolated mock store by default.
+- **Shared configuration** is version-controlled Luau content under `ReplicatedStorage.Shared.Configurations`. It contains static definitions and balance values only; it must never be written at runtime.
+- **DataService** owns one versioned ProfileStore session per Roblox user ID using `MythicLegends_PlayerData_v1`. It reconciles the schema, associates the user ID, handles session termination, and ends the session when the player leaves. Studio uses an isolated mock store by default.
 - **Combat is the stated exception.** Its client-reported, server-validated relay and immediate local presentation remain exactly as defined in [MVP player combat system](#mvp-player-combat-system). This architecture must not be changed by the general UI synchronization rule below.
 
 ### Client/server state synchronization
@@ -333,7 +333,7 @@ For every system other than the documented combat exception, clients send an int
 
 1. The client may immediately show input feedback and a pending/loading state.
 2. The server validates the request against the cached player document, metadata, runtime eligibility, capacity, affordability, and permissions.
-3. The server performs the mutation as a duplicate-safe DataManager transaction while the ProfileStore session is active, then returns or replicates the authoritative result.
+3. The server performs the mutation as a duplicate-safe DataService transaction while the ProfileStore session is active, then returns or replicates the authoritative result.
 4. The client updates inventory, Gold, Shrine output, Crafting Jobs, capture state, Equipment, Stamina, and buffs only from that confirmed result.
 5. A rejection leaves the authoritative state unchanged and supplies a player-facing reason when appropriate, such as `InventoryFull`, insufficient Gold/Materials, invalid selection, unavailable capacity, or not-in-Arena.
 
@@ -413,7 +413,7 @@ Evolution updates `mythlingId` to the evolved form's metadata ID. The saved entr
 
 ### Data ownership matrix
 
-| Game data | Metadata (static, version-controlled) | DataManager player document (mutable) | Runtime-only server state |
+| Game data | Metadata (static, version-controlled) | DataService player document (mutable) | Runtime-only server state |
 | --- | --- | --- | --- |
 | Mythling form | `mythlingId`, name, element, rarity, visuals, base Yield/Luck ranges, level scaling, Trait weights, fixed evolution target, Arena eligibility and capture tuning | Owned instance ID, current `mythlingId`, level, XP, rolled Luck, `traitId`, acquisition/assignment data | Spawned contest, per-player capture meters, despawn timing |
 | Passive Trait | `traitId`, eligibility, rarity-pool weight, trigger, numerical effect | Owned Mythling's `traitId` only | Applied production modifier when eligible |
