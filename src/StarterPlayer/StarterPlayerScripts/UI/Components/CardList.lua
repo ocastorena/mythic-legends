@@ -1,4 +1,4 @@
--- StarterPlayer/StarterPlayerScripts/UI/CardListUtil
+-- StarterPlayer/StarterPlayerScripts/UI/Components/CardList
 -- Scrolling grid of selectable cards cloned from a template.
 --
 -- The Inventory and Stand screens share this card-list behavior rather than growing their own
@@ -6,7 +6,7 @@
 -- id -> data map, track one selection, rebuild from a server list. Only the highlight
 -- styling actually differed, so that is a callback rather than baked in.
 --
---   local list = CardListUtil.new({
+--   local list = CardList.new({
 --       template = cardTemplate,
 --       parent = scrollFrame,
 --       setHighlight = function(card, selected) ... end,
@@ -15,10 +15,10 @@
 --   })
 --   list:Replace(serverList)
 
-local ButtonUtil = require(script.Parent.ButtonUtil)
+local ButtonUtil = require(script.Parent.Parent.ButtonUtil)
 
-local CardListUtil = {}
-CardListUtil.__index = CardListUtil
+local CardList = {}
+CardList.__index = CardList
 
 export type Config = {
 	template: GuiObject,
@@ -36,38 +36,38 @@ export type Config = {
 	autoSelectFirst: boolean?,
 }
 
-function CardListUtil.new(config: Config)
-	assert(config.template, "[CardListUtil] template is required")
-	assert(config.parent, "[CardListUtil] parent is required")
-	assert(config.setHighlight, "[CardListUtil] setHighlight is required")
+function CardList.new(config: Config)
+	assert(config.template, "[CardList] template is required")
+	assert(config.parent, "[CardList] parent is required")
+	assert(config.setHighlight, "[CardList] setHighlight is required")
 
 	return setmetatable({
 		_config = config,
 		_cards = {} :: { [string]: GuiObject },
 		_data = {} :: { [string]: any },
 		_selectedId = nil :: string?,
-	}, CardListUtil)
+	}, CardList)
 end
 
 --- The currently selected card's id, or nil.
-function CardListUtil:GetSelectedId(): string?
+function CardList:GetSelectedId(): string?
 	return self._selectedId
 end
 
-function CardListUtil:GetSelectedCard(): GuiObject?
+function CardList:GetSelectedCard(): GuiObject?
 	return self._selectedId and self._cards[self._selectedId] or nil
 end
 
-function CardListUtil:GetData(id: string): any
+function CardList:GetData(id: string): any
 	return self._data[id]
 end
 
-function CardListUtil:GetCard(id: string): GuiObject?
+function CardList:GetCard(id: string): GuiObject?
 	return self._cards[id]
 end
 
 --- Drops the highlight without selecting anything else.
-function CardListUtil:ClearSelection()
+function CardList:ClearSelection()
 	local card = self:GetSelectedCard()
 	if card then
 		self._config.setHighlight(card, false)
@@ -77,7 +77,7 @@ end
 
 --- Selects by id. Re-selecting the current id is a no-op, so callers can call this
 --- freely from click handlers without fighting their own state.
-function CardListUtil:Select(id: string)
+function CardList:Select(id: string)
 	if self._selectedId == id then
 		return
 	end
@@ -96,7 +96,7 @@ function CardListUtil:Select(id: string)
 end
 
 --- Adds one card. Idempotent by id, and respects the configured filter.
-function CardListUtil:Add(id: string, entry: any): GuiObject?
+function CardList:Add(id: string, entry: any): GuiObject?
 	if self._cards[id] then
 		return self._cards[id]
 	end
@@ -133,7 +133,7 @@ function CardListUtil:Add(id: string, entry: any): GuiObject?
 end
 
 --- Removes one card and its data, clearing the selection if it was selected.
-function CardListUtil:Remove(id: string)
+function CardList:Remove(id: string)
 	if self._selectedId == id then
 		self._selectedId = nil
 	end
@@ -146,7 +146,7 @@ function CardListUtil:Remove(id: string)
 end
 
 --- Destroys every card. Does not fire onSelect.
-function CardListUtil:Clear()
+function CardList:Clear()
 	for _, card in pairs(self._cards) do
 		card:Destroy()
 	end
@@ -156,7 +156,7 @@ function CardListUtil:Clear()
 end
 
 --- Rebuilds the whole list from a server-provided table of id -> entry.
-function CardListUtil:Replace(list: { [string]: any })
+function CardList:Replace(list: { [string]: any })
 	self:Clear()
 	for id, entry in pairs(list or {}) do
 		self:Add(id, entry)
@@ -164,8 +164,8 @@ function CardListUtil:Replace(list: { [string]: any })
 end
 
 --- Iterates id -> card, for callers that need to restyle everything.
-function CardListUtil:Cards(): { [string]: GuiObject }
+function CardList:Cards(): { [string]: GuiObject }
 	return self._cards
 end
 
-return CardListUtil
+return CardList

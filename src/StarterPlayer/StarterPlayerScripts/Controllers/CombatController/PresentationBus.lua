@@ -4,8 +4,7 @@ local PresentationBus = {}
 
 local event: BindableEvent?
 
-function PresentationBus.Init(_context: unknown)
-end
+function PresentationBus.Init(_context: unknown) end
 
 function PresentationBus.Start()
 	if event then

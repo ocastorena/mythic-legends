@@ -1,3 +1,4 @@
+--!strict
 -- ReplicatedStorage/Shared/Configurations/Materials
 return {
 	essence = {

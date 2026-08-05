@@ -1,5 +1,5 @@
--- ServerScriptService/Services/BaseService/BaseUtil
-local BaseUtil = {}
+-- ServerScriptService/Services/BaseService/BaseRuntime
+local BaseRuntime = {}
 
 local function getFreeSlot(slots: any, maxSlots: number): number?
 	for i = 1, maxSlots do
@@ -26,7 +26,8 @@ local function getPivotAboveStructuralBottom(model: Model): number
 	local largestFootprint = 0
 
 	for _, descendant in model:GetDescendants() do
-		if descendant:IsA("BasePart")
+		if
+			descendant:IsA("BasePart")
 			and descendant.Transparency < 1
 			and descendant.Name ~= "Front"
 			and descendant.Name ~= "Spawn"
@@ -64,7 +65,12 @@ end
 
 -- Bases sit on the authored BaseIsland models -- one island per slot -- facing the arena.
 -- Reading placement off the islands means moving one in Studio moves its base with it.
-local function getSlotPlacement(slotIndex: number, model: Model, baseIslands: Folder, arena: BasePart): (CFrame?, string?)
+local function getSlotPlacement(
+	slotIndex: number,
+	model: Model,
+	baseIslands: Folder,
+	arena: BasePart
+): (CFrame?, string?)
 	local islandName = "BaseIsland" .. (slotIndex - 1)
 	local island = baseIslands:FindFirstChild(islandName)
 	if not (island and island:IsA("Model")) then
@@ -79,8 +85,15 @@ local function getSlotPlacement(slotIndex: number, model: Model, baseIslands: Fo
 	return CFrame.lookAt(pos, facing), nil
 end
 
-
-function BaseUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, baseModel: Model, arena: BasePart, baseIslands: Folder, basesFolder: Folder)
+function BaseRuntime.SpawnBaseFor(
+	player: Player,
+	slots: any,
+	maxSlots: number,
+	baseModel: Model,
+	arena: BasePart,
+	baseIslands: Folder,
+	basesFolder: Folder
+)
 	-- check if player already has a base
 	local userId = player.UserId
 	for _, slot in pairs(slots) do
@@ -104,16 +117,16 @@ function BaseUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, bas
 		model:Destroy()
 		return false, placementError or "Could not get position"
 	end
-	
+
 	model.Name = tostring(userId)
 	model:WaitForChild("NameSign"):WaitForChild("SurfaceGui"):WaitForChild("Name").Text = player.DisplayName
-	
+
 	for _, prompt in model.Stands:GetDescendants() do
 		if prompt:IsA("ProximityPrompt") then
 			prompt:SetAttribute("OwnerId", userId)
 		end
 	end
-	
+
 	model.Parent = basesFolder
 	model:PivotTo(position)
 	-- update slots
@@ -121,13 +134,13 @@ function BaseUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, bas
 	return true
 end
 
-function BaseUtil.TeleportToBaseSpawn(_player: Player, char: Model, base: Model)
-	if not base then 
+function BaseRuntime.TeleportToBaseSpawn(_player: Player, char: Model, base: Model)
+	if not base then
 		return false, "Base not found"
 	end
 
 	local spawnPart = base:FindFirstChild("Spawn")
-	if not spawnPart or not spawnPart:IsA("BasePart") then 
+	if not spawnPart or not spawnPart:IsA("BasePart") then
 		return false, "Base does not have a spawn part"
 	end
 
@@ -142,7 +155,7 @@ function BaseUtil.TeleportToBaseSpawn(_player: Player, char: Model, base: Model)
 	return true
 end
 
-function BaseUtil.RemoveBaseFor(player: Player, slots: any)
+function BaseRuntime.RemoveBaseFor(player: Player, slots: any)
 	local userId = player.UserId
 	for i, slot in pairs(slots) do
 		if slot.userId == userId then
@@ -154,4 +167,4 @@ function BaseUtil.RemoveBaseFor(player: Player, slots: any)
 	return false, "Base not found"
 end
 
-return BaseUtil
+return BaseRuntime

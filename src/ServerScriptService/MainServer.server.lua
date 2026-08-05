@@ -14,10 +14,11 @@ local RemoteUtil = require(Infrastructure:WaitForChild("RemoteUtil"))
 local log = LogUtil.For("MainServer")
 local SERVICE_ORDER = {
 	"DataService",
+	"CharacterService",
 	"InventoryService",
 	"ProductionService",
 	"BaseService",
-	"SpawnService",
+	"MythlingSpawnService",
 	"ClaimService",
 	"CombatService",
 }
@@ -47,7 +48,7 @@ local context = {
 		Mythlings = require(configurations:WaitForChild("Mythlings")),
 		Materials = require(configurations:WaitForChild("Materials")),
 		Consumables = require(configurations:WaitForChild("Consumables")),
-		Spawns = require(configurations:WaitForChild("Spawns")),
+		MythlingSpawns = require(configurations:WaitForChild("MythlingSpawns")),
 		Equipment = require(configurations:WaitForChild("Equipment")),
 	},
 	Remotes = RemoteUtil.Resolve(ReplicatedStorage),
@@ -71,32 +72,7 @@ for _, entry in ipairs(ordered) do
 	entry.service.Start()
 end
 
-local function guardHumanoid(humanoid: Humanoid)
-	humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
-end
-
-local function onCharacterAdded(character: Model)
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		guardHumanoid(humanoid)
-		return
-	end
-	local connection: RBXScriptConnection?
-	connection = character.ChildAdded:Connect(function(child)
-		if child:IsA("Humanoid") then
-			guardHumanoid(child)
-			if connection then
-				connection:Disconnect()
-			end
-		end
-	end)
-end
-
 local function onPlayerAdded(player: Player)
-	if player.Character then
-		task.defer(onCharacterAdded, player.Character)
-	end
-	player.CharacterAdded:Connect(onCharacterAdded)
 	DataService.Load(player)
 end
 

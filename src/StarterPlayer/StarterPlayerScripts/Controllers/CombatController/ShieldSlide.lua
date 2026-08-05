@@ -24,10 +24,7 @@ local MAX_SLIDE_SECONDS = 0.75
 local FULL_SPEED_FRACTION = 0.55
 
 local function isFiniteVector(vector: Vector3): boolean
-	return vector.X == vector.X
-		and vector.Y == vector.Y
-		and vector.Z == vector.Z
-		and vector.Magnitude < math.huge
+	return vector.X == vector.X and vector.Y == vector.Y and vector.Z == vector.Z and vector.Magnitude < math.huge
 end
 
 local function cleanup(state: SlideState)
@@ -48,12 +45,7 @@ local function cleanup(state: SlideState)
 	end
 end
 
-function ShieldSlide.Apply(
-	character: Model,
-	hitId: number,
-	launchVelocity: Vector3,
-	durationSeconds: number
-): boolean
+function ShieldSlide.Apply(character: Model, hitId: number, launchVelocity: Vector3, durationSeconds: number): boolean
 	if seenHitIds[hitId] then
 		return true
 	end
@@ -62,10 +54,7 @@ function ShieldSlide.Apply(
 	if not humanoid or humanoid.Health <= 0 or not root or not root:IsA("BasePart") then
 		return false
 	end
-	if hitId % 1 ~= 0
-		or durationSeconds ~= durationSeconds
-		or not isFiniteVector(launchVelocity)
-	then
+	if hitId % 1 ~= 0 or durationSeconds ~= durationSeconds or not isFiniteVector(launchVelocity) then
 		return false
 	end
 
@@ -119,7 +108,8 @@ function ShieldSlide.Apply(
 
 	task.spawn(function()
 		local elapsed = 0
-		while elapsed < duration
+		while
+			elapsed < duration
 			and activeStates[character] == state
 			and not state.cleaned
 			and humanoid.Health > 0
@@ -135,10 +125,7 @@ function ShieldSlide.Apply(
 				-- Smoothly brake the planar slide without touching vertical velocity.
 				speedScale = 1 - (releaseAlpha * releaseAlpha * (3 - 2 * releaseAlpha))
 			end
-			linearVelocity.PlaneVelocity = Vector2.new(
-				planarVelocity.X * speedScale,
-				planarVelocity.Z * speedScale
-			)
+			linearVelocity.PlaneVelocity = Vector2.new(planarVelocity.X * speedScale, planarVelocity.Z * speedScale)
 		end
 		cleanup(state)
 	end)

@@ -8,12 +8,15 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local TweenService = game:GetService("TweenService")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
+local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
 local log = LogUtil.For("CombatService")
+type TroveInstance = typeof(Trove.new())
 
 local Equipment: any
 local ArenaBounds: any
+local CombatMath: any
 local DataService: any
 local EquipmentAssets: Folder
 local StartAttack: RemoteEvent
@@ -65,16 +68,20 @@ type CombatRuntime = {
 	movement: MovementState?,
 }
 
+type PlayerLifecycle = {
+	trove: TroveInstance,
+	characterTrove: TroveInstance,
+}
+
 local runtimes: { [Player]: CombatRuntime } = {}
-local characterConnections: { [Player]: { RBXScriptConnection } } = {}
-local playerConnections: { [Player]: RBXScriptConnection } = {}
+local playerLifecycles: { [Player]: PlayerLifecycle } = {}
 local nextLoadoutRequestAt: { [Player]: number } = {}
 local nextHitId = 0
-local serviceConnections: { RBXScriptConnection } = {}
-local loadoutLimiter = RateLimitUtil.new(12, 4)
-local guardLimiter = RateLimitUtil.new(16, 8)
-local startAttackLimiter = RateLimitUtil.new(8, 4)
-local reportHitLimiter = RateLimitUtil.new(12, 6)
+local serviceTrove: TroveInstance?
+local loadoutLimiter = RateLimiter.new(12, 4)
+local guardLimiter = RateLimiter.new(16, 8)
+local startAttackLimiter = RateLimiter.new(8, 4)
+local reportHitLimiter = RateLimiter.new(12, 6)
 
 local function getNumber(value: any, fallback: number, minimum: number, maximum: number): number
 	if type(value) ~= "number" or value ~= value then
@@ -95,7 +102,8 @@ local function getAliveR15Character(player: Player): (Model?, Humanoid?, BasePar
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not character
+	if
+		not character
 		or not humanoid
 		or humanoid.Health <= 0
 		or humanoid.RigType ~= Enum.HumanoidRigType.R15
@@ -109,12 +117,7 @@ end
 
 local function isCharacterInArena(character: Model): boolean
 	local root = character:FindFirstChild("HumanoidRootPart")
-	local allowance = getNumber(
-		Equipment.Combat.arenaHeightAllowanceStuds,
-		DEFAULT_ARENA_HEIGHT_ALLOWANCE,
-		0,
-		100
-	)
+	local allowance = getNumber(Equipment.Combat.arenaHeightAllowanceStuds, DEFAULT_ARENA_HEIGHT_ALLOWANCE, 0, 100)
 	return root ~= nil and root:IsA("BasePart") and ArenaBounds.Contains(Arena, root.Position, allowance)
 end
 
@@ -215,18 +218,14 @@ local function createShieldBubble(character: Model, root: BasePart)
 	weld.Part0 = root
 	weld.Part1 = bubble
 	weld.Parent = bubble
-	TweenService:Create(
-		bubble,
-		TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{
-			Size = Vector3.one * SHIELD_BUBBLE_SIZE,
-			Transparency = 0.48,
-		}
-	):Play()
+	TweenService:Create(bubble, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = Vector3.one * SHIELD_BUBBLE_SIZE,
+		Transparency = 0.48,
+	}):Play()
 end
 
 local function getEquipmentAndLoadout(player: Player): (any, any)
-	return DataService.GetSection(player, "equipment"), DataService.GetSection(player, "combatLoadout")
+	return DataService.GetOrCreateSection(player, "equipment"), DataService.GetOrCreateSection(player, "combatLoadout")
 end
 
 local function getOwnedDefinition(equipment: any, instanceId: unknown, expectedKind: string): string?
@@ -460,7 +459,8 @@ local function setShieldGuard(player: Player, enabled: boolean): boolean
 		return true
 	end
 	local character, humanoid, root = getAliveR15Character(player)
-	if not character
+	if
+		not character
 		or not humanoid
 		or not root
 		or character:GetAttribute("CombatReady") ~= true
@@ -519,10 +519,6 @@ local function updateArenaCombatState(player: Player)
 	rebuildAttachments(character)
 end
 
-local function isValidSequence(value: any): boolean
-	return type(value) == "number" and value % 1 == 0 and value >= 1 and value <= MAX_SEQUENCE
-end
-
 local function getEquippedPrimary(character: Model): (string?, any?)
 	local definitionId = character:GetAttribute("RightEquipped")
 	local profile = getProfile(definitionId)
@@ -532,7 +528,8 @@ local function getEquippedPrimary(character: Model): (string?, any?)
 	local folder = character:FindFirstChild(EQUIPMENT_FOLDER_NAME)
 	local model = folder and folder:FindFirstChild("RightEquipment")
 	local motor = character:FindFirstChild("RightHandMotor", true)
-	if not model
+	if
+		not model
 		or not model:IsA("Model")
 		or model:GetAttribute("EquipmentId") ~= definitionId
 		or not motor
@@ -559,23 +556,13 @@ local function hasLineOfSight(attackerCharacter: Model, targetCharacter: Model):
 	return result == nil or result.Instance:IsDescendantOf(targetCharacter)
 end
 
-local function withinGuardArc(attackerRoot: BasePart, targetRoot: BasePart, degrees: number): boolean
-	local offset = attackerRoot.Position - targetRoot.Position
-	local planarOffset = Vector3.new(offset.X, 0, offset.Z)
-	local facing = targetRoot.CFrame.LookVector
-	local planarFacing = Vector3.new(facing.X, 0, facing.Z)
-	if planarOffset.Magnitude <= 0.001 or planarFacing.Magnitude <= 0.001 then
-		return false
-	end
-	return planarFacing.Unit:Dot(planarOffset.Unit) >= math.cos(math.rad(math.clamp(degrees, 0, 360) * 0.5))
-end
-
 local function handleMeleeSwing(player: Player, payload: any)
-	if type(payload) ~= "table" or not isValidSequence(payload.sequence) then
+	if type(payload) ~= "table" or not CombatMath.IsValidSequence(payload.sequence, MAX_SEQUENCE) then
 		return
 	end
 	local character = getAliveR15Character(player)
-	if not character
+	if
+		not character
 		or character:GetAttribute("CombatReady") ~= true
 		or character:GetAttribute("ShieldGuarding") == true
 		or not isCharacterInArena(character)
@@ -645,8 +632,9 @@ local function sendImpact(
 end
 
 local function handleHitReport(player: Player, payload: any)
-	if type(payload) ~= "table"
-		or not isValidSequence(payload.sequence)
+	if
+		type(payload) ~= "table"
+		or not CombatMath.IsValidSequence(payload.sequence, MAX_SEQUENCE)
 		or type(payload.targetUserId) ~= "number"
 		or payload.targetUserId % 1 ~= 0
 	then
@@ -658,7 +646,8 @@ local function handleHitReport(player: Player, payload: any)
 	end
 	local attackerCharacter, _, attackerRoot = getAliveR15Character(player)
 	local targetCharacter, _, targetRoot = getAliveR15Character(target)
-	if not attackerCharacter
+	if
+		not attackerCharacter
 		or not attackerRoot
 		or not targetCharacter
 		or not targetRoot
@@ -674,7 +663,8 @@ local function handleHitReport(player: Player, payload: any)
 	local now = os.clock()
 	local runtime = refreshRuntime(player, now)
 	local authorization = runtime.authorizedSwing
-	if not authorization
+	if
+		not authorization
 		or authorization.sequence ~= payload.sequence
 		or authorization.weaponId ~= weaponId
 		or now > authorization.expiresAt
@@ -687,12 +677,12 @@ local function handleHitReport(player: Player, payload: any)
 		return
 	end
 	local maxDistance = math.clamp(
-		getNumber(profile.reachStuds, 5, 0, MAX_REACH)
-			+ getNumber(profile.serverToleranceStuds, 0, 0, MAX_REACH),
+		getNumber(profile.reachStuds, 5, 0, MAX_REACH) + getNumber(profile.serverToleranceStuds, 0, 0, MAX_REACH),
 		0,
 		MAX_REACH
 	)
-	if (targetRoot.Position - attackerRoot.Position).Magnitude > maxDistance
+	if
+		(targetRoot.Position - attackerRoot.Position).Magnitude > maxDistance
 		or (profile.requireLineOfSight == true and not hasLineOfSight(attackerCharacter, targetCharacter))
 	then
 		return
@@ -720,18 +710,21 @@ local function handleHitReport(player: Player, payload: any)
 	local airTrailSeconds = 0
 	local shieldDepleted = false
 	local shieldProfile = getProfile(targetCharacter:GetAttribute("LeftEquipped"))
-	if targetCharacter:GetAttribute("ShieldGuarding") == true
+	if
+		targetCharacter:GetAttribute("ShieldGuarding") == true
 		and targetCharacter:FindFirstChild(SHIELD_BUBBLE_NAME) ~= nil
 		and shieldProfile
 		and shieldProfile.kind == "Shield"
-		and withinGuardArc(attackerRoot, targetRoot, getNumber(shieldProfile.blockArcDegrees, 110, 0, 360))
+		and CombatMath.IsWithinGuardArc(
+			attackerRoot.Position,
+			targetRoot.Position,
+			targetRoot.CFrame.LookVector,
+			getNumber(shieldProfile.blockArcDegrees, 110, 0, 360)
+		)
 	then
 		blocked = true
-		shieldDepleted = spendStaminaUpTo(
-			target,
-			getNumber(shieldProfile.impactStaminaCost, 30, 0, 1_000),
-			now
-		) <= 0.001
+		shieldDepleted = spendStaminaUpTo(target, getNumber(shieldProfile.impactStaminaCost, 30, 0, 1_000), now)
+			<= 0.001
 		reactionType = "ShieldSlide"
 		launchVelocity = direction * getNumber(shieldProfile.slideKnockback, 28, 0, 100)
 		controlSeconds = 0
@@ -768,22 +761,23 @@ local function handleHitReport(player: Player, payload: any)
 	)
 	if blocked and shieldDepleted then
 		-- Let the final bubble spark finish, then lower the depleted guard automatically.
-		task.delay(0.5, function()
+		local trove = serviceTrove
+		if not trove then
+			return
+		end
+		trove:Add(task.delay(0.5, function()
 			if target.Character == targetCharacter and targetCharacter:GetAttribute("ShieldGuarding") == true then
 				setShieldGuard(target, false)
 			end
-		end)
+		end))
 	end
 end
 
-local function disconnectCharacterConnections(player: Player)
-	local connections = characterConnections[player]
-	if connections then
-		for _, connection in connections do
-			connection:Disconnect()
-		end
+local function cleanCharacterLifecycle(player: Player)
+	local lifecycle = playerLifecycles[player]
+	if lifecycle then
+		lifecycle.characterTrove:Clean()
 	end
-	characterConnections[player] = nil
 end
 
 local function onCharacterAdded(player: Player, character: Model)
@@ -792,11 +786,18 @@ local function onCharacterAdded(player: Player, character: Model)
 		restoreMovement(priorRuntime)
 	end
 	runtimes[player] = nil
-	disconnectCharacterConnections(player)
+	cleanCharacterLifecycle(player)
 	character:SetAttribute("CombatReady", false)
 	character:SetAttribute("ShieldGuarding", false)
 	local humanoid = character:WaitForChild("Humanoid", 10)
-	if not humanoid or not humanoid:IsA("Humanoid") then
+	local lifecycle = playerLifecycles[player]
+	if
+		not lifecycle
+		or player.Parent ~= Players
+		or player.Character ~= character
+		or not humanoid
+		or not humanoid:IsA("Humanoid")
+	then
 		return
 	end
 	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
@@ -805,19 +806,17 @@ local function onCharacterAdded(player: Player, character: Model)
 	end
 	refreshRuntime(player, os.clock())
 	applyResolvedLoadout(player, character)
-	characterConnections[player] = {
-		humanoid.Died:Connect(function()
+	lifecycle.characterTrove:Connect(humanoid.Died, function()
+		setShieldGuard(player, false)
+		getRuntime(player).authorizedSwing = nil
+		clearEquipment(character)
+	end)
+	lifecycle.characterTrove:Connect(character.AncestryChanged, function(_, parent)
+		if not parent then
 			setShieldGuard(player, false)
 			getRuntime(player).authorizedSwing = nil
-			clearEquipment(character)
-		end),
-		character.AncestryChanged:Connect(function(_, parent)
-			if not parent then
-				setShieldGuard(player, false)
-				getRuntime(player).authorizedSwing = nil
-			end
-		end),
-	}
+		end
+	end)
 end
 
 local function equipOwnedInstance(player: Player, instanceId: unknown): (boolean, string?)
@@ -848,24 +847,34 @@ local function equipOwnedInstance(player: Player, instanceId: unknown): (boolean
 end
 
 local function onPlayerAdded(player: Player)
-	if playerConnections[player] then
+	if playerLifecycles[player] then
 		return
 	end
-	playerConnections[player] = player.CharacterAdded:Connect(function(character)
+	local trove = Trove.new()
+	local lifecycle: PlayerLifecycle = {
+		trove = trove,
+		characterTrove = trove:Extend(),
+	}
+	playerLifecycles[player] = lifecycle
+	trove:Connect(player.CharacterAdded, function(character)
 		onCharacterAdded(player, character)
 	end)
 	if player.Character then
-		task.defer(onCharacterAdded, player, player.Character)
+		local character = player.Character
+		trove:Add(task.defer(function()
+			if playerLifecycles[player] == lifecycle and player.Parent == Players and player.Character == character then
+				onCharacterAdded(player, character)
+			end
+		end))
 	end
 end
 
 local function onPlayerRemoving(player: Player)
-	local playerConnection = playerConnections[player]
-	if playerConnection then
-		playerConnection:Disconnect()
-		playerConnections[player] = nil
+	local lifecycle = playerLifecycles[player]
+	if lifecycle then
+		playerLifecycles[player] = nil
+		lifecycle.trove:Destroy()
 	end
-	disconnectCharacterConnections(player)
 	nextLoadoutRequestAt[player] = nil
 	local runtime = runtimes[player]
 	if runtime then
@@ -881,6 +890,7 @@ end
 function CombatService.Init(context: any)
 	Equipment = context.Configurations.Equipment
 	ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
+	CombatMath = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CombatMath"))
 	DataService = context.Services.DataService
 	EquipmentAssets = context.Instances.EquipmentAssets
 	StartAttack = context.Remotes.Combat.StartAttack
@@ -894,6 +904,10 @@ function CombatService.Init(context: any)
 end
 
 function CombatService.Start()
+	assert(serviceTrove == nil, "[CombatService] Start called while already running")
+	local trove = Trove.new()
+	serviceTrove = trove
+
 	for _, authoringName in { "R15WeaponPositioningRig", "WeaponPosePreview" } do
 		local authoringInstance = workspace:FindFirstChild(authoringName)
 		if authoringInstance then
@@ -921,24 +935,24 @@ function CombatService.Start()
 		return { ok = ok, code = reason, snapshot = snapshotLoadout(player) }
 	end
 
-	table.insert(serviceConnections, SetShieldGuard.OnServerEvent:Connect(function(player: Player, enabled: unknown)
+	trove:Connect(SetShieldGuard.OnServerEvent, function(player: Player, enabled: unknown)
 		if guardLimiter:Allow(player) and type(enabled) == "boolean" then
 			setShieldGuard(player, enabled)
 		end
-	end))
-	table.insert(serviceConnections, StartAttack.OnServerEvent:Connect(function(player: Player, payload: unknown)
+	end)
+	trove:Connect(StartAttack.OnServerEvent, function(player: Player, payload: unknown)
 		if startAttackLimiter:Allow(player) then
 			handleMeleeSwing(player, payload)
 		end
-	end))
-	table.insert(serviceConnections, ReportHit.OnServerEvent:Connect(function(player: Player, payload: unknown)
+	end)
+	trove:Connect(ReportHit.OnServerEvent, function(player: Player, payload: unknown)
 		if reportHitLimiter:Allow(player) then
 			handleHitReport(player, payload)
 		end
-	end))
+	end)
 
 	local stateAccumulator = 0
-	table.insert(serviceConnections, RunService.Heartbeat:Connect(function(deltaTime: number)
+	trove:Connect(RunService.Heartbeat, function(deltaTime: number)
 		stateAccumulator += deltaTime
 		if stateAccumulator < STATE_STEP_SECONDS then
 			return
@@ -950,7 +964,8 @@ function CombatService.Start()
 			local runtime = refreshRuntime(player, now)
 			local movement = runtime.movement
 			if movement then
-				if player.Character ~= movement.character
+				if
+					player.Character ~= movement.character
 					or not movement.character.Parent
 					or movement.humanoid.Health <= 0
 					or movement.character:GetAttribute("CombatReady") ~= true
@@ -965,23 +980,27 @@ function CombatService.Start()
 				end
 			end
 		end
-	end))
+	end)
 
-	table.insert(serviceConnections, Players.PlayerAdded:Connect(onPlayerAdded))
-	table.insert(serviceConnections, Players.PlayerRemoving:Connect(onPlayerRemoving))
+	trove:Connect(Players.PlayerAdded, onPlayerAdded)
+	trove:Connect(Players.PlayerRemoving, onPlayerRemoving)
 	for _, player in Players:GetPlayers() do
-		task.defer(onPlayerAdded, player)
+		trove:Add(task.defer(function()
+			if player.Parent == Players then
+				onPlayerAdded(player)
+			end
+		end))
 	end
 end
 
 function CombatService.Stop()
 	GetLoadoutRemote.OnServerInvoke = nil
 	EquipRemote.OnServerInvoke = nil
-	for _, connection in serviceConnections do
-		connection:Disconnect()
+	if serviceTrove then
+		serviceTrove:Destroy()
+		serviceTrove = nil
 	end
-	table.clear(serviceConnections)
-	for player in pairs(playerConnections) do
+	for player in pairs(playerLifecycles) do
 		onPlayerRemoving(player)
 	end
 	loadoutLimiter:Clear()

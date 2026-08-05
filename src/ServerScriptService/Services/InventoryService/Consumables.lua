@@ -13,7 +13,7 @@ end
 
 function Consumables.LoadPlayer(player: Player)
 	local session = sessionsByUserId[player.UserId]
-	session.consumables = DataService.GetSection(player, "consumables")
+	session.consumables = DataService.GetOrCreateSection(player, "consumables")
 end
 
 return Consumables

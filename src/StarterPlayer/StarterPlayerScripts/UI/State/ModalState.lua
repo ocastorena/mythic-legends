@@ -1,4 +1,4 @@
--- StarterPlayer/StarterPlayerScripts/UI/ModalUtil
+-- StarterPlayer/StarterPlayerScripts/UI/State/ModalState
 -- Single owner of modal state and the input guard. UI/Overlays/ModalBackdrop observes it.
 --
 -- The Inventory and Stand views each used to hold their own reference to the
@@ -14,9 +14,9 @@
 --
 -- Panels now declare themselves open or closed by name and never touch the backdrop.
 
-local InputGuardUtil = require(script.Parent.InputGuardUtil)
+local InputGuard = require(script.Parent.Parent.InputGuard)
 
-local ModalUtil = {}
+local ModalState = {}
 
 -- Names of every panel currently open. The backdrop is up whenever this is non-empty.
 local openPanels: { [string]: true } = {}
@@ -42,26 +42,26 @@ local function sync()
 	isGuardActive = shouldShow
 
 	if shouldShow then
-		InputGuardUtil.Open()
+		InputGuard.Open()
 	else
-		InputGuardUtil.Close()
+		InputGuard.Close()
 	end
 
 	for _, listener in ipairs(table.clone(listeners)) do
 		local ok, err = pcall(listener, shouldShow)
 		if not ok then
-			warn(`[ModalUtil] Listener failed: {err}`)
+			warn(`[ModalState] Listener failed: {err}`)
 		end
 	end
 end
 
 --- Calls `listener(anyPanelOpen)` now and on every empty <-> non-empty transition after.
 --- Returns a function that unsubscribes.
-function ModalUtil.OnChanged(listener: (boolean) -> ()): () -> ()
+function ModalState.OnChanged(listener: (boolean) -> ()): () -> ()
 	table.insert(listeners, listener)
 	local ok, err = pcall(listener, anyOpen())
 	if not ok then
-		warn(`[ModalUtil] Initial listener failed: {err}`)
+		warn(`[ModalState] Initial listener failed: {err}`)
 	end
 
 	return function()
@@ -73,26 +73,26 @@ function ModalUtil.OnChanged(listener: (boolean) -> ()): () -> ()
 end
 
 --- Marks `panelName` as open. Calling twice for the same panel is harmless.
-function ModalUtil.Open(panelName: string)
-	assert(type(panelName) == "string" and panelName ~= "", "[ModalUtil] panelName required")
+function ModalState.Open(panelName: string)
+	assert(type(panelName) == "string" and panelName ~= "", "[ModalState] panelName required")
 	openPanels[panelName] = true
 	sync()
 end
 
 --- Marks `panelName` as closed. The backdrop stays up while any other panel is open.
-function ModalUtil.Close(panelName: string)
-	assert(type(panelName) == "string" and panelName ~= "", "[ModalUtil] panelName required")
+function ModalState.Close(panelName: string)
+	assert(type(panelName) == "string" and panelName ~= "", "[ModalState] panelName required")
 	openPanels[panelName] = nil
 	sync()
 end
 
-function ModalUtil.IsOpen(panelName: string): boolean
+function ModalState.IsOpen(panelName: string): boolean
 	return openPanels[panelName] == true
 end
 
 --- True while any panel holds the backdrop.
-function ModalUtil.AnyOpen(): boolean
+function ModalState.AnyOpen(): boolean
 	return anyOpen()
 end
 
-return ModalUtil
+return ModalState

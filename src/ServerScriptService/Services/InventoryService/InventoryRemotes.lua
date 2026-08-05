@@ -4,14 +4,14 @@ local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
+local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 
 local InventoryRemotes = {}
 
 local Mythlings: any
 local BaseService: any
 local deleteMythling: RemoteFunction
-local deleteLimiter = RateLimitUtil.new(3, 0.5)
+local deleteLimiter = RateLimiter.new(3, 0.5)
 local removingConnection: RBXScriptConnection?
 
 function InventoryRemotes.Init(context, mythlings)

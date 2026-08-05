@@ -1,17 +1,16 @@
--- ServerScriptService/Services/SpawnService
-local SpawnService = {}
+-- ServerScriptService/Services/MythlingSpawnService
+local MythlingSpawnService = {}
 
 -- Services
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local PathfindingService = game:GetService("PathfindingService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
-local log = LogUtil.For("SpawnService")
+local log = LogUtil.For("MythlingSpawnService")
 
 --// Module State --------------------------------------------------------------
 
@@ -135,44 +134,48 @@ local function randomPointInArena(arena: BasePart, usableR: number): Vector3?
 end
 
 --// Zone ---------------------------------------------------------------
--- Radius is preserved; pivot still controls placement/orientation.
-local SPIN_DPS = 45 -- degrees/sec
-
--- The zone's ring is a Decal on the host part's top face. The host is only 0.001 thick,
--- so dropping it straight onto the spawn point leaves the decal ~0.0005 above the arena
--- floor -- effectively coplanar, which z-fights and makes the ring flicker out up close.
--- Hold it clear of the floor by a margin that's still invisible at a twentieth of a stud.
+-- The ring is generated in code so runtime capture does not depend on a mutable Studio template.
 local ZONE_SURFACE_LIFT = 0.05
+local ZONE_RING_COLOR = Color3.fromRGB(103, 255, 158)
 
 local function makeZone(radius: number, pivot: CFrame): BasePart
-	-- Invisible host part: its bounding box drives the Disc radius.
-	local zoneTemplate = Context.Instances.MythlingAssets:WaitForChild("Zone")
-	local zone = zoneTemplate:Clone()
-	zone.Size = Vector3.new(radius * 2, 0.001, radius * 2)
+	local zone = Instance.new("Part")
+	zone.Name = "Zone"
+	zone.Anchored = true
+	zone.CanCollide = false
+	zone.CanQuery = false
+	zone.CanTouch = false
+	zone.CastShadow = false
+	zone.Transparency = 1
+	zone.Size = Vector3.new(radius * 2, 0.05, radius * 2)
 	zone.CFrame = pivot + Vector3.new(0, ZONE_SURFACE_LIFT, 0)
 
-	-- tagging for client side
-	CollectionService:AddTag(zone, "MythlingZone")
+	local surface = Instance.new("SurfaceGui")
+	surface.Name = "RingSurface"
+	surface.Face = Enum.NormalId.Top
+	surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	surface.PixelsPerStud = 24
+	surface.LightInfluence = 0
+	surface.Parent = zone
 
-	-- Spin by yawing the host around its pivot every frame.
-	local baseCFrame = zone.CFrame
-	local angle = 0
-	local hb
-	hb = RunService.Heartbeat:Connect(function(dt)
-		if not zone.Parent then
-			if hb then
-				hb:Disconnect()
-			end
-			return
-		end
-		angle += math.rad(SPIN_DPS) * dt
-		zone.CFrame = baseCFrame * CFrame.Angles(0, angle, 0)
-	end)
-	zone.Destroying:Connect(function()
-		if hb then
-			hb:Disconnect()
-		end
-	end)
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.Size = UDim2.fromScale(1, 1)
+	ring.BackgroundTransparency = 1
+	ring.Parent = surface
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = ring
+
+	local stroke = Instance.new("UIStroke")
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Color = ZONE_RING_COLOR
+	stroke.Thickness = 5
+	stroke.Transparency = 0.1
+	stroke.Parent = ring
+
+	CollectionService:AddTag(zone, "MythlingZone")
 
 	return zone
 end
@@ -356,7 +359,7 @@ local function announceSpawn(id: string, def, model: Model, expireAt: number)
 end
 
 local function spawnOne(): boolean
-	local cfg = Context.Configurations.Spawns
+	local cfg = Context.Configurations.MythlingSpawns
 
 	-- Step 1) choose rarity/type and stats
 	local def = chooseSpawnDef(cfg)
@@ -424,7 +427,10 @@ end
 --- Remove the capture zone if present.
 local function removeZoneIfAny(e)
 	if e.zone and e.zone.Parent then
-		e.model:FindFirstChild("MythlingExpireTimer"):Destroy()
+		local timer = e.model and e.model:FindFirstChild("MythlingExpireTimer")
+		if timer then
+			timer:Destroy()
+		end
 		e.zone:Destroy()
 		e.zone = nil
 	end
@@ -628,13 +634,13 @@ end
 --// Public API ----------------------------------------------------------------
 
 --- Builds rarity->typeId lookup from Config and seeds RNG.
-function SpawnService.Init(context)
+function MythlingSpawnService.Init(context)
 	Context = context
 	MythlingsData = context.Configurations.Mythlings
 
 	math.randomseed(tick() % 1 * 1e7)
 
-	local weights = Context.Configurations.Spawns.RarityWeights or {}
+	local weights = Context.Configurations.MythlingSpawns.RarityWeights or {}
 
 	for typeId, def in pairs(Context.Configurations.Mythlings) do
 		local rarity = def.rarity
@@ -644,11 +650,11 @@ function SpawnService.Init(context)
 		elseif rarity == nil then
 			log.warn(`Mythling '{typeId}' is missing a rarity`)
 		else
-			log.warn(`Rarity '{rarity}' on '{typeId}' has no weight in Spawns.RarityWeights`)
+			log.warn(`Rarity '{rarity}' on '{typeId}' has no weight in MythlingSpawns.RarityWeights`)
 		end
 	end
 
-	-- Only roll rarities that can actually produce a mythling. Spawns.RarityWeights lists
+	-- Only roll rarities that can actually produce a mythling. MythlingSpawns.RarityWeights lists
 	-- Epic and Secret, but no mythling declares them, so those rolls used to pick a rarity
 	-- and then fail with "No typeIds for rarity" -- silently wasting spawn attempts.
 	table.clear(SpawnableWeights)
@@ -661,17 +667,16 @@ function SpawnService.Init(context)
 	if next(SpawnableWeights) == nil then
 		log.error("No spawnable rarities; nothing will spawn")
 	end
-
 end
 
 --- Starts the spawn/expire pumps. Spawns at most one mythling per tick (no prefill).
-function SpawnService.Start()
+function MythlingSpawnService.Start()
 	if running then
 		return
 	end
 	running = true
 
-	local cfg = Context.Configurations.Spawns
+	local cfg = Context.Configurations.MythlingSpawns
 
 	local function rollInterval(): number
 		return math.random(cfg.SpawnIntervalMin, cfg.SpawnIntervalMax)
@@ -711,7 +716,7 @@ function SpawnService.Start()
 end
 
 --- Stops pumps and clears all active mythlings.
-function SpawnService.Stop()
+function MythlingSpawnService.Stop()
 	running = false
 	for key, th in pairs(threads) do
 		pcall(task.cancel, th)
@@ -724,7 +729,7 @@ function SpawnService.Stop()
 end
 
 --- Called after a mythling is claimed and saved (winner decided).
-function SpawnService.OnClaimed(mythlingId: string, winner: Player)
+function MythlingSpawnService.OnClaimed(mythlingId: string, winner: Player)
 	local e = Active[mythlingId]
 	if not e or e.state == "DESPAWNED" then
 		return
@@ -750,8 +755,8 @@ function SpawnService.OnClaimed(mythlingId: string, winner: Player)
 end
 
 --- Returns the Active table (read-only by convention).
-function SpawnService.GetActiveMythlings()
+function MythlingSpawnService.GetActiveMythlings()
 	return Active
 end
 
-return SpawnService
+return MythlingSpawnService

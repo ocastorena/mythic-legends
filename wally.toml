@@ -10,3 +10,4 @@ private = true
 
 [dependencies]
 Fusion = "elttob/fusion@0.3.0"
+Trove = "sleitnick/trove@1.8.0"

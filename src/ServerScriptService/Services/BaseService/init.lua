@@ -8,13 +8,13 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
-local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
+local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 
 local log = LogUtil.For("BaseService")
 
 -- Module dependencies
-local StandUtil = require(script.StandUtil)
-local BaseUtil = require(script.BaseUtil)
+local StandPlacement = require(script.StandPlacement)
+local BaseRuntime = require(script.BaseRuntime)
 
 -- ===== Module state =====
 local Context: any = nil
@@ -36,7 +36,7 @@ local MythlingsMeta: ModuleScript
 local DataService: any
 local InventoryService: any
 local ProductionService: any
-local placementLimiter = RateLimitUtil.new(6, 2)
+local placementLimiter = RateLimiter.new(6, 2)
 local connections: { RBXScriptConnection } = {}
 local characterConnections: { [Player]: RBXScriptConnection } = {}
 
@@ -71,7 +71,8 @@ local function getPlayerBase(player: Player)
 end
 
 local function handlePlayerAdded(player: Player)
-	local result, message = BaseUtil.SpawnBaseFor(player, SLOTS, MAX_SLOTS, BaseModel, Arena, BaseIslands, BasesFolder)
+	local result, message =
+		BaseRuntime.SpawnBaseFor(player, SLOTS, MAX_SLOTS, BaseModel, Arena, BaseIslands, BasesFolder)
 	if not result then
 		log.warn(message)
 	end
@@ -82,12 +83,12 @@ local function handlePlayerAdded(player: Player)
 	end
 
 	characterConnections[player] = player.CharacterAdded:Connect(function(char)
-		BaseUtil.TeleportToBaseSpawn(player, char, base)
+		BaseRuntime.TeleportToBaseSpawn(player, char, base)
 	end)
 
-	local mythlingsSection = DataService.GetSection(player, "mythlings")
+	local mythlingsSection = DataService.GetOrCreateSection(player, "mythlings")
 
-	StandUtil.LoadMythlingsOnStands(mythlingsSection, base, MythlingAssets, MythlingsMeta)
+	StandPlacement.LoadMythlingsOnStands(mythlingsSection, base, MythlingAssets, MythlingsMeta)
 end
 
 local function validRequest(standId: unknown, mythlingId: unknown): boolean
@@ -109,7 +110,7 @@ local function handlePlaceMythling(player: Player, payload: unknown)
 	end
 	local standId = payload.standId
 	local mythlingId = payload.mythlingId
-	local mythlingSection = DataService.GetSection(player, "mythlings")
+	local mythlingSection = DataService.GetOrCreateSection(player, "mythlings")
 	local mythlingEntry = mythlingSection[mythlingId]
 	if not mythlingEntry then
 		return { ok = false, code = "NotOwned" }
@@ -120,7 +121,7 @@ local function handlePlaceMythling(player: Player, payload: unknown)
 	end
 	local mythlingMeta = MythlingsMeta[mythlingEntry.typeId]
 	local result, message =
-		StandUtil.SetMythlingOnStand(mythlingEntry, base, standId, MythlingAssets, mythlingMeta)
+		StandPlacement.SetMythlingOnStand(mythlingEntry, base, standId, MythlingAssets, mythlingMeta)
 	if not result then
 		log.warn(message)
 		return { ok = false, code = "PlacementRejected" }
@@ -138,7 +139,7 @@ local function handleRemoveMythling(player: Player, payload: unknown)
 		return { ok = false, code = "InvalidRequest" }
 	end
 	local mythlingId = payload.mythlingId
-	local mythlingSection = DataService.GetSection(player, "mythlings")
+	local mythlingSection = DataService.GetOrCreateSection(player, "mythlings")
 	local mythlingEntry = mythlingSection[mythlingId]
 	if not mythlingEntry then
 		return { ok = false, code = "NotOwned" }
@@ -150,7 +151,7 @@ local function handleRemoveMythling(player: Player, payload: unknown)
 	if not base then
 		return { ok = false, code = "BaseUnavailable" }
 	end
-	local result, message = StandUtil.RemoveMythlingFromStand(mythlingEntry, base)
+	local result, message = StandPlacement.RemoveMythlingFromStand(mythlingEntry, base)
 	if result then
 		InventoryService.MarkDirty(player)
 	else
@@ -162,7 +163,7 @@ local function handleRemoveMythling(player: Player, payload: unknown)
 end
 
 function BaseService.RemoveMythlingFromStand(player: Player, mythlingId: string): boolean
-	local mythlingEntry = DataService.GetSection(player, "mythlings")[mythlingId]
+	local mythlingEntry = DataService.GetOrCreateSection(player, "mythlings")[mythlingId]
 	if not mythlingEntry then
 		return false
 	end
@@ -173,7 +174,7 @@ function BaseService.RemoveMythlingFromStand(player: Player, mythlingId: string)
 	if not base then
 		return false
 	end
-	local removed = StandUtil.RemoveMythlingFromStand(mythlingEntry, base)
+	local removed = StandPlacement.RemoveMythlingFromStand(mythlingEntry, base)
 	if not removed then
 		return false
 	end
@@ -187,7 +188,7 @@ local function handlePlayerRemoving(player: Player)
 		connection:Disconnect()
 		characterConnections[player] = nil
 	end
-	BaseUtil.RemoveBaseFor(player, SLOTS)
+	BaseRuntime.RemoveBaseFor(player, SLOTS)
 	placementLimiter:Forget(player)
 end
 

@@ -17,7 +17,6 @@ export type Props = {
 	inventoryController: Types.InventoryControllerApi,
 	standController: Types.StandControllerApi,
 	hotbarController: Types.HotbarControllerApi,
-	staminaController: Types.StaminaControllerApi,
 	combatController: Types.CombatControllerApi,
 }
 

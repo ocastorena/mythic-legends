@@ -48,10 +48,7 @@ local function valuesEqual(left: any, right: any): boolean
 end
 
 function LocalData.IngestPayload(payload: StatePacket): (boolean, string?)
-	if type(payload) ~= "table"
-		or type(payload.revision) ~= "number"
-		or type(payload.values) ~= "table"
-	then
+	if type(payload) ~= "table" or type(payload.revision) ~= "number" or type(payload.values) ~= "table" then
 		return false, "InvalidPayload"
 	end
 

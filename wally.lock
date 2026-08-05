@@ -10,4 +10,9 @@ dependencies = []
 [[package]]
 name = "omar/mythic-legends"
 version = "0.1.0"
-dependencies = [["Fusion", "elttob/fusion@0.3.0"]]
+dependencies = [["Fusion", "elttob/fusion@0.3.0"], ["Trove", "sleitnick/trove@1.8.0"]]
+
+[[package]]
+name = "sleitnick/trove"
+version = "1.8.0"
+dependencies = []

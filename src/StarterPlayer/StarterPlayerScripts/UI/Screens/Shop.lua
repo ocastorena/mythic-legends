@@ -4,37 +4,37 @@ local Players = game:GetService("Players")
 
 local Ui = script.Parent.Parent
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
-local ModalUtil = require(Ui:WaitForChild("ModalUtil"))
-local PanelUtil = require(Ui:WaitForChild("PanelUtil"))
-local ThemeUtil = require(Ui:WaitForChild("ThemeUtil"))
+local ModalState = require(Ui:WaitForChild("State"):WaitForChild("ModalState"))
+local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
+local Theme = require(Ui:WaitForChild("Theme"))
 
 local PANEL_NAME = "Shop"
 local SHOP_ICON = "rbxassetid://9405933217"
-local RUNIES_ICON = "rbxassetid://112895221053745"
+local GOLD_ICON = "rbxassetid://112895221053745"
 local SHOP_TEXT_SCALE = 1.15
 local SHOP_CONTENT_SCALE = 1.15
 
 local function contentScale(viewport: Vector2): number
-	return if ThemeUtil.isPhone(viewport) then 1 else SHOP_CONTENT_SCALE
+	return if Theme.isPhone(viewport) then 1 else SHOP_CONTENT_SCALE
 end
 
 local function panelSize(viewport: Vector2): UDim2
-	if ThemeUtil.isPhone(viewport) then
-		return ThemeUtil.panelSize(viewport)
+	if Theme.isPhone(viewport) then
+		return Theme.panelSize(viewport)
 	end
 
 	local scale = contentScale(viewport)
 	local width = math.min(math.floor(viewport.X * 0.9), 1240)
-	local height = math.min(600, ThemeUtil.usableHeight(viewport) - 16)
+	local height = math.min(600, Theme.usableHeight(viewport) - 16)
 	return UDim2.fromOffset(math.floor(width / scale), math.floor(height / scale))
 end
 
 local function Shop(scope: any): ScreenGui
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
-	local shopGui = scope:New "ScreenGui" {
+	local shopGui = scope:New("ScreenGui")({
 		Name = "ShopGui",
 		Enabled = false,
-		DisplayOrder = ThemeUtil.Layer.panel,
+		DisplayOrder = Theme.Layer.panel,
 		ResetOnSpawn = false,
 		IgnoreGuiInset = false,
 		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,
@@ -42,15 +42,15 @@ local function Shop(scope: any): ScreenGui
 		ClipToDeviceSafeArea = true,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = playerGui,
-	} :: ScreenGui
+	}) :: ScreenGui
 
-	local panel = PanelUtil.panel({
+	local panel = Panel.Create({
 		parent = shopGui,
 		title = "Shop",
 		titleIcon = SHOP_ICON,
 		tabs = { "Featured", "Upgrades" },
 		size = panelSize,
-		accent = ThemeUtil.Accent.green,
+		accent = Theme.Accent.green,
 		onClose = function()
 			shopGui.Enabled = false
 		end,
@@ -63,9 +63,12 @@ local function Shop(scope: any): ScreenGui
 	responsiveScale.Scale = contentScale(initialViewport)
 	responsiveScale.Parent = panel.Card
 	if camera then
-		table.insert(scope, camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-			responsiveScale.Scale = contentScale(camera.ViewportSize)
-		end))
+		table.insert(
+			scope,
+			camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+				responsiveScale.Scale = contentScale(camera.ViewportSize)
+			end)
+		)
 	end
 
 	local catalog = Instance.new("Frame")
@@ -86,11 +89,11 @@ local function Shop(scope: any): ScreenGui
 	emptyTitle.Name = "Title"
 	emptyTitle.Size = UDim2.new(1, 0, 0, 34)
 	emptyTitle.BackgroundTransparency = 1
-	emptyTitle.FontFace = ThemeUtil.Font.extraBold
+	emptyTitle.FontFace = Theme.Font.extraBold
 	emptyTitle.Text = "New offers are on the way"
-	emptyTitle.TextColor3 = ThemeUtil.Text.strong
-	emptyTitle:SetAttribute("Em", ThemeUtil.Em.itemName)
-	emptyTitle.TextSize = ThemeUtil.text(ThemeUtil.Em.itemName, panel.Root)
+	emptyTitle.TextColor3 = Theme.Text.strong
+	emptyTitle:SetAttribute("Em", Theme.Em.itemName)
+	emptyTitle.TextSize = Theme.text(Theme.Em.itemName, panel.Root)
 	emptyTitle.TextXAlignment = Enum.TextXAlignment.Center
 	emptyTitle.Parent = emptyState
 
@@ -99,36 +102,36 @@ local function Shop(scope: any): ScreenGui
 	emptyBody.Position = UDim2.fromOffset(0, 38)
 	emptyBody.Size = UDim2.new(1, 0, 0, 44)
 	emptyBody.BackgroundTransparency = 1
-	emptyBody.FontFace = ThemeUtil.Font.bold
+	emptyBody.FontFace = Theme.Font.bold
 	emptyBody.Text = "Featured purchases will appear here when the shop catalog is configured."
-	emptyBody.TextColor3 = ThemeUtil.Text.dim
-	emptyBody:SetAttribute("Em", ThemeUtil.Em.body)
-	emptyBody.TextSize = ThemeUtil.text(ThemeUtil.Em.body, panel.Root)
+	emptyBody.TextColor3 = Theme.Text.dim
+	emptyBody:SetAttribute("Em", Theme.Em.body)
+	emptyBody.TextSize = Theme.text(Theme.Em.body, panel.Root)
 	emptyBody.TextWrapped = true
 	emptyBody.TextXAlignment = Enum.TextXAlignment.Center
 	emptyBody.TextYAlignment = Enum.TextYAlignment.Top
 	emptyBody.Parent = emptyState
 
-	local offerInfo = PanelUtil.details({
+	local offerInfo = Panel.CreateDetails({
 		parent = panel.Details,
 		root = panel.Root,
-		accent = ThemeUtil.Accent.green,
+		accent = Theme.Accent.green,
 		stats = 2,
 		primary = "Purchase",
 	})
 	offerInfo.NameLabel.Text = "No offer selected"
 	offerInfo.RarityLabel.Text = "Catalog unavailable"
-	offerInfo.RarityLabel.TextColor3 = ThemeUtil.Text.dim
+	offerInfo.RarityLabel.TextColor3 = Theme.Text.dim
 	offerInfo.Art.Image = SHOP_ICON
-	offerInfo.Art.ImageColor3 = ThemeUtil.Accent.green
-	offerInfo.ElementIcon.BackgroundColor3 = ThemeUtil.Accent.gold
-	offerInfo.ElementIcon.Image = RUNIES_ICON
+	offerInfo.Art.ImageColor3 = Theme.Accent.green
+	offerInfo.ElementIcon.BackgroundColor3 = Theme.Accent.gold
+	offerInfo.ElementIcon.Image = GOLD_ICON
 	offerInfo.Stats[1].Value.Text = "—"
 	offerInfo.Stats[1].Label.Text = "Price"
 	offerInfo.Stats[2].Value.Text = "—"
 	offerInfo.Stats[2].Label.Text = "Availability"
 	if offerInfo.PrimaryButton then
-		PanelUtil.setButtonEnabled(offerInfo.PrimaryButton, false, ThemeUtil.Accent.green)
+		Panel.SetButtonEnabled(offerInfo.PrimaryButton, false, Theme.Accent.green)
 	end
 
 	local selectedTab: TextButton? = nil
@@ -137,10 +140,10 @@ local function Shop(scope: any): ScreenGui
 			return
 		end
 		if selectedTab then
-			PanelUtil.setTabActive(selectedTab, false, panel.Accent)
+			Panel.SetTabActive(selectedTab, false, panel.Accent)
 		end
 		selectedTab = tab
-		PanelUtil.setTabActive(tab, true, panel.Accent)
+		Panel.SetTabActive(tab, true, panel.Accent)
 
 		if tab == panel.Tabs.Upgrades then
 			emptyTitle.Text = "Inventory upgrades are on the way"
@@ -163,18 +166,21 @@ local function Shop(scope: any): ScreenGui
 			descendant:SetAttribute("EmScale", (descendant:GetAttribute("EmScale") or 1) * SHOP_TEXT_SCALE)
 		end
 	end
-	PanelUtil.rescaleText(shopGui, panel.Root)
+	Panel.RescaleText(shopGui, panel.Root)
 
-	table.insert(scope, shopGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-		if shopGui.Enabled then
-			selectTab(panel.Tabs.Featured)
-			ModalUtil.Open(PANEL_NAME)
-		else
-			ModalUtil.Close(PANEL_NAME)
-		end
-	end))
+	table.insert(
+		scope,
+		shopGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+			if shopGui.Enabled then
+				selectTab(panel.Tabs.Featured)
+				ModalState.Open(PANEL_NAME)
+			else
+				ModalState.Close(PANEL_NAME)
+			end
+		end)
+	)
 	table.insert(scope, function()
-		ModalUtil.Close(PANEL_NAME)
+		ModalState.Close(PANEL_NAME)
 	end)
 
 	return shopGui

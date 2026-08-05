@@ -133,6 +133,9 @@
       "Databases": {
         "$path": "src/ServerStorage/Databases"
       },
+      "Tests": {
+        "$path": "tests"
+      },
       "ServerAssets": {
         "$className": "Folder",
         "$ignoreUnknownInstances": true,
@@ -141,6 +144,22 @@
           "$ignoreUnknownInstances": true
         },
         "Mythlings": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        }
+      },
+      "Authoring": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true,
+        "Backups": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Mythlings": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "TemplateSources": {
           "$className": "Folder",
           "$ignoreUnknownInstances": true
         }

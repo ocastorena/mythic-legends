@@ -1,14 +1,14 @@
--- StarterPlayer/StarterPlayerScripts/UI/ToastUtil
+-- StarterPlayer/StarterPlayerScripts/UI/State/ToastBus
 -- Event-only toast API. UI/Overlays/Toast owns rendering and animation.
 
-local ToastUtil = {}
+local ToastBus = {}
 
 export type Listener = (message: string) -> ()
 
 local listeners: { Listener } = {}
 
-function ToastUtil.Subscribe(listener: Listener): () -> ()
-	assert(type(listener) == "function", "[ToastUtil] listener must be a function")
+function ToastBus.Subscribe(listener: Listener): () -> ()
+	assert(type(listener) == "function", "[ToastBus] listener must be a function")
 	table.insert(listeners, listener)
 	local isSubscribed = true
 	return function()
@@ -23,16 +23,16 @@ function ToastUtil.Subscribe(listener: Listener): () -> ()
 	end
 end
 
-function ToastUtil.Show(message: string)
+function ToastBus.Show(message: string)
 	if type(message) ~= "string" or message == "" then
 		return
 	end
 	for _, listener in table.clone(listeners) do
 		local ok, err = pcall(listener, message)
 		if not ok then
-			warn(`[ToastUtil] Toast listener failed: {err}`)
+			warn(`[ToastBus] Toast listener failed: {err}`)
 		end
 	end
 end
 
-return ToastUtil
+return ToastBus

@@ -9,7 +9,6 @@ local App = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("App"))
 local InventoryController = require(script.Parent:WaitForChild("InventoryController"))
 local StandController = require(script.Parent:WaitForChild("StandController"))
 local HotbarController = require(script.Parent:WaitForChild("HotbarController"))
-local StaminaController = require(script.Parent:WaitForChild("StaminaController"))
 local CombatController = require(script.Parent:WaitForChild("CombatController"))
 
 local UIController = {}
@@ -87,7 +86,6 @@ function UIController.Start()
 			inventoryController = InventoryController,
 			standController = StandController,
 			hotbarController = HotbarController,
-			staminaController = StaminaController,
 			combatController = CombatController,
 		})
 	end
@@ -98,21 +96,6 @@ function UIController.Start()
 		end
 	end)
 	requestSnapshot()
-end
-
--- Feature controllers register focused mappings here. The shared router filters the state
--- signal; it does not own feature-specific visual rules.
-function UIController.Register(key: string, handler: (any, any) -> ()): RBXScriptConnection
-	local connection = LocalData.OnStateChanged:Connect(function(changedKey, value, oldValue)
-		if changedKey == key then
-			handler(value, oldValue)
-		end
-	end)
-	local current = LocalData.Peek(key)
-	if current ~= nil then
-		task.defer(handler, current, nil)
-	end
-	return connection
 end
 
 function UIController.Stop()

@@ -4,7 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
-local ToastUtil = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("ToastUtil"))
+local ToastBus = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("State"):WaitForChild("ToastBus"))
 
 local NotificationController = {}
 
@@ -55,7 +55,7 @@ function NotificationController.Start()
 		if payload.winnerUserId ~= Players.LocalPlayer.UserId then
 			return
 		end
-		ToastUtil.Show(`You claimed {resolveName(payload)}!`)
+		ToastBus.Show(`You claimed {resolveName(payload)}!`)
 	end)
 end
 

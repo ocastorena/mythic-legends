@@ -1,14 +1,15 @@
+--!strict
 -- ServerStorage/Databases/PlayerDataTemplate
 
 local PlayerDataTemplate = {
-	version = 1,
+	version = 2,
 	profile = {
 		userId = 0,
 		createdAt = 0,
 		lastLoginAt = 0,
 	},
 	currency = {
-		runies = 0,
+		gold = 0,
 	},
 	materials = {},
 	consumables = {},

@@ -1,3 +1,4 @@
+--!strict
 -- ReplicatedStorage/Shared/Configurations/Consumables
 --
 -- First-release Consumables are temporary Arena buffs. Definitions belong here once

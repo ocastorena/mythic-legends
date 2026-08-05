@@ -27,12 +27,18 @@ end
 
 local function bindCharacter(character: Model)
 	disconnectAll(characterConnections)
-	table.insert(characterConnections, character:GetAttributeChangedSignal("RightEquipped"):Connect(function()
-		equipmentChanged:Fire()
-	end))
-	table.insert(characterConnections, character:GetAttributeChangedSignal("LeftEquipped"):Connect(function()
-		equipmentChanged:Fire()
-	end))
+	table.insert(
+		characterConnections,
+		character:GetAttributeChangedSignal("RightEquipped"):Connect(function()
+			equipmentChanged:Fire()
+		end)
+	)
+	table.insert(
+		characterConnections,
+		character:GetAttributeChangedSignal("LeftEquipped"):Connect(function()
+			equipmentChanged:Fire()
+		end)
+	)
 	equipmentChanged:Fire()
 end
 
@@ -65,8 +71,8 @@ function InventoryController.Start()
 	end
 end
 
-function InventoryController.CollectEquipment(): Types.InventoryEquipmentMap
-	assert(initialized, "[InventoryController] Init must run before CollectEquipment")
+function InventoryController.RequestEquipmentSnapshot(): Types.InventoryEquipmentMap
+	assert(initialized, "[InventoryController] Init must run before RequestEquipmentSnapshot")
 	local equipment: Types.InventoryEquipmentMap = {}
 	local success, response = pcall(getCombatLoadout.InvokeServer, getCombatLoadout)
 	if not success then
@@ -94,7 +100,8 @@ function InventoryController.CollectEquipment(): Types.InventoryEquipmentMap
 				equipment[definitionId] = entry
 			end
 			entry.quantity += 1
-			if owned.instanceId == snapshot.primaryWeaponInstanceId
+			if
+				owned.instanceId == snapshot.primaryWeaponInstanceId
 				or owned.instanceId == snapshot.shieldInstanceId
 			then
 				entry.equipped = true

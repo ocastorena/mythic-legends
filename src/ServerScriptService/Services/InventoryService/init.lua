@@ -40,25 +40,28 @@ function InventoryService.Stop()
 end
 
 function InventoryService.Start()
-	table.insert(connections, PlayerUtil.OnPlayer(function(player: Player)
-		sessionsByUserId[player.UserId] = {}
-		Mythlings.LoadPlayer(player)
-		Materials.LoadPlayer(player)
-		Consumables.LoadPlayer(player)
-	end))
+	table.insert(
+		connections,
+		PlayerUtil.OnPlayer(function(player: Player)
+			sessionsByUserId[player.UserId] = {}
+			Mythlings.LoadPlayer(player)
+			Materials.LoadPlayer(player)
+			Consumables.LoadPlayer(player)
+		end)
+	)
 
-	table.insert(connections, Players.PlayerRemoving:Connect(function(player: Player)
-		sessionsByUserId[player.UserId] = nil
-	end))
+	table.insert(
+		connections,
+		Players.PlayerRemoving:Connect(function(player: Player)
+			sessionsByUserId[player.UserId] = nil
+		end)
+	)
 
 	InventoryRemotes.Start()
 end
 
 -- Mythling inventory API used by claiming, base placement, and production.
-function InventoryService.SaveWonMythling(
-	player: Player,
-	params: { typeId: string, variantId: string }
-): string?
+function InventoryService.SaveWonMythling(player: Player, params: { typeId: string, variantId: string }): string?
 	return Mythlings.SaveWon(player, params)
 end
 

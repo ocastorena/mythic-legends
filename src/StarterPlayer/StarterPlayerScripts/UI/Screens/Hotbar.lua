@@ -5,30 +5,30 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
-local ThemeUtil = require(script.Parent.Parent:WaitForChild("ThemeUtil"))
+local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
 
 local SLOT_COUNT = 6
-local BOTTOM_MARGIN = ThemeUtil.Platform.topbarEdgePadding
+local BOTTOM_MARGIN = Theme.Platform.topbarEdgePadding
 
 export type Props = {
 	hotbarController: Types.HotbarControllerApi,
 }
 
 local function createSlot(tray: Frame, index: number): Types.HotbarSlotView
-	local size = ThemeUtil.Metric.hotbarSlot
+	local size = Theme.Metric.hotbarSlot
 	local button = Instance.new("ImageButton")
 	button.Name = `Slot{index}`
 	button.Size = UDim2.fromOffset(size, size)
 	button.AutoButtonColor = false
 	button.BorderSizePixel = 0
-	button.BackgroundColor3 = ThemeUtil.Platform.topbarButtonFill
-	button.BackgroundTransparency = ThemeUtil.Platform.topbarButtonEmptyTransparency
+	button.BackgroundColor3 = Theme.Platform.topbarButtonFill
+	button.BackgroundTransparency = Theme.Platform.topbarButtonEmptyTransparency
 	button.Image = ""
 	button.LayoutOrder = index
 	button.Parent = tray
-	ThemeUtil.corner(button, ThemeUtil.Radius.hotbarSlot)
+	Theme.corner(button, Theme.Radius.hotbarSlot)
 
-	local ring = ThemeUtil.ring(button, ThemeUtil.Accent.gold, 2)
+	local ring = Theme.ring(button, Theme.Accent.gold, 2)
 	ring.Transparency = 1
 
 	local icon = Instance.new("ImageLabel")
@@ -49,8 +49,8 @@ local function createSlot(tray: Frame, index: number): Types.HotbarSlotView
 	label.Size = UDim2.fromScale(0.82, 0.5)
 	label.BackgroundTransparency = 1
 	label.BorderSizePixel = 0
-	label.FontFace = ThemeUtil.Font.extraBold
-	label.TextColor3 = ThemeUtil.Text.strong
+	label.FontFace = Theme.Font.extraBold
+	label.TextColor3 = Theme.Text.strong
 	label.TextScaled = true
 	label.TextWrapped = false
 	label.Visible = false
@@ -63,10 +63,10 @@ local function createSlot(tray: Frame, index: number): Types.HotbarSlotView
 	keyLabel.Size = UDim2.fromOffset(size, 10)
 	keyLabel.BackgroundTransparency = 1
 	keyLabel.BorderSizePixel = 0
-	keyLabel.FontFace = ThemeUtil.Font.bold
+	keyLabel.FontFace = Theme.Font.bold
 	keyLabel.Text = tostring(index)
-	keyLabel.TextColor3 = ThemeUtil.Text.dim
-	keyLabel.TextTransparency = ThemeUtil.Text.dimTransparency
+	keyLabel.TextColor3 = Theme.Text.dim
+	keyLabel.TextTransparency = Theme.Text.dimTransparency
 	keyLabel.TextSize = 10
 	keyLabel.Visible = not UserInputService.TouchEnabled
 	keyLabel.Parent = button
@@ -81,10 +81,10 @@ local function createSlot(tray: Frame, index: number): Types.HotbarSlotView
 end
 
 local function Hotbar(scope: any, props: Props): ScreenGui
-	local screenGui = scope:New "ScreenGui" {
+	local screenGui = scope:New("ScreenGui")({
 		Name = "HotbarGui",
 		Enabled = true,
-		DisplayOrder = ThemeUtil.Layer.hotbar,
+		DisplayOrder = Theme.Layer.hotbar,
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		ScreenInsets = Enum.ScreenInsets.None,
@@ -92,7 +92,7 @@ local function Hotbar(scope: any, props: Props): ScreenGui
 		ClipToDeviceSafeArea = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = Players.LocalPlayer:WaitForChild("PlayerGui"),
-	} :: ScreenGui
+	}) :: ScreenGui
 
 	local tray = Instance.new("Frame")
 	tray.Name = "Tray"
@@ -107,7 +107,7 @@ local function Hotbar(scope: any, props: Props): ScreenGui
 
 	local layout = Instance.new("UIListLayout")
 	layout.FillDirection = Enum.FillDirection.Horizontal
-	layout.Padding = UDim.new(0, ThemeUtil.Metric.hotbarGap)
+	layout.Padding = UDim.new(0, Theme.Metric.hotbarGap)
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.VerticalAlignment = Enum.VerticalAlignment.Center
 	layout.SortOrder = Enum.SortOrder.LayoutOrder

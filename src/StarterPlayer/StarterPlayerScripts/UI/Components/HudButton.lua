@@ -3,7 +3,7 @@
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ThemeUtil = require(script.Parent.Parent:WaitForChild("ThemeUtil"))
+local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
 local clickSound = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Audio"):WaitForChild("ButtonClick")
 
 export type Props = {
@@ -19,7 +19,7 @@ export type Props = {
 local function HudButton(scope: any, props: Props): ImageButton
 	local hovered = scope:Value(false)
 	local button: ImageButton
-	button = scope:New "ImageButton" {
+	button = scope:New("ImageButton")({
 		Name = props.name,
 		Size = scope:Computed(function(use)
 			local size = use(props.buttonSize)
@@ -27,21 +27,21 @@ local function HudButton(scope: any, props: Props): ImageButton
 		end),
 		AutoButtonColor = false,
 		BorderSizePixel = 0,
-		BackgroundColor3 = ThemeUtil.Platform.topbarButtonFill,
+		BackgroundColor3 = Theme.Platform.topbarButtonFill,
 		BackgroundTransparency = scope:Computed(function(use)
 			return if use(hovered)
-				then ThemeUtil.Platform.topbarButtonHoverTransparency
-				else ThemeUtil.Platform.topbarButtonTransparency
+				then Theme.Platform.topbarButtonHoverTransparency
+				else Theme.Platform.topbarButtonTransparency
 		end),
 		Image = "",
 		LayoutOrder = props.layoutOrder,
-		[scope.OnEvent "MouseEnter"] = function()
+		[scope.OnEvent("MouseEnter")] = function()
 			hovered:set(true)
 		end,
-		[scope.OnEvent "MouseLeave"] = function()
+		[scope.OnEvent("MouseLeave")] = function()
 			hovered:set(false)
 		end,
-		[scope.OnEvent "Activated"] = function()
+		[scope.OnEvent("Activated")] = function()
 			local sound = clickSound:Clone()
 			sound.Parent = button
 			sound:Play()
@@ -49,10 +49,10 @@ local function HudButton(scope: any, props: Props): ImageButton
 			props.onActivated()
 		end,
 		[scope.Children] = {
-			scope:New "UICorner" {
+			scope:New("UICorner")({
 				CornerRadius = UDim.new(1, 0),
-			},
-			scope:New "ImageLabel" {
+			}),
+			scope:New("ImageLabel")({
 				Name = "Icon",
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromScale(0.5, 0.5),
@@ -61,9 +61,9 @@ local function HudButton(scope: any, props: Props): ImageButton
 				Image = props.icon,
 				ImageColor3 = props.iconColor,
 				ScaleType = Enum.ScaleType.Fit,
-			},
+			}),
 		},
-	} :: ImageButton
+	}) :: ImageButton
 	return button
 end
 

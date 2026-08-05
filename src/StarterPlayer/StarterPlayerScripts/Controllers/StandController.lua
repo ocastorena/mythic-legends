@@ -12,11 +12,19 @@ local StandController = {}
 local initialized = false
 local running = false
 local promptConnection: RBXScriptConnection?
+local promptAddedConnection: RBXScriptConnection?
 local standRequested: BindableEvent
 local getStatus: RemoteFunction
 local collect: RemoteFunction
 local placeMythling: RemoteFunction
 local removeMythling: RemoteFunction
+local TAG = "StandPrompt"
+
+local function enableOwnedPrompt(instance: Instance)
+	if instance:IsA("ProximityPrompt") and instance:GetAttribute("OwnerId") == Players.LocalPlayer.UserId then
+		instance.Enabled = true
+	end
+end
 
 local function validStandId(value: unknown): boolean
 	return type(value) == "number" and value % 1 == 0 and value >= 0 and value <= 128
@@ -58,9 +66,13 @@ function StandController.Start()
 		return
 	end
 	running = true
+	for _, instance in CollectionService:GetTagged(TAG) do
+		enableOwnedPrompt(instance)
+	end
+	promptAddedConnection = CollectionService:GetInstanceAddedSignal(TAG):Connect(enableOwnedPrompt)
 
 	promptConnection = ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
-		if not CollectionService:HasTag(prompt, "StandPrompt") then
+		if not CollectionService:HasTag(prompt, TAG) then
 			return
 		end
 		local ownerId = prompt:GetAttribute("OwnerId")
@@ -126,6 +138,10 @@ function StandController.Stop()
 	if promptConnection then
 		promptConnection:Disconnect()
 		promptConnection = nil
+	end
+	if promptAddedConnection then
+		promptAddedConnection:Disconnect()
+		promptAddedConnection = nil
 	end
 end
 

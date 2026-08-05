@@ -13,7 +13,7 @@ end
 
 function Materials.LoadPlayer(player: Player)
 	local session = sessionsByUserId[player.UserId]
-	session.materials = DataService.GetSection(player, "materials")
+	session.materials = DataService.GetOrCreateSection(player, "materials")
 end
 
 function Materials.List(player: Player): any

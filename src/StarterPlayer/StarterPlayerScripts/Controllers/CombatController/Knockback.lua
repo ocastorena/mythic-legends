@@ -41,10 +41,7 @@ local function getVerticalHalfExtent(part: BasePart): number
 end
 
 local function isFiniteVector(vector: Vector3): boolean
-	return vector.X == vector.X
-		and vector.Y == vector.Y
-		and vector.Z == vector.Z
-		and vector.Magnitude < math.huge
+	return vector.X == vector.X and vector.Y == vector.Y and vector.Z == vector.Z and vector.Magnitude < math.huge
 end
 
 local function hasGroundSupport(state: ReactionState): boolean
@@ -126,7 +123,8 @@ function Knockback.Apply(
 	if not humanoid or humanoid.Health <= 0 or not root or not root:IsA("BasePart") then
 		return false
 	end
-	if hitId % 1 ~= 0
+	if
+		hitId % 1 ~= 0
 		or durationSeconds ~= durationSeconds
 		or not isFiniteVector(launchVelocity)
 		or not isFiniteVector(angularVelocity)
@@ -175,9 +173,11 @@ function Knockback.Apply(
 	state.force = vectorForce
 
 	local desiredVelocity = if launchVelocity.Magnitude > MAX_LAUNCH_SPEED
-		then launchVelocity.Unit * MAX_LAUNCH_SPEED else launchVelocity
+		then launchVelocity.Unit * MAX_LAUNCH_SPEED
+		else launchVelocity
 	local desiredAngular = if angularVelocity.Magnitude > MAX_ANGULAR_SPEED
-		then angularVelocity.Unit * MAX_ANGULAR_SPEED else angularVelocity
+		then angularVelocity.Unit * MAX_ANGULAR_SPEED
+		else angularVelocity
 	local forceDuration = math.clamp(durationSeconds, 0.08, 0.25)
 
 	task.spawn(function()
@@ -190,11 +190,7 @@ function Knockback.Apply(
 			velocityDelta = velocityDelta.Unit * MAX_VELOCITY_CORRECTION
 		end
 		local elapsed = 0
-		while elapsed < forceDuration
-			and activeStates[character] == state
-			and root.Parent
-			and vectorForce.Parent
-		do
+		while elapsed < forceDuration and activeStates[character] == state and root.Parent and vectorForce.Parent do
 			local simulationStep = RunService.PreSimulation:Wait()
 			local activeStep = math.min(simulationStep, forceDuration - elapsed)
 			local alpha = (elapsed + activeStep * 0.5) / forceDuration
@@ -215,7 +211,8 @@ function Knockback.Apply(
 			if velocity.Y >= TAKEOFF_SPEED or not hasGroundSupport(state) then
 				observedTakeoff = true
 			end
-			if observedTakeoff
+			if
+				observedTakeoff
 				and velocity.Y <= 0
 				and math.abs(velocity.Y) <= MAX_LANDING_VERTICAL_SPEED
 				and hasGroundSupport(state)

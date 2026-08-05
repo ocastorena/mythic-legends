@@ -3,8 +3,8 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
-local ThemeUtil = require(script.Parent.Parent:WaitForChild("ThemeUtil"))
-local ToastUtil = require(script.Parent.Parent:WaitForChild("ToastUtil"))
+local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
+local ToastBus = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("ToastBus"))
 
 local POP_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FADE_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
@@ -59,41 +59,41 @@ local function Toast(scope: any): ScreenGui
 		end)
 	end
 
-	scale = scope:New "UIScale" { Scale = 0.7 }
-	label = scope:New "TextLabel" {
+	scale = scope:New("UIScale")({ Scale = 0.7 })
+	label = scope:New("TextLabel")({
 		Name = "MessageLabel",
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		FontFace = ThemeUtil.Font.extraBold,
+		FontFace = Theme.Font.extraBold,
 		Text = "",
-		TextColor3 = ThemeUtil.Text.body,
+		TextColor3 = Theme.Text.body,
 		TextScaled = true,
 		TextTransparency = 1,
 		TextWrapped = true,
 		ZIndex = 2,
 		[scope.Children] = {
-			scope:New "UIPadding" {
+			scope:New("UIPadding")({
 				PaddingLeft = UDim.new(0, 14),
 				PaddingRight = UDim.new(0, 14),
-			},
-			scope:New "UITextSizeConstraint" {
+			}),
+			scope:New("UITextSizeConstraint")({
 				MinTextSize = 12,
 				MaxTextSize = 20,
-			},
-			scope:New "UIStroke" {
+			}),
+			scope:New("UIStroke")({
 				Color = Color3.new(0, 0, 0),
 				Thickness = 2,
 				Transparency = 0.15,
-			},
+			}),
 		},
-	} :: TextLabel
-	frame = scope:New "Frame" {
+	}) :: TextLabel
+	frame = scope:New("Frame")({
 		Name = "ToastFrame",
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, 12),
 		Size = UDim2.new(0.4, 0, 0, 44),
-		BackgroundColor3 = ThemeUtil.Surface.modal.color,
+		BackgroundColor3 = Theme.Surface.modal.color,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Visible = false,
@@ -101,25 +101,25 @@ local function Toast(scope: any): ScreenGui
 		[scope.Children] = {
 			scale,
 			label,
-			scope:New "UICorner" { CornerRadius = UDim.new(1, 0) },
-			scope:New "UISizeConstraint" {
+			scope:New("UICorner")({ CornerRadius = UDim.new(1, 0) }),
+			scope:New("UISizeConstraint")({
 				MinSize = Vector2.new(240, 44),
 				MaxSize = Vector2.new(640, 56),
-			},
+			}),
 		},
-	} :: Frame
+	}) :: Frame
 
-	local unsubscribe = ToastUtil.Subscribe(show)
+	local unsubscribe = ToastBus.Subscribe(show)
 	table.insert(scope, function()
 		generation += 1
 		unsubscribe()
 		cancelTweens()
 	end)
 
-	return scope:New "ScreenGui" {
+	return scope:New("ScreenGui")({
 		Name = "ToastGui",
 		Enabled = true,
-		DisplayOrder = ThemeUtil.Layer.toast,
+		DisplayOrder = Theme.Layer.toast,
 		ResetOnSpawn = false,
 		IgnoreGuiInset = false,
 		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,
@@ -128,7 +128,7 @@ local function Toast(scope: any): ScreenGui
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = Players.LocalPlayer:WaitForChild("PlayerGui"),
 		[scope.Children] = { frame },
-	} :: ScreenGui
+	}) :: ScreenGui
 end
 
 return Toast

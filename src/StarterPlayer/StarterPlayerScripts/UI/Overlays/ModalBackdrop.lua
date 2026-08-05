@@ -2,20 +2,20 @@
 
 local Players = game:GetService("Players")
 
-local ModalUtil = require(script.Parent.Parent:WaitForChild("ModalUtil"))
-local ThemeUtil = require(script.Parent.Parent:WaitForChild("ThemeUtil"))
+local ModalState = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("ModalState"))
+local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
 
 local function ModalBackdrop(scope: any): ScreenGui
-	local enabled = scope:Value(ModalUtil.AnyOpen())
-	local unsubscribe = ModalUtil.OnChanged(function(isOpen: boolean)
+	local enabled = scope:Value(ModalState.AnyOpen())
+	local unsubscribe = ModalState.OnChanged(function(isOpen: boolean)
 		enabled:set(isOpen)
 	end)
 	table.insert(scope, unsubscribe)
 
-	return scope:New "ScreenGui" {
+	return scope:New("ScreenGui")({
 		Name = "ModalBackdropGui",
 		Enabled = enabled,
-		DisplayOrder = ThemeUtil.Layer.scrim,
+		DisplayOrder = Theme.Layer.scrim,
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		ScreenInsets = Enum.ScreenInsets.None,
@@ -24,17 +24,17 @@ local function ModalBackdrop(scope: any): ScreenGui
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = Players.LocalPlayer:WaitForChild("PlayerGui"),
 		[scope.Children] = {
-			scope:New "Frame" {
+			scope:New("Frame")({
 				Name = "ModalBackdrop",
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromScale(0.5, 0.5),
 				Size = UDim2.fromScale(1, 1),
-				BackgroundColor3 = ThemeUtil.Surface.scrim.color,
-				BackgroundTransparency = ThemeUtil.Surface.scrim.transparency,
+				BackgroundColor3 = Theme.Surface.scrim.color,
+				BackgroundTransparency = Theme.Surface.scrim.transparency,
 				BorderSizePixel = 0,
 				ZIndex = 0,
-			},
-			scope:New "TextButton" {
+			}),
+			scope:New("TextButton")({
 				Name = "InputBlocker",
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromScale(0.5, 0.5),
@@ -47,9 +47,9 @@ local function ModalBackdrop(scope: any): ScreenGui
 				Selectable = false,
 				Text = "",
 				ZIndex = 21,
-			},
+			}),
 		},
-	} :: ScreenGui
+	}) :: ScreenGui
 end
 
 return ModalBackdrop

@@ -9,11 +9,9 @@ local CONTROLLER_ORDER = {
 	"NoClimbController",
 	"ClaimController",
 	"MythlingTimerController",
-	"StandPromptController",
 	"NotificationController",
 	"CombatController",
 	"HotbarController",
-	"StaminaController",
 	"InventoryController",
 	"StandController",
 }
@@ -21,7 +19,6 @@ local CONTROLLER_ORDER = {
 local context = {
 	PlayerScripts = playerScripts,
 	LocalData = require(playerScripts:WaitForChild("State"):WaitForChild("LocalData")),
-	UIController = UIController,
 }
 
 UIController.Init(context)
@@ -40,7 +37,8 @@ for _, name in ipairs(CONTROLLER_ORDER) do
 		continue
 	end
 	local controller = controllerOrError :: Controller
-	if type(controller) ~= "table"
+	if
+		type(controller) ~= "table"
 		or type(controller.Init) ~= "function"
 		or type(controller.Start) ~= "function"
 		or type(controller.Stop) ~= "function"

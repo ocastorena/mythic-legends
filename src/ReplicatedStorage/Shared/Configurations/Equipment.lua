@@ -1,3 +1,4 @@
+--!strict
 -- ReplicatedStorage/Shared/Configurations/Equipment
 -- Canonical static metadata for Model-based Arena combat equipment.
 

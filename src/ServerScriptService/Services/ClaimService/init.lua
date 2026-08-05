@@ -11,7 +11,7 @@ local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
 
 local ClaimEvent: RemoteEvent
-local SpawnService
+local MythlingSpawnService
 local InventoryService
 local MythlingsData
 
@@ -88,9 +88,9 @@ local function handleClaimWin(player, mythlingId, mythlingData)
 	end
 	mythlingData.claimed = true
 
-	-- Notify SpawnService (reward, despawn, etc)
-	if SpawnService and SpawnService.OnClaimed then
-		SpawnService.OnClaimed(mythlingId, player)
+	-- Notify MythlingSpawnService (reward, despawn, etc.)
+	if MythlingSpawnService and MythlingSpawnService.OnClaimed then
+		MythlingSpawnService.OnClaimed(mythlingId, player)
 	end
 
 	-- Tell everyone who won
@@ -232,43 +232,50 @@ end
 
 function ClaimService.Init(context)
 	ClaimEvent = context.Remotes.World.ClaimState
-	SpawnService = context.Services.SpawnService
+	MythlingSpawnService = context.Services.MythlingSpawnService
 	InventoryService = context.Services.InventoryService
 	MythlingsData = context.Configurations.Mythlings
-
 end
 
 function ClaimService.Start()
-	table.insert(connections, PlayerUtil.OnPlayer(function(player)
-		ensurePlayerState(player)
-	end))
+	table.insert(
+		connections,
+		PlayerUtil.OnPlayer(function(player)
+			ensurePlayerState(player)
+		end)
+	)
 
-	table.insert(connections, Players.PlayerRemoving:Connect(function(player)
-		PlayersState[player.UserId] = nil
-	end))
+	table.insert(
+		connections,
+		Players.PlayerRemoving:Connect(function(player)
+			PlayersState[player.UserId] = nil
+		end)
+	)
 
 	local acc = 0
-	table.insert(connections, RunService.Heartbeat:Connect(function(dt)
-		acc += dt
-		if acc < TICK_INTERVAL then
-			return
-		end
-		acc = 0
-
-		local now = os.clock()
-		local activeMythlings = SpawnService.GetActiveMythlings()
-
-		for userId, state in pairs(PlayersState) do
-			local player = Players:GetPlayerByUserId(userId)
-			if not player then
-				PlayersState[userId] = nil
-			else
-				resolveState(player, state, now, activeMythlings)
-				integrateProgress(player, state, now, activeMythlings)
+	table.insert(
+		connections,
+		RunService.Heartbeat:Connect(function(dt)
+			acc += dt
+			if acc < TICK_INTERVAL then
+				return
 			end
-		end
-	end))
+			acc = 0
 
+			local now = os.clock()
+			local activeMythlings = MythlingSpawnService.GetActiveMythlings()
+
+			for userId, state in pairs(PlayersState) do
+				local player = Players:GetPlayerByUserId(userId)
+				if not player then
+					PlayersState[userId] = nil
+				else
+					resolveState(player, state, now, activeMythlings)
+					integrateProgress(player, state, now, activeMythlings)
+				end
+			end
+		end)
+	)
 end
 
 function ClaimService.Stop()

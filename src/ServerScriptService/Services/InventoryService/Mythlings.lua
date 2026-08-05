@@ -38,7 +38,7 @@ end
 
 function Mythlings.LoadPlayer(player: Player)
 	local session = sessionsByUserId[player.UserId]
-	session.mythlings = DataService.GetSection(player, "mythlings")
+	session.mythlings = DataService.GetOrCreateSection(player, "mythlings")
 end
 
 function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: string }): string?

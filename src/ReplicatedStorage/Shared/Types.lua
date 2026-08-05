@@ -1,3 +1,4 @@
+--!strict
 -- ReplicatedStorage/Shared/Types
 -- Shared shapes so services can stop typing `any`. Import with:
 --   local Types = require(ReplicatedStorage.Shared.Types)
@@ -116,10 +117,6 @@ export type LocalDataApi = {
 	GetRevision: () -> number,
 }
 
-export type UIControllerApi = {
-	Register: (string, (any, any) -> ()) -> RBXScriptConnection,
-}
-
 export type InventoryEquipmentEntry = {
 	quantity: number,
 	equipped: boolean,
@@ -132,7 +129,7 @@ export type InventoryEquipmentMap = { [string]: InventoryEquipmentEntry }
 
 export type InventoryControllerApi = {
 	OnEquipmentChanged: RBXScriptSignal,
-	CollectEquipment: () -> InventoryEquipmentMap,
+	RequestEquipmentSnapshot: () -> InventoryEquipmentMap,
 	Equip: (string) -> boolean,
 	DeleteMythling: (string) -> boolean,
 }
@@ -166,16 +163,12 @@ export type HotbarView = {
 }
 
 export type HotbarControllerApi = {
-	BindView: (HotbarView) -> (() -> ()),
+	BindView: (HotbarView) -> () -> (),
 }
 
 export type StaminaView = {
 	container: Frame,
 	fill: Frame,
-}
-
-export type StaminaControllerApi = {
-	BindView: (StaminaView) -> (() -> ()),
 }
 
 export type CombatActionView = {
@@ -188,18 +181,16 @@ export type CombatActionView = {
 }
 
 export type CombatControllerApi = {
-	BindView: (CombatActionView) -> (() -> ()),
+	BindView: (CombatActionView) -> () -> (),
+	BindStaminaView: (StaminaView) -> () -> (),
 }
 
 export type ClientContext = {
 	PlayerScripts: PlayerScripts,
 	LocalData: LocalDataApi,
-	UIController: UIControllerApi,
 }
 
-export type ActionResult<T> =
-	{ ok: true, value: T? }
-	| { ok: false, code: string }
+export type ActionResult<T> = { ok: true, value: T? } | { ok: false, code: string }
 
 export type Network = {
 	State: { Update: RemoteEvent, Request: RemoteFunction },
@@ -225,7 +216,7 @@ export type Context = {
 		Mythlings: { [string]: MythlingDef },
 		Materials: { [string]: any },
 		Consumables: { [string]: any },
-		Spawns: { [string]: any },
+		MythlingSpawns: { [string]: any },
 		Equipment: EquipmentConfiguration,
 	},
 	Remotes: Network,

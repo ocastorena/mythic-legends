@@ -237,12 +237,9 @@ local function criticalWorldReady(): boolean
 
 	for index = 0, 7 do
 		local island = baseIslands:FindFirstChild("BaseIsland" .. index)
-		if not (
-			island
-			and island:IsA("Model")
-			and island:FindFirstChild("Grass")
-			and #island:GetDescendants() >= 16
-		) then
+		if
+			not (island and island:IsA("Model") and island:FindFirstChild("Grass") and #island:GetDescendants() >= 16)
+		then
 			return false
 		end
 	end

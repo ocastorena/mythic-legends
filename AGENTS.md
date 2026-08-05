@@ -10,7 +10,7 @@
 
 - Follow the Rojo structure and naming conventions in `README.md`.
 - Keep capture, currency, production, crafting, inventory, and permission checks server-authoritative. Divine Intervention is post-launch and must not be implemented or expanded without explicit approval.
-- Store static content and balance data in `src/shared/Metadata`.
+- Store static content and balance data in `src/ReplicatedStorage/Shared/Configurations`.
 - Persist only mutable player state and metadata IDs. Do not duplicate static metadata in player saves.
 - Keep player-created or randomly rolled values, such as Mythling Luck and Passive Trait IDs, in saved player state.
 - Keep tuning values configurable; do not hard-code economy, production, cooldown, spawn, or event-balance values into client logic.

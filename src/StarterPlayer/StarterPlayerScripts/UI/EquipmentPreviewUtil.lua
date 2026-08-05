@@ -10,13 +10,15 @@ local DISPLAY_ROTATION = CFrame.Angles(math.rad(60), 0, math.rad(-35))
 
 local function removeNonVisualDescendants(part: BasePart)
 	for _, descendant in ipairs(part:GetDescendants()) do
-		if descendant:IsA("BaseScript")
+		if
+			descendant:IsA("BaseScript")
 			or descendant:IsA("Sound")
 			or descendant:IsA("ParticleEmitter")
 			or descendant:IsA("Trail")
 			or descendant:IsA("Beam")
 			or descendant:IsA("JointInstance")
-			or descendant:IsA("Constraint") then
+			or descendant:IsA("Constraint")
+		then
 			descendant:Destroy()
 		end
 	end

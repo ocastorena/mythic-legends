@@ -9,10 +9,11 @@ local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Typ
 local Client = script.Parent.Parent
 local ButtonUtil = require(Client:WaitForChild("UI"):WaitForChild("ButtonUtil"))
 local EquipmentPreviewUtil = require(Client.UI:WaitForChild("EquipmentPreviewUtil"))
-local ModalUtil = require(Client.UI:WaitForChild("ModalUtil"))
-local ThemeUtil = require(Client.UI:WaitForChild("ThemeUtil"))
+local ModalState = require(Client.UI:WaitForChild("State"):WaitForChild("ModalState"))
+local Theme = require(Client.UI:WaitForChild("Theme"))
 local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("CharacterUtil"))
-local ConsumablesMeta = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Configurations"):WaitForChild("Consumables"))
+local ConsumablesMeta =
+	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Configurations"):WaitForChild("Consumables"))
 
 local HotbarController = {}
 
@@ -75,9 +76,11 @@ local function isConsumableTool(tool: Tool): boolean
 	local consumableId = if type(configuredId) == "string" and configuredId ~= "" then configuredId else tool.Name
 	local normalizedId = normalizeMetadataId(consumableId)
 	for metadataId, metadata in ConsumablesMeta do
-		if type(metadata) == "table"
+		if
+			type(metadata) == "table"
 			and normalizeMetadataId(metadataId) == normalizedId
-			and metadata.category == "consumable" then
+			and metadata.category == "consumable"
+		then
 			return true
 		end
 	end
@@ -93,11 +96,11 @@ local function paintSlot(slot: Slot)
 	local tool = slot.tool
 	local equipped = tool ~= nil and isEquipped(tool)
 	if equipped or slot.hovered then
-		slot.button.BackgroundTransparency = ThemeUtil.Platform.topbarButtonHoverTransparency
+		slot.button.BackgroundTransparency = Theme.Platform.topbarButtonHoverTransparency
 	elseif tool then
-		slot.button.BackgroundTransparency = ThemeUtil.Platform.topbarButtonTransparency
+		slot.button.BackgroundTransparency = Theme.Platform.topbarButtonTransparency
 	else
-		slot.button.BackgroundTransparency = ThemeUtil.Platform.topbarButtonEmptyTransparency
+		slot.button.BackgroundTransparency = Theme.Platform.topbarButtonEmptyTransparency
 	end
 	slot.ring.Transparency = if equipped then 0 else 1
 end
@@ -132,7 +135,7 @@ local function bindSlot(slot: Slot, tool: Tool?)
 end
 
 local function activateSlot(index: number)
-	if ModalUtil.AnyOpen() then
+	if ModalState.AnyOpen() then
 		return
 	end
 	local slot = slots[index]
@@ -264,50 +267,68 @@ function HotbarController.Start()
 			tool = nil,
 		}
 		slots[index] = slot
-		table.insert(connections, slot.button.MouseEnter:Connect(function()
-			slot.hovered = true
-			paintSlot(slot)
-		end))
-		table.insert(connections, slot.button.MouseLeave:Connect(function()
-			slot.hovered = false
-			paintSlot(slot)
-		end))
-		table.insert(connections, ButtonUtil.hookClick(slot.button, function()
-			activateSlot(index)
-		end))
+		table.insert(
+			connections,
+			slot.button.MouseEnter:Connect(function()
+				slot.hovered = true
+				paintSlot(slot)
+			end)
+		)
+		table.insert(
+			connections,
+			slot.button.MouseLeave:Connect(function()
+				slot.hovered = false
+				paintSlot(slot)
+			end)
+		)
+		table.insert(
+			connections,
+			ButtonUtil.hookClick(slot.button, function()
+				activateSlot(index)
+			end)
+		)
 	end
 
-	disconnectModal = ModalUtil.OnChanged(function(anyPanelOpen: boolean)
+	disconnectModal = ModalState.OnChanged(function(anyPanelOpen: boolean)
 		for _, slot in slots do
 			slot.button.Interactable = not anyPanelOpen
 		end
 	end)
-	table.insert(connections, UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-		if gameProcessed or input.UserInputType ~= Enum.UserInputType.Keyboard or ModalUtil.AnyOpen() then
-			return
-		end
-		local index = table.find(SLOT_KEYS, input.KeyCode)
-		if index then
-			activateSlot(index)
-		end
-	end))
+	table.insert(
+		connections,
+		UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
+			if gameProcessed or input.UserInputType ~= Enum.UserInputType.Keyboard or ModalState.AnyOpen() then
+				return
+			end
+			local index = table.find(SLOT_KEYS, input.KeyCode)
+			if index then
+				activateSlot(index)
+			end
+		end)
+	)
 
 	local backpack = Players.LocalPlayer:FindFirstChildOfClass("Backpack")
 	if backpack then
 		watch(backpack)
 	end
-	table.insert(connections, Players.LocalPlayer.ChildAdded:Connect(function(child: Instance)
-		if child:IsA("Backpack") then
-			watch(child)
-			queueRefresh()
-		end
-	end))
-	table.insert(connections, CharacterUtil.OnCharacter(function(character: Model)
-		if running then
-			watch(character)
-			queueRefresh()
-		end
-	end))
+	table.insert(
+		connections,
+		Players.LocalPlayer.ChildAdded:Connect(function(child: Instance)
+			if child:IsA("Backpack") then
+				watch(child)
+				queueRefresh()
+			end
+		end)
+	)
+	table.insert(
+		connections,
+		CharacterUtil.OnCharacter(function(character: Model)
+			if running then
+				watch(character)
+				queueRefresh()
+			end
+		end)
+	)
 	queueRefresh()
 end
 

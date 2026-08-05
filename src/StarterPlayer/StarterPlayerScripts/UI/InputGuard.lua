@@ -1,16 +1,16 @@
--- StarterPlayer/StarterPlayerScripts/UI/InputGuardUtil
+-- StarterPlayer/StarterPlayerScripts/UI/InputGuard
 -- Blocks movement/camera across KB/mouse/gamepad/touch while modal UIs are open.
 
 local Players = game:GetService("Players")
-local CAS     = game:GetService("ContextActionService")
-local UIS     = game:GetService("UserInputService")
-local LP      = Players.LocalPlayer
+local CAS = game:GetService("ContextActionService")
+local UIS = game:GetService("UserInputService")
+local LP = Players.LocalPlayer
 
-local ACTION_MOVE   = "UI_BlockCharacterMovement"
+local ACTION_MOVE = "UI_BlockCharacterMovement"
 local ACTION_SCROLL = "UI_DisableScrollZoom"
-local ACTION_RMB    = "UI_DisableRMBRotate"
-local ACTION_KEYS   = "UI_DisableCameraKeys"
-local ACTION_TOUCH  = "UI_DisableTouchTap"
+local ACTION_RMB = "UI_DisableRMBRotate"
+local ACTION_KEYS = "UI_DisableCameraKeys"
+local ACTION_TOUCH = "UI_DisableTouchTap"
 
 local PRIORITY = Enum.ContextActionPriority.High.Value + 100
 
@@ -18,25 +18,38 @@ local refCount = 0
 
 -- Input policy for application panels.
 local opts = {
-	blockJump        = true,
-	hideMobileControls = true,   -- Hide thumbstick/jump UI while modal
-	blockScrollZoom  = true,     -- Mouse wheel zoom
-	blockRMBRotate   = true,     -- Right-mouse drag rotate
-	blockCameraKeys  = true,     -- I/O zoom, Left/Right rotate
-	blockTouchTap    = true,     -- Sinks generic touch taps
-	lockCamera       = true,     -- Temporarily set CameraType = Scriptable
-	disableControls  = true,     -- PlayerModule controls Disable()
+	blockJump = true,
+	hideMobileControls = true, -- Hide thumbstick/jump UI while modal
+	blockScrollZoom = true, -- Mouse wheel zoom
+	blockRMBRotate = true, -- Right-mouse drag rotate
+	blockCameraKeys = true, -- I/O zoom, Left/Right rotate
+	blockTouchTap = true, -- Sinks generic touch taps
+	lockCamera = true, -- Temporarily set CameraType = Scriptable
+	disableControls = true, -- PlayerModule controls Disable()
 }
 
 -- Movement inputs (WASD/arrows/thumbstick/DPad + jump)
 local MOVE_INPUTS = {
-	Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
-	Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right,
+	Enum.KeyCode.W,
+	Enum.KeyCode.A,
+	Enum.KeyCode.S,
+	Enum.KeyCode.D,
+	Enum.KeyCode.Up,
+	Enum.KeyCode.Down,
+	Enum.KeyCode.Left,
+	Enum.KeyCode.Right,
 	Enum.KeyCode.Thumbstick1,
-	Enum.KeyCode.DPadUp, Enum.KeyCode.DPadDown, Enum.KeyCode.DPadLeft, Enum.KeyCode.DPadRight,
-	Enum.PlayerActions.CharacterForward, Enum.PlayerActions.CharacterBackward,
-	Enum.PlayerActions.CharacterLeft, Enum.PlayerActions.CharacterRight,
-	Enum.PlayerActions.CharacterJump, Enum.KeyCode.Space, Enum.KeyCode.ButtonA,
+	Enum.KeyCode.DPadUp,
+	Enum.KeyCode.DPadDown,
+	Enum.KeyCode.DPadLeft,
+	Enum.KeyCode.DPadRight,
+	Enum.PlayerActions.CharacterForward,
+	Enum.PlayerActions.CharacterBackward,
+	Enum.PlayerActions.CharacterLeft,
+	Enum.PlayerActions.CharacterRight,
+	Enum.PlayerActions.CharacterJump,
+	Enum.KeyCode.Space,
+	Enum.KeyCode.ButtonA,
 }
 
 local function sink()
@@ -51,14 +64,18 @@ local cam = workspace.CurrentCamera
 local savedCamType, savedCamSubject
 
 local function ensureControls()
-	if Controls then return end
+	if Controls then
+		return
+	end
 	local pmod = LP:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")
 	local PlayerModule = require(pmod)
 	Controls = PlayerModule:GetControls()
 end
 
 local function disableControls()
-	if not opts.disableControls then return end
+	if not opts.disableControls then
+		return
+	end
 	ensureControls()
 	if Controls then
 		-- Remember previous state on first disable
@@ -70,7 +87,9 @@ local function disableControls()
 end
 
 local function restoreControls()
-	if not opts.disableControls then return end
+	if not opts.disableControls then
+		return
+	end
 	if Controls and controlsWasEnabled ~= nil then
 		if controlsWasEnabled then
 			Controls:Enable()
@@ -80,18 +99,22 @@ local function restoreControls()
 end
 
 local function lockCamera()
-	if not opts.lockCamera or not cam then return end
+	if not opts.lockCamera or not cam then
+		return
+	end
 	if not savedCamType then
-		savedCamType   = cam.CameraType
+		savedCamType = cam.CameraType
 		savedCamSubject = cam.CameraSubject
 	end
 	cam.CameraType = Enum.CameraType.Scriptable
 end
 
 local function unlockCamera()
-	if not opts.lockCamera or not cam then return end
+	if not opts.lockCamera or not cam then
+		return
+	end
 	if savedCamType then
-		cam.CameraType   = savedCamType
+		cam.CameraType = savedCamType
 		cam.CameraSubject = savedCamSubject
 	end
 	savedCamType, savedCamSubject = nil, nil
@@ -131,7 +154,10 @@ local function bindCameraBlocks()
 			sink,
 			false,
 			PRIORITY,
-			Enum.KeyCode.I, Enum.KeyCode.O, Enum.KeyCode.Left, Enum.KeyCode.Right
+			Enum.KeyCode.I,
+			Enum.KeyCode.O,
+			Enum.KeyCode.Left,
+			Enum.KeyCode.Right
 		)
 	end
 	-- Generic touch taps (extra safety)
@@ -156,9 +182,9 @@ local function unbindCameraBlocks()
 end
 
 -- ===== Public API =====
-local InputGuardUtil = {}
+local InputGuard = {}
 
-function InputGuardUtil.Open()
+function InputGuard.Open()
 	refCount += 1
 	if refCount == 1 then
 		disableControls()
@@ -168,8 +194,10 @@ function InputGuardUtil.Open()
 	end
 end
 
-function InputGuardUtil.Close()
-	if refCount <= 0 then return end
+function InputGuard.Close()
+	if refCount <= 0 then
+		return
+	end
 	refCount -= 1
 	if refCount == 0 then
 		unbindMovement()
@@ -179,4 +207,4 @@ function InputGuardUtil.Close()
 	end
 end
 
-return InputGuardUtil
+return InputGuard

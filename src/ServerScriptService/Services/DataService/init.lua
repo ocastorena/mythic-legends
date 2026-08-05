@@ -7,13 +7,13 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
-local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
+local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
 local PlayerDataTemplate = require(ServerStorage:WaitForChild("Databases"):WaitForChild("PlayerDataTemplate"))
 
 local log = LogUtil.For("DataService")
 
-local STORE_NAME = "MythicLegends_PlayerData_v1"
+local STORE_NAME = "MythicLegends_PlayerData_v2"
 local PROFILE_KEY_PREFIX = "Player_"
 local CLIENT_STATE_KEYS = {
 	"currency",
@@ -51,7 +51,7 @@ DataService.OnReleased = releasedBindable.Event
 
 local updateState: RemoteEvent?
 local requestState: RemoteFunction?
-local stateRequestLimiter = RateLimitUtil.new(6, 1)
+local stateRequestLimiter = RateLimiter.new(6, 1)
 
 local function deepClone(value: any): any
 	if type(value) ~= "table" then
@@ -261,11 +261,11 @@ function DataService.Release(player: Player)
 	revisions[player] = nil
 end
 
-function DataService.GetSection(player: Player, sectionName: string): { [any]: any }
-	assert(sectionName ~= "", "[DataService.GetSection] sectionName must not be empty")
-	assert(DataService.Load(player), "[DataService.GetSection] player profile is unavailable")
+function DataService.GetOrCreateSection(player: Player, sectionName: string): { [any]: any }
+	assert(sectionName ~= "", "[DataService.GetOrCreateSection] sectionName must not be empty")
+	assert(DataService.Load(player), "[DataService.GetOrCreateSection] player profile is unavailable")
 	local profile = profiles[player]
-	assert(profile and profile:IsActive(), "[DataService.GetSection] profile session is inactive")
+	assert(profile and profile:IsActive(), "[DataService.GetOrCreateSection] profile session is inactive")
 	local section = profile.Data[sectionName]
 	if type(section) ~= "table" then
 		section = {}

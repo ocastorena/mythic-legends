@@ -3,4 +3,5 @@ std = "roblox"
 exclude = [
     "**/_Index/**",
     "src/ServerScriptService/Packages/**",
+    "tests/DevPackages/**",
 ]
