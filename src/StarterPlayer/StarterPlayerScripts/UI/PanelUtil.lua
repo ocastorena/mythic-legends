@@ -239,7 +239,7 @@ end
 ---
 --- The glyph is drawn from two rotated bars rather than set as text: Nunito has no ✕
 --- (U+2715), so a text button renders it as a fallback box or drops it entirely.
-function PanelUtil.closeButton(parent: Instance, root: number): TextButton
+function PanelUtil.closeButton(parent: Instance, _root: number): TextButton
 	local button = Instance.new("TextButton")
 	button.Name = "CloseButton"
 	button.Size = UDim2.fromOffset(Metric.closeSize, Metric.closeSize)
@@ -417,7 +417,7 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	local identity = newFrame("Identity", header)
 	identity.AnchorPoint = Vector2.new(0, 0.5)
 	identity.Position = UDim2.fromScale(0, 0.5)
-	identity.Size = UDim2.new(0, 0, 1, 0)
+	identity.Size = UDim2.fromScale(0, 1)
 	identity.AutomaticSize = Enum.AutomaticSize.X
 	newList(identity, Enum.FillDirection.Horizontal, 10)
 
@@ -448,7 +448,7 @@ function PanelUtil.panel(config: PanelConfig): Panel
 
 	local titleLabel = newLabel("Title", identity)
 	titleLabel.AutomaticSize = Enum.AutomaticSize.X
-	titleLabel.Size = UDim2.new(0, 0, 1, 0)
+	titleLabel.Size = UDim2.fromScale(0, 1)
 	setText(titleLabel, Em.panelTitle, root)
 	titleLabel.Text = config.title
 	titleLabel.LayoutOrder = 2
@@ -458,7 +458,7 @@ function PanelUtil.panel(config: PanelConfig): Panel
 		local tabRow = newFrame("Tabs", header)
 		tabRow.AnchorPoint = Vector2.new(0.5, 0.5)
 		tabRow.Position = UDim2.fromScale(0.5, 0.5)
-		tabRow.Size = UDim2.new(0, 0, 1, 0)
+		tabRow.Size = UDim2.fromScale(0, 1)
 		tabRow.AutomaticSize = Enum.AutomaticSize.X
 		local row = newList(tabRow, Enum.FillDirection.Horizontal, Metric.tabGap)
 		row.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -472,7 +472,7 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	local actions = newFrame("Actions", header)
 	actions.AnchorPoint = Vector2.new(1, 0.5)
 	actions.Position = UDim2.fromScale(1, 0.5)
-	actions.Size = UDim2.new(0, 0, 1, 0)
+	actions.Size = UDim2.fromScale(0, 1)
 	actions.AutomaticSize = Enum.AutomaticSize.X
 	newList(actions, Enum.FillDirection.Horizontal, 10)
 
@@ -494,7 +494,7 @@ function PanelUtil.panel(config: PanelConfig): Panel
 
 	-- Body: grid 2fr · details 1fr · gap 14, at every size.
 	local body = newFrame("Body", card)
-	body.Size = UDim2.new(1, 0, 1, 0)
+	body.Size = UDim2.fromScale(1, 1)
 	body.LayoutOrder = 2
 	flexFill(body)
 	ThemeUtil.padding(body, Metric.bodyPadTop, Metric.bodyPad, Metric.bodyPad, Metric.bodyPad)
@@ -502,7 +502,7 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	bodyLayout.VerticalAlignment = Enum.VerticalAlignment.Top
 
 	local grid = newFrame("Grid", body)
-	grid.Size = UDim2.new(1, 0, 1, 0)
+	grid.Size = UDim2.fromScale(1, 1)
 	grid.LayoutOrder = 1
 	flexFill(grid)
 
@@ -916,7 +916,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 	veilGradient.Parent = veil
 
 	local nameRow = newFrame("NameRow", hero)
-	nameRow.Position = UDim2.new(0, 11, 0, 9)
+	nameRow.Position = UDim2.fromOffset(11, 9)
 	nameRow.Size = UDim2.new(1, -55, 0, 24)
 	nameRow.ZIndex = 3
 	newList(nameRow, Enum.FillDirection.Horizontal, 7)
@@ -1005,7 +1005,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 
 		for index = 1, config.stats do
 			local slot = newFrame("Stat" .. index, statRow)
-			slot.Size = UDim2.new(1 / config.stats, 0, 1, 0)
+			slot.Size = UDim2.fromScale(1 / config.stats, 1)
 			slot.LayoutOrder = index
 			flexFill(slot)
 			local slotLayout = newList(slot, Enum.FillDirection.Vertical, 3)
@@ -1039,7 +1039,7 @@ function PanelUtil.details(config: DetailsConfig): Details
 
 	-- Push the footer to the bottom of the column, the way `margin-top: auto` does.
 	local spacer = newFrame("Spacer", column)
-	spacer.Size = UDim2.new(1, 0, 0, 0)
+	spacer.Size = UDim2.fromScale(1, 0)
 	spacer.LayoutOrder = 3
 	if not config.stats or config.stats <= 0 then
 		flexFill(spacer)
@@ -1060,14 +1060,14 @@ function PanelUtil.details(config: DetailsConfig): Details
 		row.LayoutOrder = 1
 
 		progressLabel = newLabel("Label", row)
-		;(progressLabel :: TextLabel).Size = UDim2.new(0.5, 0, 1, 0)
+		;(progressLabel :: TextLabel).Size = UDim2.fromScale(0.5, 1)
 		setText(progressLabel :: TextLabel, Em.caption, root)
 		;(progressLabel :: TextLabel).Text = ""
 
 		progressDetail = newLabel("Detail", row)
 		;(progressDetail :: TextLabel).AnchorPoint = Vector2.new(1, 0)
 		;(progressDetail :: TextLabel).Position = UDim2.fromScale(1, 0)
-		;(progressDetail :: TextLabel).Size = UDim2.new(0.5, 0, 1, 0)
+		;(progressDetail :: TextLabel).Size = UDim2.fromScale(0.5, 1)
 		;(progressDetail :: TextLabel).FontFace = ThemeUtil.Font.bold
 		setText(progressDetail :: TextLabel, Em.statLabel, root)
 		;(progressDetail :: TextLabel).TextColor3 = ThemeUtil.Text.muted
@@ -1312,7 +1312,7 @@ function PanelUtil.modal(config: ModalConfig): Modal
 	local bodyLabel: TextLabel? = nil
 	if config.body then
 		bodyLabel = newLabel("Body", card)
-		;(bodyLabel :: TextLabel).Size = UDim2.new(1, 0, 0, 0)
+		;(bodyLabel :: TextLabel).Size = UDim2.fromScale(1, 0)
 		;(bodyLabel :: TextLabel).AutomaticSize = Enum.AutomaticSize.Y
 		;(bodyLabel :: TextLabel).FontFace = Font.fromName("Nunito", Enum.FontWeight.Bold, Enum.FontStyle.Italic)
 		setText(bodyLabel :: TextLabel, Em.body, root)

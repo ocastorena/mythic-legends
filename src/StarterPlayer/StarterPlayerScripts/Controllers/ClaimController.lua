@@ -14,9 +14,6 @@ local TweenService      = game:GetService("TweenService")
 
 local ClaimEvent = ReplicatedStorage.Network.World.ClaimState
 
-local Player = Players.LocalPlayer
-
-
 local TEMPLATE    = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Templates")
 	:WaitForChild("Billboards")
 	:WaitForChild("ClaimProgressBar")
@@ -180,7 +177,6 @@ local claimConnection = ClaimEvent.OnClientEvent:Connect(function(verb, payload)
 	elseif verb == "Claimed" then
 		-- optional: emphasize winner, then clear others
 		local winnerId = payload.winnerId
-		local mythlingId = payload.mythlingId
 
 		-- You can add a little effect here; for now just clear everything non-winner
 		for userId, entry in pairs(OverheadBars) do
@@ -188,7 +184,9 @@ local claimConnection = ClaimEvent.OnClientEvent:Connect(function(verb, payload)
 				hideOverheadBar(userId)
 			else
 				-- snap winner to full
-				if entry.tween then entry.tween:Cancel() end
+				if entry.tween then
+					entry.tween:Cancel()
+				end
 				entry.fill.Size = UDim2.fromScale(1, 1)
 			end
 		end

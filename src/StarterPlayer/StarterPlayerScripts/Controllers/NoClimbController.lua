@@ -8,8 +8,6 @@ end
 
 function NoClimbController.Start()
 -- Blocks "climbing other players" but still allows ladders/walls.
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
 local Client = script:FindFirstAncestor("Controllers").Parent
 local CharacterUtil = require(Client:WaitForChild("Character"):WaitForChild("CharacterUtil"))
 

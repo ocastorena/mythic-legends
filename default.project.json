@@ -174,30 +174,7 @@
     },
 
     "StarterGui": {
-      "$className": "StarterGui",
-      "$ignoreUnknownInstances": true,
-      "ShopGui": {
-        "$className": "ScreenGui",
-        "$ignoreUnknownInstances": true,
-        "$properties": {
-          "Enabled": false,
-          "ResetOnSpawn": false
-        }
-      },
-      "StandGui": {
-        "$className": "ScreenGui",
-        "$ignoreUnknownInstances": true,
-        "$properties": {
-          "ResetOnSpawn": false
-        }
-      },
-      "HotbarGui": {
-        "$className": "ScreenGui",
-        "$ignoreUnknownInstances": true,
-        "$properties": {
-          "ResetOnSpawn": false
-        }
-      }
+      "$className": "StarterGui"
     }
   }
 }

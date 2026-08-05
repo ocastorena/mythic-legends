@@ -9,9 +9,6 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
-local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
-
-local log = LogUtil.For("ClaimService")
 
 local ClaimEvent: RemoteEvent
 local SpawnService

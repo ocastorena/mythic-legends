@@ -9,6 +9,10 @@ local CombatController = {}
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
+function CombatController.BindView(view: Types.CombatActionView): () -> ()
+	return Input.BindView(view)
+end
+
 function CombatController.Init(context: Types.ClientContext)
 	PresentationBus.Init(context)
 	VFX.Init(context)

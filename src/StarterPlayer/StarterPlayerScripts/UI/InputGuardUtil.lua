@@ -39,7 +39,9 @@ local MOVE_INPUTS = {
 	Enum.PlayerActions.CharacterJump, Enum.KeyCode.Space, Enum.KeyCode.ButtonA,
 }
 
-local function sink() return Enum.ContextActionResult.Sink end
+local function sink()
+	return Enum.ContextActionResult.Sink
+end
 
 -- ===== Controls & camera bookkeeping =====
 local Controls -- PlayerModule controls handle
@@ -70,7 +72,9 @@ end
 local function restoreControls()
 	if not opts.disableControls then return end
 	if Controls and controlsWasEnabled ~= nil then
-		if controlsWasEnabled then Controls:Enable() end
+		if controlsWasEnabled then
+			Controls:Enable()
+		end
 	end
 	controlsWasEnabled = nil
 end
@@ -97,10 +101,10 @@ end
 local function bindMovement()
 	local list = table.create(#MOVE_INPUTS)
 	for _, code in ipairs(MOVE_INPUTS) do
-		if not opts.blockJump and (code == Enum.PlayerActions.CharacterJump
-			or code == Enum.KeyCode.Space or code == Enum.KeyCode.ButtonA) then
-			-- skip jump inputs
-		else
+		local isJumpInput = code == Enum.PlayerActions.CharacterJump
+			or code == Enum.KeyCode.Space
+			or code == Enum.KeyCode.ButtonA
+		if opts.blockJump or not isJumpInput then
 			table.insert(list, code)
 		end
 	end

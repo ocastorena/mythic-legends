@@ -739,7 +739,7 @@ local function handleHitReport(player: Player, payload: any)
 	else
 		launchVelocity = direction * getNumber(profile.planarKnockback, 56, 0, 100)
 			+ Vector3.yAxis * getNumber(profile.verticalKnockback, 58, 0, 100)
-		local tumbleAxis = Vector3.yAxis:Cross(direction)
+		local tumbleAxis = Vector3.new(0, 1, 0):Cross(direction)
 		if tumbleAxis.Magnitude > 0.001 then
 			angularVelocity = tumbleAxis.Unit * getNumber(profile.tumbleAngularSpeed, 5.5, 0, 20)
 		end

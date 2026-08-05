@@ -14,9 +14,11 @@ local RUNIES_ICON = "rbxassetid://112895221053745"
 local SHOP_ICON = "rbxassetid://9405933217"
 local SHOP_TINT = Color3.fromHex("00ff69")
 local BUTTON_GAP = 8
+local HOTBAR_WIDTH = 6 * ThemeUtil.Metric.hotbarSlot + 5 * ThemeUtil.Metric.hotbarGap
 
 export type Props = {
 	localData: Types.LocalDataApi,
+	staminaController: Types.StaminaControllerApi,
 }
 
 local function formatRunies(amount: number): string
@@ -42,6 +44,35 @@ local function HUD(scope: any, props: Props): ScreenGui
 	local viewportSize = scope:Value(initialViewport)
 	local textRoot = scope:Value(ThemeUtil.root(initialViewport))
 	local currency = LocalDataValue.observe(scope, props.localData, "currency", {})
+	local staminaFill = scope:New "Frame" {
+		Name = "Fill",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 255, 90),
+		BorderSizePixel = 0,
+		[scope.Children] = {
+			scope:New "UICorner" { CornerRadius = UDim.new(0, 4) },
+		},
+	} :: Frame
+	local staminaMeter = scope:New "Frame" {
+		Name = "StaminaMeter",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -68),
+		Size = UDim2.fromOffset(HOTBAR_WIDTH, 8),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.75,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		Visible = false,
+		[scope.Children] = {
+			staminaFill,
+			scope:New "UICorner" { CornerRadius = UDim.new(0, 4) },
+		},
+	} :: Frame
+	local unbindStamina = props.staminaController.BindView({
+		container = staminaMeter,
+		fill = staminaFill,
+	})
+	table.insert(scope, unbindStamina)
 
 	local function togglePanel(guiName: string)
 		local gui = playerGui:FindFirstChild(guiName)
@@ -202,7 +233,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 			return UDim2.new(1, 0, 0, use(rowHeight))
 		end),
 		Position = scope:Computed(function(use)
-			return UDim2.new(0, 0, 0, use(rowTop))
+			return UDim2.fromOffset(0, use(rowTop))
 		end),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
@@ -240,7 +271,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		ScreenInsets = Enum.ScreenInsets.None,
 		Parent = playerGui,
-		[scope.Children] = { mainFrame },
+		[scope.Children] = { mainFrame, staminaMeter },
 	} :: ScreenGui
 
 	refreshLayout()

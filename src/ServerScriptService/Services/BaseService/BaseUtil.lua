@@ -121,7 +121,7 @@ function BaseUtil.SpawnBaseFor(player: Player, slots: any, maxSlots: number, bas
 	return true
 end
 
-function BaseUtil.TeleportToBaseSpawn(player: Player, char: Model, base: Model)
+function BaseUtil.TeleportToBaseSpawn(_player: Player, char: Model, base: Model)
 	if not base then 
 		return false, "Base not found"
 	end

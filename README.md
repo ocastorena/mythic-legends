@@ -16,6 +16,18 @@ Next, open `mythic-legends.rbxlx` in Roblox Studio and start the Rojo server:
 rojo serve
 ```
 
+Before handing off source changes, run the static verification suite:
+
+```bash
+selene src
+rojo build default.project.json -o /tmp/mythic-legends-check.rbxlx
+git diff --check
+```
+
+Selene checks first-party Luau under `src` while excluding generated Wally package contents.
+The temporary Rojo build verifies the complete Studio hierarchy without adding a generated
+place file to the repository. Gameplay and device behavior still require a Studio playtest.
+
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
 
 ## Current Project Structure
@@ -99,7 +111,7 @@ ServerStorage
   Databases           -- player-data templates and server-only mock/test definitions
   ServerAssets        -- weapons, NPCs, base assets, and other server-only templates
 StarterGui
-  <LegacyFeature>Gui  -- temporary only while that screen awaits Fusion migration
+  <empty>             -- production application roots are created under PlayerGui
 StarterPlayer
   StarterCharacterScripts
   StarterPlayerScripts
@@ -340,10 +352,8 @@ Studio-authored content belongs only in the documented mixed-ownership container
 
 ### UI migration status
 
-`HUDGui`, `InventoryGui`, `ModalBackdropGui`, and `ToastGui` are application-owned and are no
-longer stored under `StarterGui`. `ShopGui`, `StandGui`, and `HotbarGui` remain temporary
-Studio-owned roots until their individual atomic migrations are complete. For each migration,
-reproduce the screen in `UI/Screens` or the shared overlay layer, move reusable presentation into
-`UI/Components`, verify input/state/respawn behavior, then remove that exact legacy root from
-`default.project.json` and Studio. Do not maintain both implementations after a screen passes
-verification.
+`HUDGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,
+`ModalBackdropGui`, and `ToastGui` are all application-owned and created under `PlayerGui`; the
+Stamina meter is owned by the HUD screen. `StarterGui` is a strict, intentionally empty Rojo
+boundary: do not add Studio-authored production GUI roots or maintain parallel Studio
+implementations.

@@ -7,6 +7,10 @@ local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Typ
 local LocalData = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("LocalData"))
 local App = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("App"))
 local InventoryController = require(script.Parent:WaitForChild("InventoryController"))
+local StandController = require(script.Parent:WaitForChild("StandController"))
+local HotbarController = require(script.Parent:WaitForChild("HotbarController"))
+local StaminaController = require(script.Parent:WaitForChild("StaminaController"))
+local CombatController = require(script.Parent:WaitForChild("CombatController"))
 
 local UIController = {}
 
@@ -81,6 +85,10 @@ function UIController.Start()
 		App(uiScope, {
 			localData = (context :: Types.ClientContext).LocalData,
 			inventoryController = InventoryController,
+			standController = StandController,
+			hotbarController = HotbarController,
+			staminaController = StaminaController,
+			combatController = CombatController,
 		})
 	end
 	updateConnection = updateState.OnClientEvent:Connect(function(packet)

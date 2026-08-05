@@ -2,6 +2,17 @@
 
 local Input = {}
 local stopImpl: (() -> ())?
+local combatView: any
+
+function Input.BindView(newView: any): () -> ()
+	assert(combatView == nil or combatView == newView, "[CombatController] A combat action view is already bound")
+	combatView = newView
+	return function()
+		if combatView == newView then
+			combatView = nil
+		end
+	end
+end
 
 function Input.Init(_context: unknown)
 end
@@ -33,12 +44,6 @@ local lifecycleConnections: { RBXScriptConnection } = {}
 
 local NORMAL_BUTTON_COLOR = Color3.fromRGB(60, 60, 64)
 local PRESSED_BUTTON_COLOR = Color3.fromRGB(48, 48, 52)
-local FALLBACK_JUMP_SIZE = 70
-local ACTION_SCALE = 0.8
-local MIN_ACTION_SIZE = 52
-local MAX_ACTION_SIZE = 68
-local JUMP_GAP = 10
-local CLUSTER_INSET = 18
 local BLADE_SWEEP_SAMPLES = 6
 local MAX_OVERLAP_PARTS = 100
 local HITBOX_PADDING = Vector3.new(0.1, 0.1, 0.1)
@@ -562,55 +567,13 @@ local function createCombatButtons()
 	if not UserInputService.TouchEnabled then
 		return
 	end
-	local playerGui = localPlayer:WaitForChild("PlayerGui")
-	local existing = playerGui:FindFirstChild("CombatActionGui")
-	if existing then
-		existing:Destroy()
-	end
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "CombatActionGui"
-	screenGui.DisplayOrder = 20
-	screenGui.IgnoreGuiInset = true
-	screenGui.ResetOnSpawn = false
-	screenGui.Parent = playerGui
-	local root = Instance.new("Frame")
-	root.Name = "CombatActions"
-	root.Size = UDim2.fromScale(1, 1)
-	root.BackgroundTransparency = 1
-	root.Visible = false
-	root.Parent = screenGui
-
-	local function createButton(name: string): (ImageButton, Frame)
-		local button = Instance.new("ImageButton")
-		button.Name = name
-		button.AnchorPoint = Vector2.new(0.5, 0.5)
-		button.AutoButtonColor = false
-		button.BackgroundColor3 = NORMAL_BUTTON_COLOR
-		button.BackgroundTransparency = 0.12
-		button.BorderSizePixel = 0
-		button.Image = ""
-		button.Parent = root
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(1, 0)
-		corner.Parent = button
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = Color3.fromRGB(255, 255, 255)
-		stroke.Transparency = 0.72
-		stroke.Thickness = 1.5
-		stroke.Parent = button
-		local icon = Instance.new("Frame")
-		icon.Name = "EquipmentIcon"
-		icon.AnchorPoint = Vector2.new(0.5, 0.5)
-		icon.Position = UDim2.fromScale(0.5, 0.5)
-		icon.Size = UDim2.fromScale(0.78, 0.78)
-		icon.BackgroundTransparency = 1
-		icon.ZIndex = button.ZIndex + 1
-		icon.Parent = button
-		return button, icon
-	end
-
-	local attackButton, attackIcon = createButton("PrimaryAttackButton")
-	local shieldButton, shieldIcon = createButton("SecondaryShieldButton")
+	local view = combatView
+	assert(view, "[CombatController] Combat action view must be bound before Start")
+	local root = view.root :: Frame
+	local attackButton = view.attackButton :: ImageButton
+	local attackIcon = view.attackIcon :: Frame
+	local shieldButton = view.shieldButton :: ImageButton
+	local shieldIcon = view.shieldIcon :: Frame
 	local renderedRightEquipment = ""
 	local renderedLeftEquipment = ""
 	local function renderEquipment(icon: Frame, definitionId: string)
@@ -620,29 +583,6 @@ local function createCombatButtons()
 		if asset then
 			EquipmentPreviewUtil.Render(icon, asset)
 		end
-	end
-	local function getJumpButton(): GuiButton?
-		local touchGui = playerGui:FindFirstChild("TouchGui")
-		local frame = touchGui and touchGui:FindFirstChild("TouchControlFrame")
-		local jumpButton = frame and frame:FindFirstChild("JumpButton")
-		return if jumpButton and jumpButton:IsA("GuiButton") then jumpButton else nil
-	end
-	local function relayout()
-		local camera = workspace.CurrentCamera
-		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
-		local jumpButton = getJumpButton()
-		local jumpSize = if jumpButton and jumpButton.AbsoluteSize.X > 0
-			then jumpButton.AbsoluteSize.X else FALLBACK_JUMP_SIZE
-		local actionSize = math.clamp(math.round(jumpSize * ACTION_SCALE), MIN_ACTION_SIZE, MAX_ACTION_SIZE)
-		local jumpCenter = if jumpButton and jumpButton.AbsoluteSize.X > 0
-			then jumpButton.AbsolutePosition + jumpButton.AbsoluteSize / 2
-			else Vector2.new(viewport.X - FALLBACK_JUMP_SIZE * 0.75 - 10, viewport.Y - FALLBACK_JUMP_SIZE * 0.5 - 20)
-		local origin = root.AbsolutePosition
-		local radialOffset = jumpSize / 2 + JUMP_GAP + actionSize / 2
-		attackButton.Size = UDim2.fromOffset(actionSize, actionSize)
-		shieldButton.Size = UDim2.fromOffset(actionSize, actionSize)
-		attackButton.Position = UDim2.fromOffset(jumpCenter.X - radialOffset - origin.X, jumpCenter.Y - CLUSTER_INSET - origin.Y)
-		shieldButton.Position = UDim2.fromOffset(jumpCenter.X - CLUSTER_INSET - origin.X, jumpCenter.Y - radialOffset - origin.Y)
 	end
 	local function getButtonAvailability(): (boolean, boolean, boolean)
 		local character = getCharacter()
@@ -660,7 +600,9 @@ local function createCombatButtons()
 		if not ModalUtil.AnyOpen() then
 			local character = getCharacter()
 			local _, canAttack = getButtonAvailability()
-			if character and canAttack then attack(character) end
+			if character and canAttack then
+				attack(character)
+			end
 		end
 	end))
 	local shieldButtonHeld = false
@@ -718,9 +660,9 @@ local function createCombatButtons()
 		attackButton.BackgroundTransparency = if canAttack then 0.12 else 0.5
 		shieldButton.BackgroundTransparency = if canGuard then 0.12 else 0.5
 		shieldButton.BackgroundColor3 = if guardRequested then PRESSED_BUTTON_COLOR else NORMAL_BUTTON_COLOR
-		relayout()
+		view.relayout()
 	end))
-	relayout()
+	view.relayout()
 end
 
 table.insert(lifecycleConnections, UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
@@ -745,14 +687,22 @@ table.insert(lifecycleConnections, UserInputService.InputEnded:Connect(function(
 end))
 
 local function bindCharacter(character: Model)
-	if combatReadyConnection then combatReadyConnection:Disconnect() end
-	if shieldGuardingConnection then shieldGuardingConnection:Disconnect() end
-	if guardRequested then SetShieldGuard:FireServer(false) end
+	if combatReadyConnection then
+		combatReadyConnection:Disconnect()
+	end
+	if shieldGuardingConnection then
+		shieldGuardingConnection:Disconnect()
+	end
+	if guardRequested then
+		SetShieldGuard:FireServer(false)
+	end
 	guardRequested = false
 	guardToken += 1
 	stopGuardTracks(0)
 	clearActiveAttack()
-	if activeTransitionTrack then activeTransitionTrack:Stop(0) end
+	if activeTransitionTrack then
+		activeTransitionTrack:Stop(0)
+	end
 	activeTransitionTrack = nil
 	lastAttackAt = 0
 	local wasCombatReady = character:GetAttribute("CombatReady") == true
@@ -774,7 +724,9 @@ local function bindCharacter(character: Model)
 end
 
 table.insert(lifecycleConnections, localPlayer.CharacterAdded:Connect(bindCharacter))
-if localPlayer.Character then task.defer(bindCharacter, localPlayer.Character) end
+if localPlayer.Character then
+	task.defer(bindCharacter, localPlayer.Character)
+end
 task.defer(createCombatButtons)
 
 stopImpl = function()
@@ -782,14 +734,17 @@ stopImpl = function()
 		connection:Disconnect()
 	end
 	table.clear(lifecycleConnections)
-	if combatReadyConnection then combatReadyConnection:Disconnect() end
-	if shieldGuardingConnection then shieldGuardingConnection:Disconnect() end
+	if combatReadyConnection then
+		combatReadyConnection:Disconnect()
+	end
+	if shieldGuardingConnection then
+		shieldGuardingConnection:Disconnect()
+	end
 	if disconnectModal then
 		disconnectModal()
 		disconnectModal = nil
 	end
 	clearActiveAttack()
-	clearGuardConnections()
 	stopGuardTracks(0)
 end
 end

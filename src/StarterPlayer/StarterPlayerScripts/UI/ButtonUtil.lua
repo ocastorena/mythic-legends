@@ -4,8 +4,8 @@ local clickSound = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Audio"
 
 local ButtonUtil = {}
 
-function ButtonUtil.hookClick(button, handler)
-	button.Activated:Connect(function(...)
+function ButtonUtil.hookClick(button, handler): RBXScriptConnection
+	return button.Activated:Connect(function(...)
 		local sound = clickSound:Clone()
 		sound.Parent = button
 		sound:Play()

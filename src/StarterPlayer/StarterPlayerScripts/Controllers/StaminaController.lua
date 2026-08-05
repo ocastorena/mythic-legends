@@ -1,55 +1,32 @@
 -- StarterPlayer/StarterPlayerScripts/Controllers/StaminaController
 
-local StaminaController = {}
-local stopImpl: (() -> ())?
-
-function StaminaController.Init(_context: unknown)
-end
-
-function StaminaController.Start()
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ThemeUtil = require(script:FindFirstAncestor("Controllers").Parent:WaitForChild("UI"):WaitForChild("ThemeUtil"))
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
-local player = Players.LocalPlayer
-local screenGui = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("HUDGui")
-local HOTBAR_WIDTH = 6 * ThemeUtil.Metric.hotbarSlot + 5 * ThemeUtil.Metric.hotbarGap
+local StaminaController = {}
 
-local container = Instance.new("Frame")
-container.Name = "StaminaMeter"
-container.AnchorPoint = Vector2.new(0.5, 1)
-container.Position = UDim2.new(0.5, 0, 1, -68)
-container.Size = UDim2.fromOffset(HOTBAR_WIDTH, 8)
-container.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-container.BackgroundTransparency = 0.75
-container.BorderSizePixel = 0
-container.ClipsDescendants = true
-container.Visible = false
-container.Parent = screenGui
-ThemeUtil.corner(container, 4)
-
-local fill = Instance.new("Frame")
-fill.Name = "Fill"
-fill.Size = UDim2.fromScale(1, 1)
-fill.BackgroundColor3 = Color3.fromRGB(0, 255, 90)
-fill.BorderSizePixel = 0
-fill.Parent = container
-ThemeUtil.corner(fill, 4)
-
-local combatReadyConnection: RBXScriptConnection? = nil
+local initialized = false
+local running = false
+local view: Types.StaminaView?
+local connections: { RBXScriptConnection } = {}
+local combatReadyConnection: RBXScriptConnection?
 
 local function update()
+	if not running or not view then
+		return
+	end
+	local player = Players.LocalPlayer
 	local character = player.Character
-	container.Visible = character ~= nil and character:GetAttribute("CombatReady") == true
+	view.container.Visible = character ~= nil and character:GetAttribute("CombatReady") == true
 	local stamina = player:GetAttribute("CombatStamina")
 	local maximum = player:GetAttribute("MaxCombatStamina")
 	if type(stamina) ~= "number" or type(maximum) ~= "number" or maximum <= 0 then
-		fill.Size = UDim2.fromScale(1, 1)
+		view.fill.Size = UDim2.fromScale(1, 1)
 		return
 	end
-	fill.Size = UDim2.fromScale(math.clamp(stamina / maximum, 0, 1), 1)
+	view.fill.Size = UDim2.fromScale(math.clamp(stamina / maximum, 0, 1), 1)
 end
 
 local function bindCharacter(character: Model)
@@ -60,30 +37,53 @@ local function bindCharacter(character: Model)
 	task.defer(update)
 end
 
-local connections = {
-	player:GetAttributeChangedSignal("CombatStamina"):Connect(update),
-	player:GetAttributeChangedSignal("MaxCombatStamina"):Connect(update),
-	player.CharacterAdded:Connect(bindCharacter),
-}
-if player.Character then
-	bindCharacter(player.Character)
+function StaminaController.Init(_context: Types.ClientContext)
+	initialized = true
 end
-update()
-stopImpl = function()
-	for _, connection in connections do
-		connection:Disconnect()
+
+function StaminaController.BindView(newView: Types.StaminaView): () -> ()
+	assert(initialized, "[StaminaController] Init must run before BindView")
+	assert(view == nil or view == newView, "[StaminaController] A Stamina view is already bound")
+	view = newView
+	return function()
+		if view == newView then
+			view = nil
+		end
 	end
-	if combatReadyConnection then
-		combatReadyConnection:Disconnect()
-	end
-	container:Destroy()
 end
+
+function StaminaController.Start()
+	assert(initialized, "[StaminaController] Init must run before Start")
+	assert(view, "[StaminaController] Stamina view must be bound before Start")
+	if running then
+		return
+	end
+	running = true
+	local player = Players.LocalPlayer
+	table.insert(connections, player:GetAttributeChangedSignal("CombatStamina"):Connect(update))
+	table.insert(connections, player:GetAttributeChangedSignal("MaxCombatStamina"):Connect(update))
+	table.insert(connections, player.CharacterAdded:Connect(bindCharacter))
+	if player.Character then
+		bindCharacter(player.Character)
+	end
+	update()
 end
 
 function StaminaController.Stop()
-	if stopImpl then
-		stopImpl()
-		stopImpl = nil
+	if not running then
+		return
+	end
+	running = false
+	for _, connection in connections do
+		connection:Disconnect()
+	end
+	table.clear(connections)
+	if combatReadyConnection then
+		combatReadyConnection:Disconnect()
+		combatReadyConnection = nil
+	end
+	if view then
+		view.container.Visible = false
 	end
 end
 

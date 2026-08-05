@@ -220,7 +220,9 @@ function Knockback.Apply(
 				and math.abs(velocity.Y) <= MAX_LANDING_VERTICAL_SPEED
 				and hasGroundSupport(state)
 			then
-				if onLanded then task.defer(onLanded) end
+				if onLanded then
+					task.defer(onLanded)
+				end
 				task.wait(math.max(0, landingRecoverySeconds))
 				recover(state, true)
 				return

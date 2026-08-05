@@ -6,12 +6,10 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Players = game:GetService("Players")
 
 local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local RateLimitUtil = require(Infrastructure:WaitForChild("RateLimitUtil"))
 
 local Accrual = require(script.Accrual)
 
-local log = LogUtil.For("ProductionService")
 local ProductionService = {}
 local getStatus: RemoteFunction
 local collect: RemoteFunction

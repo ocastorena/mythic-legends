@@ -60,7 +60,9 @@ local nextTrailToken = 0
 
 local function destroyAfter(instance: Instance, seconds: number)
 	task.delay(seconds, function()
-		if instance.Parent then instance:Destroy() end
+		if instance.Parent then
+			instance:Destroy()
+		end
 	end)
 end
 
@@ -155,7 +157,9 @@ local function playHitBurst(character: Model)
 	ring.Parent = attachment
 
 	local existing = character:FindFirstChild("CombatHitFlash")
-	if existing then existing:Destroy() end
+	if existing then
+		existing:Destroy()
+	end
 	local flash = Instance.new("Highlight")
 	flash.Name = "CombatHitFlash"
 	flash.Adornee = character
@@ -368,7 +372,9 @@ local function startAirTrail(character: Model, duration: number)
 		end
 	end)
 	task.delay(duration, function()
-		if activeTrails[character] == state then stopAirTrail(character, true) end
+		if activeTrails[character] == state then
+			stopAirTrail(character, true)
+		end
 	end)
 end
 
@@ -396,7 +402,9 @@ table.insert(lifecycleConnections, PresentationBus.GetEvent():Connect(function(a
 	local entry = { character = character, kind = kind }
 	localPresentations[sequence] = entry
 	task.delay(1, function()
-		if localPresentations[sequence] == entry then localPresentations[sequence] = nil end
+		if localPresentations[sequence] == entry then
+			localPresentations[sequence] = nil
+		end
 	end)
 end))
 
@@ -434,7 +442,7 @@ stopImpl = function()
 		connection:Disconnect()
 	end
 	table.clear(lifecycleConnections)
-	for character in airTrails do
+	for character in activeTrails do
 		stopAirTrail(character)
 	end
 	table.clear(localPresentations)

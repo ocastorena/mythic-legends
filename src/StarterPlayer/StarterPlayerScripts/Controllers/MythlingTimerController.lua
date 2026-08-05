@@ -8,10 +8,8 @@ end
 
 function MythlingTimerController.Start()
 local connections: { RBXScriptConnection } = {}
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
-local player = Players.LocalPlayer
 local runtimeFolder = workspace:WaitForChild("Runtime")
 local mythlingsFolder = runtimeFolder:WaitForChild("Mythlings")
 
@@ -105,15 +103,22 @@ table.insert(connections, RunService.RenderStepped:Connect(function(dt)
 	end
 end))
 stopImpl = function()
-	for _, connection in connections do connection:Disconnect() end
+	for _, connection in connections do
+		connection:Disconnect()
+	end
 	table.clear(connections)
-	for _, entry in tracked do entry.gui:Destroy() end
+	for _, entry in tracked do
+		entry.gui:Destroy()
+	end
 	table.clear(tracked)
 end
 end
 
 function MythlingTimerController.Stop()
-	if stopImpl then stopImpl(); stopImpl = nil end
+	if stopImpl then
+		stopImpl()
+		stopImpl = nil
+	end
 end
 
 return MythlingTimerController

@@ -298,7 +298,7 @@ export type Topbar = {
 ---
 --- Guarded because GuiService is only meaningful on a client; a server-side require of
 --- this module still needs to load.
-function ThemeUtil.topbar(viewport: Vector2): Topbar
+function ThemeUtil.topbar(_viewport: Vector2): Topbar
 	local rowHeight = ThemeUtil.Platform.topbarRowHeight
 
 	local okInset, guiInset = pcall(function()

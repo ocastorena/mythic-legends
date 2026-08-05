@@ -137,6 +137,60 @@ export type InventoryControllerApi = {
 	DeleteMythling: (string) -> boolean,
 }
 
+export type ProductionStatus = {
+	production: number,
+	rate: number,
+	capacity: number,
+}
+
+export type StandControllerApi = {
+	OnStandRequested: RBXScriptSignal,
+	GetProductionStatus: (string) -> ProductionStatus,
+	Collect: (string) -> boolean,
+	Place: (number, string) -> boolean,
+	Remove: (number, string) -> boolean,
+}
+
+export type HotbarSlotView = {
+	button: ImageButton,
+	icon: ImageLabel,
+	label: TextLabel,
+	keyLabel: TextLabel,
+	ring: UIStroke,
+}
+
+export type HotbarView = {
+	screenGui: ScreenGui,
+	tray: Frame,
+	slots: { HotbarSlotView },
+}
+
+export type HotbarControllerApi = {
+	BindView: (HotbarView) -> (() -> ()),
+}
+
+export type StaminaView = {
+	container: Frame,
+	fill: Frame,
+}
+
+export type StaminaControllerApi = {
+	BindView: (StaminaView) -> (() -> ()),
+}
+
+export type CombatActionView = {
+	root: Frame,
+	attackButton: ImageButton,
+	attackIcon: Frame,
+	shieldButton: ImageButton,
+	shieldIcon: Frame,
+	relayout: () -> (),
+}
+
+export type CombatControllerApi = {
+	BindView: (CombatActionView) -> (() -> ()),
+}
+
 export type ClientContext = {
 	PlayerScripts: PlayerScripts,
 	LocalData: LocalDataApi,
