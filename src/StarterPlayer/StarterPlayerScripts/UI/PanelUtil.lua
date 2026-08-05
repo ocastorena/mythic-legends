@@ -16,7 +16,7 @@
 --   })
 --   local details = PanelUtil.details(panel.Details, { stats = 3, progress = true })
 --
--- The scrim is deliberately absent: ModalUtil already owns the shared ModalBackdropGui
+-- The scrim is deliberately absent: the application overlay owns the shared ModalBackdropGui
 -- ScreenGui, so a panel that drew its own would double-darken the world.
 
 local ThemeUtil = require(script.Parent.ThemeUtil)
@@ -376,12 +376,12 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
 	local root = ThemeUtil.root(viewport)
 
-	-- A phone panel owns the whole screen so its card can reach the physical edges; anything
-	-- larger keeps the safe-area canvas and floats as the doc's centred card.
+	-- Every application panel uses Roblox's live safe canvas. This avoids timing-sensitive
+	-- manual inset measurements while keeping controls clear of CoreGui and device notches.
 	local screenGui = config.parent:IsA("ScreenGui") and config.parent
 		or config.parent:FindFirstAncestorWhichIsA("ScreenGui")
 	if screenGui then
-		ThemeUtil.useFullScreenCanvas(screenGui, ThemeUtil.isPhone(viewport))
+		ThemeUtil.useSafeCanvas(screenGui)
 	end
 
 	local function resolveCardSize(size: Vector2): UDim2
@@ -518,15 +518,15 @@ function PanelUtil.panel(config: PanelConfig): Panel
 	-- is re-measured and every em-sized label re-derived against the new root. The details
 	-- pane and grid live under this card, so one pass covers them.
 	if camera then
-		camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		local viewportConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 			local size = camera.ViewportSize
-			if screenGui then
-				ThemeUtil.useFullScreenCanvas(screenGui, ThemeUtil.isPhone(size))
-			end
 			card.Size = resolveCardSize(size)
 			card.AnchorPoint, card.Position = ThemeUtil.panelPlacement(size)
 			details.Size = UDim2.new(0, ThemeUtil.detailWidth(size), 1, 0)
 			PanelUtil.rescaleText(card, ThemeUtil.root(size))
+		end)
+		card.Destroying:Once(function()
+			viewportConnection:Disconnect()
 		end)
 	end
 
@@ -614,8 +614,11 @@ function PanelUtil.grid(parent: Instance): ScrollingFrame
 	applyCellSize(viewport)
 
 	if camera then
-		camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		local viewportConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 			applyCellSize(camera.ViewportSize)
+		end)
+		scroll.Destroying:Once(function()
+			viewportConnection:Disconnect()
 		end)
 	end
 

@@ -345,13 +345,15 @@ Rojo declares the production network contract and groups single-purpose endpoint
 
 ### UI composition and ownership
 
-- Renderable feature `ScreenGui` roots remain direct children of `StarterGui`; a plain organizational `Folder` must not wrap them in Roblox Explorer.
-- Studio owns visual composition such as frames, constraints, layouts, typography, gradients, responsive sizing, selection navigation, and viewport presentation. Stable semantic descendants use `PascalCase` names.
-- Rojo owns `MainClient`, UI controllers, state bindings, input behavior, themes/tokens, component APIs, and network contracts. Bootstrapped server services and client controllers both use `Init(context)`, `Start()`, and `Stop()`; requiring one must not start work. Runtime logs are failure-only and must never contain complete profiles or sensitive remote payloads.
-- Dynamically cloned client-visible UI templates live under `ReplicatedStorage.Assets.UI.Components`. Static elements remain inside their owning `ScreenGui`.
-- Studio-authored production GUI and reusable components must be backed up as versioned model artifacts when they are not fully represented by Rojo source.
-- Controllers resolve required descendants once and react to `LocalData` or server-confirmed domain events. They must not poll, duplicate remote subscriptions, or treat displayed values as authoritative.
-- Shared `UIController` code coordinates state routing and screen lifecycle; focused feature controllers own their individual view behavior.
+- Production application UI is Rojo-owned and declaratively composed with the Wally-pinned Fusion package. `UIController` owns one cleanup scope and mounts one `StarterPlayerScripts.UI.App` root; requiring a UI module must not start work.
+- Feature `ScreenGui` roots are created by `UI/Screens` directly under the local player's `PlayerGui`. Roots explicitly define respawn, inset, display-order, and Z-index behavior. Stable semantic descendants use `PascalCase` names.
+- Interactive application panels use Roblox's `CoreUISafeInsets`, device-safe clipping, and no legacy fullscreen-extension transform. The persistent HUD may use a full-screen canvas only for its deliberately top-bar-aligned chrome.
+- Reusable presentation belongs in `UI/Components`; feature-level composition belongs in `UI/Screens`; cross-screen backdrops and transient notifications belong in `UI/Overlays`; genuinely shared visual tokens and responsive metrics belong in `UI/ThemeUtil`. `ReplicatedStorage.Assets.UI` holds client-visible art assets, not executable UI composition.
+- Studio is used to preview, tune, and test the runtime result. Accepted application UI must be represented in Rojo source so a clean build reproduces it; Studio-only production GUI is architectural drift.
+- Controllers own feature input and server-authoritative domain interactions rather than constructing visual hierarchies. They react to `LocalData` or server-confirmed domain events and must not poll, duplicate remote subscriptions, or treat displayed values as authoritative.
+- `UI/State` adapters expose focused Fusion values from `LocalData.OnStateChanged` without duplicating the private client cache. The UI never reads ProfileStore state or offers a generic server mutation interface.
+- Keep the hierarchy simple: one application root, one shared scope, focused screens, and components only where reuse or isolation is valuable. Avoid both a monolithic router and controller-per-widget fragmentation.
+- Bootstrapped server services and client controllers use `Init(context)`, `Start()`, and `Stop()`. Runtime logs are failure-only and must never contain complete profiles or sensitive remote payloads.
 - UI must support mobile safe areas, reachable touch targets, flexible layouts, legible text, non-color-only state communication, and Reduce Motion behavior.
 
 ### Content configuration

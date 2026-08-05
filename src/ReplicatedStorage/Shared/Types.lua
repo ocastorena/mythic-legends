@@ -120,6 +120,23 @@ export type UIControllerApi = {
 	Register: (string, (any, any) -> ()) -> RBXScriptConnection,
 }
 
+export type InventoryEquipmentEntry = {
+	quantity: number,
+	equipped: boolean,
+	textureId: string,
+	instanceId: string?,
+	previewModel: Instance?,
+}
+
+export type InventoryEquipmentMap = { [string]: InventoryEquipmentEntry }
+
+export type InventoryControllerApi = {
+	OnEquipmentChanged: RBXScriptSignal,
+	CollectEquipment: () -> InventoryEquipmentMap,
+	Equip: (string) -> boolean,
+	DeleteMythling: (string) -> boolean,
+}
+
 export type ClientContext = {
 	PlayerScripts: PlayerScripts,
 	LocalData: LocalDataApi,

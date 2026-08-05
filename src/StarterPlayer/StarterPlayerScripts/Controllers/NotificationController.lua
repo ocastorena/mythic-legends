@@ -1,49 +1,62 @@
 -- StarterPlayer/StarterPlayerScripts/Controllers/NotificationController
 
-local NotificationController = {}
-local connection: RBXScriptConnection?
-
-function NotificationController.Init(_context: unknown)
-end
-
-function NotificationController.Start()
--- The one place that decides which server events deserve a toast. The toast itself lives
--- in ToastUtil, so adding a notification here is a couple of lines rather than a new
--- controller with its own copy of the tween code.
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local ToastUtil = require(script:FindFirstAncestor("Controllers").Parent:WaitForChild("UI"):WaitForChild("ToastUtil"))
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local ToastUtil = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("ToastUtil"))
 
-local localPlayer = Players.LocalPlayer
-local SpawnEvent = ReplicatedStorage:WaitForChild("Network"):WaitForChild("World"):WaitForChild("Spawned")
+local NotificationController = {}
 
-local VOWELS = { a = true, e = true, i = true, o = true, u = true }
+type ClaimPayload = {
+	winnerUserId: number?,
+	displayName: string?,
+}
+
+local VOWELS: { [string]: boolean } = { a = true, e = true, i = true, o = true, u = true }
+
+local initialized = false
+local connection: RBXScriptConnection?
+local spawnEvent: RemoteEvent
 
 local function withArticle(displayName: string): string
-	local firstChar = string.sub(displayName, 1, 1):lower()
-	local article = VOWELS[firstChar] and "an" or "a"
-	return string.format("%s %s", article, displayName)
+	local firstCharacter = string.sub(displayName, 1, 1):lower()
+	local article = if VOWELS[firstCharacter] then "an" else "a"
+	return `{article} {displayName}`
 end
 
-local function resolveName(payload): string
-	if payload and typeof(payload.displayName) == "string" and payload.displayName ~= "" then
-		return withArticle(payload.displayName)
+local function resolveName(payload: ClaimPayload): string
+	local displayName = payload.displayName
+	if type(displayName) == "string" and displayName ~= "" then
+		return withArticle(displayName)
 	end
 	return "a Mythling"
 end
 
--- Server fires: SpawnEvent:FireAllClients("Claimed", { mythlingId, winnerUserId, displayName })
-connection = SpawnEvent.OnClientEvent:Connect(function(event, payload)
-	if event ~= "Claimed" then
+function NotificationController.Init(_context: Types.ClientContext)
+	if initialized then
 		return
 	end
-	if not payload or payload.winnerUserId ~= localPlayer.UserId then
+	initialized = true
+	spawnEvent = ReplicatedStorage:WaitForChild("Network"):WaitForChild("World"):WaitForChild("Spawned") :: RemoteEvent
+end
+
+function NotificationController.Start()
+	assert(initialized, "[NotificationController] Init must run before Start")
+	if connection then
 		return
 	end
-	ToastUtil.Show(("You claimed %s!"):format(resolveName(payload)))
-end)
+
+	connection = spawnEvent.OnClientEvent:Connect(function(eventName: unknown, rawPayload: unknown)
+		if eventName ~= "Claimed" or type(rawPayload) ~= "table" then
+			return
+		end
+		local payload = rawPayload :: ClaimPayload
+		if payload.winnerUserId ~= Players.LocalPlayer.UserId then
+			return
+		end
+		ToastUtil.Show(`You claimed {resolveName(payload)}!`)
+	end)
 end
 
 function NotificationController.Stop()

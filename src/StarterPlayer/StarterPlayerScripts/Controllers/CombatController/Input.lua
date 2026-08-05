@@ -63,6 +63,7 @@ local activeGuardLowerTrack: AnimationTrack? = nil
 local activeGuardConnections: { RBXScriptConnection } = {}
 local combatReadyConnection: RBXScriptConnection? = nil
 local shieldGuardingConnection: RBXScriptConnection? = nil
+local disconnectModal: (() -> ())? = nil
 
 local function getCharacter(): Model?
 	return localPlayer.Character
@@ -688,7 +689,7 @@ local function createCombatButtons()
 		end
 	end))
 	local modalOpen = ModalUtil.AnyOpen()
-	ModalUtil.OnChanged(function(isOpen: boolean)
+	disconnectModal = ModalUtil.OnChanged(function(isOpen: boolean)
 		modalOpen = isOpen
 		if isOpen then
 			lowerShieldButton()
@@ -783,6 +784,10 @@ stopImpl = function()
 	table.clear(lifecycleConnections)
 	if combatReadyConnection then combatReadyConnection:Disconnect() end
 	if shieldGuardingConnection then shieldGuardingConnection:Disconnect() end
+	if disconnectModal then
+		disconnectModal()
+		disconnectModal = nil
+	end
 	clearActiveAttack()
 	clearGuardConnections()
 	stopGuardTracks(0)

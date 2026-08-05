@@ -12,7 +12,6 @@ local CONTROLLER_ORDER = {
 	"StandPromptController",
 	"NotificationController",
 	"CombatController",
-	"HUDController",
 	"HotbarController",
 	"StaminaController",
 	"InventoryController",
@@ -27,7 +26,6 @@ local context = {
 }
 
 UIController.Init(context)
-UIController.Start()
 
 type Controller = {
 	Init: (typeof(context)) -> (),
@@ -58,6 +56,12 @@ for _, name in ipairs(CONTROLLER_ORDER) do
 	end
 	table.insert(controllers, { name = name, controller = controller })
 end
+
+local uiStarted, uiError = pcall(UIController.Start)
+if not uiStarted then
+	warn(`[MainClient] UIController failed to start: {uiError}`)
+end
+
 for _, entry in ipairs(controllers) do
 	local ok, err = pcall(entry.controller.Start)
 	if not ok then

@@ -79,6 +79,9 @@
       "Shared": {
         "$path": "src/ReplicatedStorage/Shared"
       },
+      "Packages": {
+        "$path": "Packages"
+      },
       "Assets": {
         "$className": "Folder",
         "$ignoreUnknownInstances": true,
@@ -173,13 +176,6 @@
     "StarterGui": {
       "$className": "StarterGui",
       "$ignoreUnknownInstances": true,
-      "InventoryGui": {
-        "$className": "ScreenGui",
-        "$ignoreUnknownInstances": true,
-        "$properties": {
-          "ResetOnSpawn": false
-        }
-      },
       "ShopGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
@@ -189,13 +185,6 @@
         }
       },
       "StandGui": {
-        "$className": "ScreenGui",
-        "$ignoreUnknownInstances": true,
-        "$properties": {
-          "ResetOnSpawn": false
-        }
-      },
-      "HUDGui": {
         "$className": "ScreenGui",
         "$ignoreUnknownInstances": true,
         "$properties": {

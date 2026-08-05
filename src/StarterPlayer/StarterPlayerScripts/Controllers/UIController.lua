@@ -2,7 +2,11 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Fusion = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Fusion"))
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 local LocalData = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("LocalData"))
+local App = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("App"))
+local InventoryController = require(script.Parent:WaitForChild("InventoryController"))
 
 local UIController = {}
 
@@ -13,6 +17,8 @@ local syncing = false
 local running = false
 local syncGeneration = 0
 local initialized = false
+local context: Types.ClientContext?
+local uiScope: any
 local updateState: RemoteEvent
 local requestState: RemoteFunction
 
@@ -53,11 +59,12 @@ local function requestSnapshot()
 	task.spawn(synchronize, syncGeneration)
 end
 
-function UIController.Init(_context: unknown)
+function UIController.Init(clientContext: Types.ClientContext)
 	if initialized then
 		return
 	end
 	initialized = true
+	context = clientContext
 	local stateNetwork = ReplicatedStorage:WaitForChild("Network"):WaitForChild("State")
 	updateState = stateNetwork:WaitForChild("Update") :: RemoteEvent
 	requestState = stateNetwork:WaitForChild("Request") :: RemoteFunction
@@ -69,6 +76,13 @@ function UIController.Start()
 		return
 	end
 	running = true
+	if not uiScope then
+		uiScope = Fusion.scoped(Fusion)
+		App(uiScope, {
+			localData = (context :: Types.ClientContext).LocalData,
+			inventoryController = InventoryController,
+		})
+	end
 	updateConnection = updateState.OnClientEvent:Connect(function(packet)
 		local ok, reason = LocalData.IngestPayload(packet)
 		if not ok and reason == "RevisionGap" then
@@ -101,6 +115,10 @@ function UIController.Stop()
 		updateConnection = nil
 	end
 	syncing = false
+	if uiScope then
+		Fusion.doCleanup(uiScope)
+		uiScope = nil
+	end
 end
 
 return UIController

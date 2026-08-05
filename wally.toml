@@ -1,0 +1,12 @@
+[package]
+name = "omar/mythic-legends"
+description = "Shared packages for Mythic Legends"
+version = "0.1.0"
+license = "MIT"
+authors = ["Omar"]
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+private = true
+
+[dependencies]
+Fusion = "elttob/fusion@0.3.0"

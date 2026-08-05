@@ -336,21 +336,13 @@ end
 --- Panel card size for a viewport: phones fill the screen, everything else gets the doc's
 --- fixed-height card.
 ---
---- Phones deliberately override the doc. They sit in a full-screen canvas (see
---- `useFullScreenCanvas`) and bleed past the safe area at the bottom only, so the card
---- reaches the physical screen edge through the strip the device reserves for its home
---- indicator. At the sides the card stays inside the safe area, clear of the notch.
+--- Phones use Roblox's CoreUISafeInsets canvas. The card fills that safe canvas with a small
+--- top and bottom margin, keeping controls clear of the top bar, notch, and home region.
 function ThemeUtil.panelSize(viewport: Vector2): UDim2
 	local usable = ThemeUtil.usableHeight(viewport)
 
 	if ThemeUtil.isPhone(viewport) then
-		local insets = ThemeUtil.safeInsets()
-		return UDim2.new(
-			1,
-			-(insets.left + insets.right),
-			1,
-			-(insets.top + PANEL_TOP_MARGIN + PANEL_PHONE_BOTTOM_MARGIN)
-		)
+		return UDim2.new(1, 0, 1, -(PANEL_TOP_MARGIN + PANEL_PHONE_BOTTOM_MARGIN))
 	end
 
 	-- Never taller than the usable area: the doc's fixed height overflows on short-but-not-
@@ -366,99 +358,23 @@ end
 -- margin at the top, where Roblox's bar is. Larger screens centre between the bottom of
 -- Roblox's top HUD and the top of the hotbar rather than against the whole remaining canvas.
 function ThemeUtil.panelPlacement(viewport: Vector2): (Vector2, UDim2)
-	-- Pinned to the left safe edge rather than centred, so an asymmetric inset (a notch on
-	-- one side in landscape) still lands the card inside the safe band.
+	-- The ScreenGui already uses CoreUISafeInsets, so placement is relative to the safe canvas.
 	if ThemeUtil.isPhone(viewport) then
-		return Vector2.new(0, 1),
-			UDim2.new(0, ThemeUtil.safeInsets().left, 1, -PANEL_PHONE_BOTTOM_MARGIN)
+		return Vector2.new(0, 1), UDim2.new(0, 0, 1, -PANEL_PHONE_BOTTOM_MARGIN)
 	end
 
 	local hotbarHeight = ThemeUtil.Metric.hotbarSlot + ThemeUtil.Platform.topbarEdgePadding
 	return Vector2.new(0.5, 0.5), UDim2.new(0.5, 0, 0.5, -hotbarHeight / 2)
 end
 
---- What the device reserves around the screen: notch/rounded corners at the sides, the home
---- indicator along the bottom, Roblox's bar along the top.
----
---- These have to be *measured*, not queried. `GetGuiInset()` reports only Roblox's top bar;
---- its second return value is `0, 0` even on a phone reserving 59px at each side and 21px
---- at the bottom. The only way to see them is to difference two canvases -- one that ignores
---- every inset against one that respects them -- which is what this does, once, and caches.
----
---- A panel that respects the safe canvas measures as flush against it while sitting visibly
---- short of the real screen edge. That was the bottom gap.
-local cachedInsets: { left: number, top: number, right: number, bottom: number }? = nil
-
-function ThemeUtil.safeInsets(): { left: number, top: number, right: number, bottom: number }
-	if cachedInsets then
-		return cachedInsets
-	end
-	local none = { left = 0, top = 0, right = 0, bottom = 0 }
-
-	local ok, measured = pcall(function()
-		local playerGui = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
-		if not playerGui then
-			return nil
-		end
-
-		local function probe(ignoreInsets: boolean): (Vector2, Vector2, ScreenGui)
-			local gui = Instance.new("ScreenGui")
-			gui.ResetOnSpawn = false
-			gui.Enabled = true
-			if ignoreInsets then
-				gui.IgnoreGuiInset = true
-				pcall(function()
-					gui.ScreenInsets = Enum.ScreenInsets.None
-				end)
-			end
-			gui.Parent = playerGui
-			local frame = Instance.new("Frame")
-			frame.Size = UDim2.fromScale(1, 1)
-			frame.BackgroundTransparency = 1
-			frame.Parent = gui
-			return frame.AbsolutePosition, frame.AbsoluteSize, gui
-		end
-
-		local fullPos, fullSize, fullGui = probe(true)
-		local safePos, safeSize, safeGui = probe(false)
-		fullGui:Destroy()
-		safeGui:Destroy()
-
-		-- Nothing has been laid out yet; caller should try again later.
-		if fullSize.X <= 0 or safeSize.X <= 0 then
-			return nil
-		end
-
-		return {
-			left = math.max(safePos.X - fullPos.X, 0),
-			top = math.max(safePos.Y - fullPos.Y, 0),
-			right = math.max((fullPos.X + fullSize.X) - (safePos.X + safeSize.X), 0),
-			bottom = math.max((fullPos.Y + fullSize.Y) - (safePos.Y + safeSize.Y), 0),
-		}
+--- Keeps application panels inside Roblox's current top-bar and device-safe canvas.
+function ThemeUtil.useSafeCanvas(screenGui: ScreenGui)
+	screenGui.IgnoreGuiInset = false
+	screenGui.ClipToDeviceSafeArea = true
+	screenGui.SafeAreaCompatibility = Enum.SafeAreaCompatibility.None
+	pcall(function()
+		screenGui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
 	end)
-
-	if ok and measured then
-		cachedInsets = measured
-		return measured
-	end
-	return none
-end
-
---- Lets a phone panel address the whole screen, so its card can bleed past the safe area.
---- Content inside the card is padded back in by `safeInsets`, so the background reaches the
---- edges without pushing anything under the notch or the home indicator.
-function ThemeUtil.useFullScreenCanvas(screenGui: ScreenGui, fullScreen: boolean)
-	if fullScreen then
-		screenGui.IgnoreGuiInset = true
-		pcall(function()
-			screenGui.ScreenInsets = Enum.ScreenInsets.None
-		end)
-	else
-		screenGui.IgnoreGuiInset = false
-		pcall(function()
-			screenGui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
-		end)
-	end
 end
 
 --- True when panels should take the whole screen rather than float as a card.
@@ -501,6 +417,7 @@ ThemeUtil.Layer = {
 	scrim = 1,
 	panel = 2,
 	hud = 5,
+	toast = 10,
 }
 
 --------------------------------------------------------------------------------

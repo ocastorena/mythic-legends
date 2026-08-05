@@ -16,7 +16,7 @@ local PRIORITY = Enum.ContextActionPriority.High.Value + 100
 
 local refCount = 0
 
--- Defaults (override via M.open{ ... })
+-- Input policy for application panels.
 local opts = {
 	blockJump        = true,
 	hideMobileControls = true,   -- Hide thumbstick/jump UI while modal
@@ -152,9 +152,9 @@ local function unbindCameraBlocks()
 end
 
 -- ===== Public API =====
-local M = {}
+local InputGuardUtil = {}
 
-function M.open()
+function InputGuardUtil.Open()
 	refCount += 1
 	if refCount == 1 then
 		disableControls()
@@ -164,7 +164,7 @@ function M.open()
 	end
 end
 
-function M.close()
+function InputGuardUtil.Close()
 	if refCount <= 0 then return end
 	refCount -= 1
 	if refCount == 0 then
@@ -175,4 +175,4 @@ function M.close()
 	end
 end
 
-return M
+return InputGuardUtil
