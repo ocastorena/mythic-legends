@@ -65,6 +65,17 @@ Theme.Accent = {
 	red = hex("ff3b4e"), -- danger
 }
 
+-- Stable semantic colors for menu tab icons. Labels and selection rails stay neutral so
+-- color supplements the icon silhouette without becoming the only active-state signal.
+Theme.TabIcon = {
+	mythlings = hex("ffd75e"),
+	equipment = hex("68b5ff"),
+	consumables = hex("54d88b"),
+	materials = hex("f5a45d"),
+	featured = hex("ff78bd"),
+	upgrades = hex("a98bff"),
+}
+
 -- Ink laid on top of an accent fill.
 Theme.Ink = {
 	onGold = hex("141416"),
@@ -169,15 +180,20 @@ Theme.Font = {
 -- em multiples off the device root, straight from the doc's type table.
 Theme.Em = {
 	panelTitle = 1.2, -- 18px desktop · 800
+	panelTitleLarge = 1.4, -- 21px desktop · 800
 	statValue = 1.4667, -- 22px desktop · 900
 	itemName = 1.0667, -- 16px desktop · 800
 	body = 0.9333, -- 14px desktop · 800
-	tab = 0.8667, -- 13px desktop · 800
+	tab = 0.9333, -- 14px desktop · 800
 	sectionLabel = 0.8, -- 12px desktop · 800
 	caption = 0.7333, -- 11px desktop · 800
 	statLabel = 0.6333, -- 9.5px desktop · 700
 	badge = 0.6, -- 9px desktop · 800
 }
+
+-- Em-stamped text inside application menus gets one shared accessibility scale. HUD text
+-- uses Theme.text directly and deliberately remains at the platform-sized baseline.
+Theme.MenuTextScale = 1.3
 
 --- The per-device root the doc sizes everything against: 12.5px phone, 14px tablet,
 --- 15px desktop. Phones are detected by height the way the design canvas does, so a
@@ -218,9 +234,9 @@ Theme.Radius = {
 
 Theme.Metric = {
 	-- Header row: identity left · tabs center · actions right.
-	headerPadTop = 14,
+	headerPadTop = 8,
 	headerPadRight = 16,
-	headerPadBottom = 10,
+	headerPadBottom = 6,
 	headerPadLeft = 18,
 	-- Body: grid 2fr · details 1fr · gap 14.
 	bodyPad = 16,
@@ -230,10 +246,10 @@ Theme.Metric = {
 	cellSize = 112,
 	cellGap = 10,
 	-- Roblox-style menu tabs: icon + label on a transparent rail with a 2px underline.
-	tabWidth = 96,
+	tabWidth = 116,
 	tabHeight = 40,
-	tabGap = 0,
-	tabIconSize = 16,
+	tabGap = 12,
+	tabIconSize = 22,
 	tabIconGap = 6,
 	-- Round close button, and the [ i ] button on a hero frame.
 	closeSize = 30,
@@ -241,6 +257,13 @@ Theme.Metric = {
 	-- Footer: wide primary beside a square secondary.
 	buttonHeight = 43,
 	squareButton = 44,
+	-- Inventory overflow menu, anchored above the footer's ellipsis button.
+	actionMenuWidth = 168,
+	actionMenuItemHeight = 46,
+	actionMenuIconSize = 24,
+	actionMenuPadding = 6,
+	actionMenuGap = 4,
+	actionMenuOffset = 8,
 	-- Progress bars.
 	barHeight = 7,
 	barHeightWide = 9,
@@ -274,12 +297,22 @@ Theme.Metric = {
 Theme.Platform = {
 	topbarRowHeight = 48,
 	topbarButtonSize = 44,
+	-- Roblox's menu icon is 24px at rest and grows to 30px while its menu is open.
+	topbarIconSize = 24,
+	topbarIconOpenScale = 1.25,
+	-- Match the critically damped ReactOtter spring used by Roblox's menu icon.
+	topbarIconSpringSpeed = 2 * math.pi / 0.35,
+	topbarIconSpringDamping = 1,
 	-- Physical gap between a platform control and a display edge.
 	topbarEdgePadding = 12,
-	-- Keep the menu low while leaving one full corner radius inside the safe canvas.
-	menuBottomCornerClearance = Theme.Radius.card,
+	-- Keep the menu low while retaining enough safe-canvas clearance for its corners.
+	menuBottomCornerClearance = Theme.Radius.card - 8,
 	topbarButtonFill = hex("121215"),
 	topbarButtonTransparency = 0.08,
+	-- Roblox Foundation's light state-layer values for top-bar controls.
+	topbarButtonStateLayerFill = Color3.new(1, 1, 1),
+	topbarButtonHoverStateTransparency = 0.88,
+	topbarButtonPressedStateTransparency = 0.8,
 	-- Slightly more opaque under the cursor, standing in for Roblox's own state overlay.
 	topbarButtonHoverTransparency = 0,
 	-- A hotbar slot standing empty. The same fill as a top bar button, thinned out so the

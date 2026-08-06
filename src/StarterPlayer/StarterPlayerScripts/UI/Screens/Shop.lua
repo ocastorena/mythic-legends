@@ -12,7 +12,6 @@ local Theme = require(Ui:WaitForChild("Theme"))
 local PANEL_NAME = "Shop"
 local SHOP_ICON = "rbxassetid://9405933217"
 local GOLD_ICON = "rbxassetid://112895221053745"
-local SHOP_TEXT_SCALE = 1.15
 local SHOP_CONTENT_SCALE = 1.15
 
 local function contentScale(viewport: Vector2): number
@@ -48,16 +47,13 @@ local function Shop(scope: any): ScreenGui
 	local panel = Panel.Create({
 		parent = shopGui,
 		title = "Shop",
-		titleIcon = SHOP_ICON,
+		titleTextEm = Theme.Em.panelTitleLarge,
 		tabs = {
-			{ name = "Featured", glyph = "★" },
-			{ name = "Upgrades", glyph = "↑" },
+			{ name = "Featured", icon = "rbxassetid://15909461117", color = Theme.TabIcon.featured },
+			{ name = "Upgrades", icon = "rbxassetid://12338897538", color = Theme.TabIcon.upgrades },
 		},
 		size = panelSize,
 		accent = Theme.Accent.green,
-		onClose = function()
-			MenuState.Close(PANEL_NAME)
-		end,
 	})
 
 	local camera = workspace.CurrentCamera
@@ -181,12 +177,7 @@ local function Shop(scope: any): ScreenGui
 		selectTab(panel.Tabs.Upgrades)
 	end)
 
-	for _, descendant in shopGui:GetDescendants() do
-		if descendant:GetAttribute("Em") then
-			descendant:SetAttribute("EmScale", (descendant:GetAttribute("EmScale") or 1) * SHOP_TEXT_SCALE)
-		end
-	end
-	Panel.RescaleText(shopGui, panel.Root)
+	Panel.ApplyTextScale(shopGui, panel.Root, Theme.MenuTextScale)
 
 	local menuTransition = Motion.CreateMenuTransition({
 		screenGui = shopGui,

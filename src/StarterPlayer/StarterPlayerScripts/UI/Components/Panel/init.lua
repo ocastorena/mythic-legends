@@ -12,7 +12,6 @@
 --       titleIcon = "rbxassetid://...",
 --       tabs = { "Mythlings", "Materials" },
 --       coins = true,
---       onClose = function() ... end,
 --   })
 --   local details = Panel.CreateDetails(panel.Details, { stats = 3, progress = true })
 --
@@ -20,6 +19,7 @@
 -- ScreenGui, so a panel that drew its own would double-darken the world.
 
 local Theme = require(script.Parent.Parent.Theme)
+local ActionMenu = require(script.ActionMenu)
 local Controls = require(script.Controls)
 local Primitives = require(script.Primitives)
 
@@ -37,12 +37,15 @@ local flexFill = Primitives.FlexFill
 local setText = Primitives.SetText
 
 Panel.RescaleText = Primitives.RescaleText
+Panel.ApplyTextScale = Primitives.ApplyTextScale
+Panel.CreateActionMenu = ActionMenu.Create
 Panel.Tab = Controls.Tab
 Panel.SetTabActive = Controls.SetTabActive
 Panel.PrimaryButton = Controls.PrimaryButton
 Panel.SetButtonEnabled = Controls.SetButtonEnabled
 Panel.SquareButton = Controls.SquareButton
 Panel.SquareTextButton = Controls.SquareTextButton
+Panel.MoreButton = Controls.MoreButton
 Panel.CloseButton = Controls.CloseButton
 Panel.CoinPill = Controls.CoinPill
 Panel.LevelPill = Controls.LevelPill
@@ -54,6 +57,8 @@ Panel.LevelPill = Controls.LevelPill
 export type PanelConfig = {
 	parent: Instance,
 	title: string,
+	-- Optional title size override for menus whose title is their only header identity.
+	titleTextEm: number?,
 	-- Optional feature-specific responsive size. Placement, safe-area handling and text
 	-- scaling remain owned by the shared shell.
 	size: ((Vector2) -> UDim2)?,
@@ -64,8 +69,8 @@ export type PanelConfig = {
 	-- Draws the glyph as a filled element disc rather than a flat icon (the shrine header).
 	iconColor: Color3?,
 	-- Roblox-style icon + label tabs, centered in the header. Strings remain supported for
-	-- title-only tabs; tables add the compact glyph shown beside the title.
-	tabs: { string | { name: string, glyph: string? } }?,
+	-- title-only tabs; tables add an icon-pack asset beside the title.
+	tabs: { string | { name: string, icon: string?, color: Color3? } }?,
 	-- Adds the coin pill to the header actions.
 	coins: boolean?,
 	coinIcon: string?,
@@ -73,7 +78,6 @@ export type PanelConfig = {
 	levelPill: boolean?,
 	-- Menu accent. Gold unless the menu says otherwise (cyan for crafting).
 	accent: Color3?,
-	onClose: (() -> ())?,
 }
 
 export type Panel = {
@@ -87,7 +91,6 @@ export type Panel = {
 	Tabs: { [string]: TextButton },
 	CoinLabel: TextLabel?,
 	LevelLabel: TextLabel?,
-	CloseButton: TextButton,
 	MotionRoot: CanvasGroup,
 	Root: number,
 	Accent: Color3,
@@ -143,7 +146,7 @@ function Panel.Create(config: PanelConfig): Panel
 	-- Header: three groups, so the tab set stays centered in the card rather than
 	-- drifting with the width of the identity and action groups.
 	local header = newFrame("Header", card)
-	local headerContentHeight = math.max(Metric.closeSize, Metric.tabHeight)
+	local headerContentHeight = Metric.tabHeight
 	header.Size = UDim2.new(1, 0, 0, Metric.headerPadTop + headerContentHeight + Metric.headerPadBottom)
 	header.LayoutOrder = 1
 	Theme.padding(header, Metric.headerPadTop, Metric.headerPadRight, Metric.headerPadBottom, Metric.headerPadLeft)
@@ -183,7 +186,7 @@ function Panel.Create(config: PanelConfig): Panel
 	local titleLabel = newLabel("Title", identity)
 	titleLabel.AutomaticSize = Enum.AutomaticSize.X
 	titleLabel.Size = UDim2.fromScale(0, 1)
-	setText(titleLabel, Em.panelTitle, root)
+	setText(titleLabel, config.titleTextEm or Em.panelTitle, root)
 	titleLabel.Text = config.title
 	titleLabel.LayoutOrder = 2
 
@@ -198,8 +201,9 @@ function Panel.Create(config: PanelConfig): Panel
 		row.HorizontalAlignment = Enum.HorizontalAlignment.Center
 		for index, tabConfig in ipairs(config.tabs) do
 			local name = if type(tabConfig) == "table" then tabConfig.name else tabConfig
-			local glyph = if type(tabConfig) == "table" then tabConfig.glyph else nil
-			local tab = Panel.Tab(tabRow, name, accent, root, glyph)
+			local icon = if type(tabConfig) == "table" then tabConfig.icon else nil
+			local iconColor = if type(tabConfig) == "table" then tabConfig.color else nil
+			local tab = Panel.Tab(tabRow, name, accent, root, icon, iconColor)
 			tab.LayoutOrder = index
 			tabs[name] = tab
 		end
@@ -225,9 +229,6 @@ function Panel.Create(config: PanelConfig): Panel
 		(levelLabel :: TextLabel).LayoutOrder = 2
 	end
 
-	local closeButton = Panel.CloseButton(actions, root)
-	closeButton.LayoutOrder = 3
-
 	-- Body: grid 2fr · details 1fr · gap 14, at every size.
 	local body = newFrame("Body", card)
 	body.Size = UDim2.fromScale(1, 1)
@@ -247,10 +248,6 @@ function Panel.Create(config: PanelConfig): Panel
 	details.Size = UDim2.new(0, Theme.detailWidth(viewport), 1, 0)
 	details.LayoutOrder = 2
 	details.ClipsDescendants = true
-
-	if config.onClose then
-		closeButton.Activated:Connect(config.onClose)
-	end
 
 	-- Rotating a phone or resizing a window changes which device root applies, so the card
 	-- is re-measured and every em-sized label re-derived against the new root. The details
@@ -279,7 +276,6 @@ function Panel.Create(config: PanelConfig): Panel
 		Tabs = tabs,
 		CoinLabel = coinLabel,
 		LevelLabel = levelLabel,
-		CloseButton = closeButton,
 		MotionRoot = motionRoot,
 		Root = root,
 		Accent = accent,
@@ -540,6 +536,8 @@ export type DetailsConfig = {
 	-- Adds the square secondary beside it.
 	secondaryIcon: string?,
 	secondaryTint: Color3?,
+	-- Adds a neutral ellipsis button for an anchored action menu.
+	overflow: boolean?,
 }
 
 export type Details = {
@@ -555,7 +553,7 @@ export type Details = {
 	ProgressDetail: TextLabel?,
 	ProgressFill: Frame?,
 	PrimaryButton: TextButton?,
-	SecondaryButton: ImageButton?,
+	SecondaryButton: GuiButton?,
 	Footer: Frame?,
 }
 
@@ -829,8 +827,8 @@ function Panel.CreateDetails(config: DetailsConfig): Details
 
 	local footer: Frame? = nil
 	local primaryButton: TextButton? = nil
-	local secondaryButton: ImageButton? = nil
-	if config.primary or config.secondaryIcon then
+	local secondaryButton: GuiButton? = nil
+	if config.primary or config.secondaryIcon or config.overflow then
 		footer = newFrame("Footer", column);
 		(footer :: Frame).Size = UDim2.new(1, 0, 0, Metric.buttonHeight);
 		(footer :: Frame).LayoutOrder = 5
@@ -842,9 +840,17 @@ function Panel.CreateDetails(config: DetailsConfig): Details
 			(primaryButton :: TextButton).LayoutOrder = 1
 			flexFill(primaryButton :: TextButton)
 		end
+		if not config.primary then
+			local footerSpacer = newFrame("Spacer", footer :: Frame)
+			footerSpacer.LayoutOrder = 1
+			flexFill(footerSpacer)
+		end
 		if config.secondaryIcon then
 			secondaryButton = Panel.SquareButton(footer :: Frame, config.secondaryIcon, config.secondaryTint or accent);
 			(secondaryButton :: ImageButton).LayoutOrder = 2
+		elseif config.overflow then
+			secondaryButton = Panel.MoreButton(footer :: Frame);
+			(secondaryButton :: TextButton).LayoutOrder = 2
 		end
 	end
 

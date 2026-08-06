@@ -71,4 +71,20 @@ function Primitives.RescaleText(container: Instance, root: number)
 	end
 end
 
+--- Applies a menu-wide text multiplier without compounding it when responsive layout code
+--- re-applies the scale. Any component-specific EmScale remains the stable base value.
+function Primitives.ApplyTextScale(container: Instance, root: number, scale: number)
+	for _, descendant in ipairs(container:GetDescendants()) do
+		if descendant:GetAttribute("Em") then
+			local baseScale = descendant:GetAttribute("BaseEmScale")
+			if not baseScale then
+				baseScale = descendant:GetAttribute("EmScale") or 1
+				descendant:SetAttribute("BaseEmScale", baseScale)
+			end
+			descendant:SetAttribute("EmScale", baseScale * scale)
+		end
+	end
+	Primitives.RescaleText(container, root)
+end
+
 return Primitives

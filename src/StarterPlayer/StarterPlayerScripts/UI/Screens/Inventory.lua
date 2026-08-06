@@ -15,11 +15,8 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	-- verbatim: header (identity · 88px tabs · coin pill + ✕), body split grid 2/3 · details
 	-- 1/3, and a details column of hero art, hero stats and a footer button.
 	--
-	-- Two things moved out of the panel to follow the doc. Flavour text used to sit inline in
-	-- the info pane; §06 and §08 both say lore belongs behind the [ i ] button, so it lives in
-	-- a modal now. And the Delete action used to be a button floating below the card in a
-	-- separate `Bottom` frame; §07 puts panel actions in the details footer, so that is where
-	-- it is.
+	-- Flavour text lives behind the [ i ] button, while each selected item exposes its primary
+	-- action in the details footer and secondary actions through the adjacent overflow menu.
 
 	local Players = game:GetService("Players")
 	local LocalData = props.localData
@@ -43,9 +40,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local EquipmentMeta = require(ReplicatedStorage.Shared.Configurations.Equipment)
 	local ConsumablesMeta = require(ReplicatedStorage.Shared.Configurations.Consumables)
 
-	-- Art already in the place file.
-	local INVENTORY_ICON = "rbxassetid://135273755533681"
-	local INVENTORY_TEXT_SCALE = 1.15
+	local SELL_ICON = "rbxassetid://112895221053745"
 	local INVENTORY_CONTENT_SCALE = 1.15
 
 	local inventoryGui = scope:New("ScreenGui")({
@@ -87,23 +82,17 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local panel = Panel.Create({
 		parent = inventoryGui,
 		title = "Inventory",
-		titleIcon = INVENTORY_ICON,
-		-- This asset contains more transparent margin than the Shop icon, so its image box
-		-- must be larger for both header glyphs to have the same apparent size.
-		titleIconSize = 34,
+		titleTextEm = Theme.Em.panelTitleLarge,
 		tabs = {
-			{ name = "Mythlings", glyph = "★" },
-			{ name = "Equipment", glyph = "⚔" },
-			{ name = "Consumables", glyph = "+" },
-			{ name = "Materials", glyph = "◆" },
+			{ name = "Mythlings", icon = "rbxassetid://15909461117", color = Theme.TabIcon.mythlings },
+			{ name = "Equipment", icon = "rbxassetid://16181366859", color = Theme.TabIcon.equipment },
+			{ name = "Consumables", icon = "rbxassetid://16181402439", color = Theme.TabIcon.consumables },
+			{ name = "Materials", icon = "rbxassetid://15562720000", color = Theme.TabIcon.materials },
 		},
 		size = inventoryPanelSize,
 		-- No coin pill here. §08 puts one in every panel header, but the HUD's pill stays lit
 		-- and on top while a panel is open, so a second one would just repeat itself.
 		accent = Theme.Accent.gold,
-		onClose = function()
-			MenuState.Close(PANEL_NAME)
-		end,
 	})
 
 	local inventoryScale = Instance.new("UIScale")
@@ -198,7 +187,8 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		accent = Theme.Accent.gold,
 		stats = 3,
 		info = true,
-		primary = "Delete",
+		primary = "Evolve",
+		overflow = true,
 	})
 	local materialInfo = Panel.CreateDetails({
 		parent = materialInfoColumn,
@@ -206,6 +196,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		accent = Theme.Accent.gold,
 		stats = 2,
 		info = true,
+		overflow = true,
 	})
 	local equipmentInfo = Panel.CreateDetails({
 		parent = equipmentInfoColumn,
@@ -214,6 +205,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		stats = 3,
 		info = true,
 		primary = "Equip",
+		overflow = true,
 	})
 	local consumableInfo = Panel.CreateDetails({
 		parent = consumableInfoColumn,
@@ -221,15 +213,71 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		accent = Theme.Accent.gold,
 		stats = 3,
 		info = true,
+		primary = "Add to Hotbar",
+		overflow = true,
 	})
 
-	-- Delete is destructive, so the footer button carries the danger accent of §01.
+	-- These primary actions are present now so the hierarchy is stable while their
+	-- server-authoritative endpoints are added later. Equipment already has a live endpoint.
 	if mythlingInfo.PrimaryButton then
-		Panel.SetButtonEnabled(mythlingInfo.PrimaryButton, true, Theme.Accent.red)
+		mythlingInfo.PrimaryButton:SetAttribute("ServerAction", "Evolve")
+		Panel.SetButtonEnabled(mythlingInfo.PrimaryButton, false, Theme.Accent.gold)
+	end
+	if equipmentInfo.PrimaryButton then
+		equipmentInfo.PrimaryButton:SetAttribute("ServerAction", "EquipOrUnequip")
+	end
+	if consumableInfo.PrimaryButton then
+		consumableInfo.PrimaryButton:SetAttribute("ServerAction", "AddToHotbar")
+		Panel.SetButtonEnabled(consumableInfo.PrimaryButton, false, Theme.Accent.gold)
+	end
+
+	local actionMenu = Panel.CreateActionMenu({
+		parent = panel.Details,
+		root = panel.Root,
+		items = {
+			{
+				id = "Sell",
+				label = "Sell",
+				icon = SELL_ICON,
+				iconColor = Theme.Accent.gold,
+				enabled = false,
+			},
+		},
+	})
+	actionMenu.Options.Sell:SetAttribute("ServerAction", "Sell")
+
+	local function connectOverflow(details, category: string)
+		local button = details.SecondaryButton
+		if not button then
+			return
+		end
+		button:SetAttribute("InventoryCategory", category)
+		ButtonUtil.hookClick(button, function()
+			actionMenu.Root:SetAttribute("InventoryCategory", category)
+			actionMenu.Toggle(button)
+		end)
+	end
+
+	connectOverflow(mythlingInfo, "Mythlings")
+	connectOverflow(equipmentInfo, "Equipment")
+	connectOverflow(consumableInfo, "Consumables")
+	connectOverflow(materialInfo, "Materials")
+
+	for _, details in ipairs({ mythlingInfo, equipmentInfo, consumableInfo, materialInfo }) do
+		if details.Footer then
+			details.Footer.Visible = false
+		end
+	end
+
+	local function showActions(details)
+		if details.Footer then
+			details.Footer.Visible = true
+		end
+		actionMenu.Close()
 	end
 
 	--------------------------------------------------------------------------------
-	-- Lore + confirm modals (§08)
+	-- Lore modal (§08)
 	--------------------------------------------------------------------------------
 
 	local loreModal = Panel.CreateModal({
@@ -240,21 +288,6 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		body = true,
 	})
 
-	local confirmModal = Panel.CreateModal({
-		parent = inventoryGui,
-		root = panel.Root,
-		name = "ConfirmModal",
-		title = "",
-		body = true,
-		confirm = "Delete",
-		cancel = "Cancel",
-		confirmTint = Theme.Accent.red,
-	})
-	confirmModal.IconDisc.BackgroundColor3 = Theme.Accent.red
-	if confirmModal.BodyLabel then
-		confirmModal.BodyLabel.Text = "This cannot be undone."
-	end
-
 	--------------------------------------------------------------------------------
 	-- State
 	--------------------------------------------------------------------------------
@@ -262,10 +295,6 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local selectedTab = nil
 	local selectedFrame = nil
 	local selectedInfo = nil
-
-	local pendingDeleteId = nil
-	local mythlingButtonsConnected = false
-	local materialButtonsConnected = false
 
 	--- §05's ring rules do the highlighting now: the rarity colour is always on the cell, and
 	--- selection is the difference between a 3px ring and a dimmed 2px one. The old yellow
@@ -277,28 +306,9 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		Panel.SetCellRing(card, card:GetAttribute("Rarity"), selected, card:GetAttribute("RingColor"))
 	end
 
-	local function closeConfirmDeleteModal()
-		confirmModal:Close()
-	end
-
-	local function openConfirmDeleteModal(displayName)
-		confirmModal.TitleLabel.Text = `Delete {displayName}?`
-		confirmModal:Open()
-	end
-
 	--------------------------------------------------------------------------------
 	-- Mythlings
 	--------------------------------------------------------------------------------
-
-	local function clearMythlingInfo()
-		mythlingInfo.NameLabel.Text = ""
-		mythlingInfo.RarityLabel.Text = ""
-		MythlingThumbnailUtil.Clear(mythlingInfo.Art)
-		for _, stat in ipairs(mythlingInfo.Stats) do
-			stat.Value.Text = "—"
-			stat.Label.Text = ""
-		end
-	end
 
 	local mythlingList = CardList.new({
 		template = mythlingCardTemplate,
@@ -320,6 +330,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			end
 		end,
 		onSelect = function(_id, entry)
+			showActions(mythlingInfo)
 			local metadata = MythlingsData[entry.typeId]
 			local material = MaterialsMeta[metadata.production.materialId]
 			local variant = metadata.variants[entry.variantId]
@@ -359,6 +370,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			Panel.SetCellRing(card, nil, false, Color3.fromHex(metadata.guiColor))
 		end,
 		onSelect = function(id, entry)
+			showActions(materialInfo)
 			local metadata = MaterialsMeta[id]
 			local tint = Color3.fromHex(metadata.guiColor)
 
@@ -406,6 +418,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			card.EquippedCheck.Visible = entry.equipped
 		end,
 		onSelect = function(id, entry)
+			showActions(equipmentInfo)
 			local profile = EquipmentMeta.Profiles[id]
 			local rarity = profile.rarity or "Common"
 			equipmentInfo.NameLabel.Text = profile.displayName or titleCase(id)
@@ -413,6 +426,10 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			equipmentInfo.ElementIcon.BackgroundColor3 = Theme.rarityColor(rarity)
 			setEquipmentPreview(equipmentInfo.ElementIcon, profile, entry)
 			Panel.SetHeroRarity(equipmentInfo, rarity)
+			if equipmentInfo.PrimaryButton then
+				equipmentInfo.PrimaryButton.Text = if entry.equipped then "Unequip" else "Equip"
+				Panel.SetButtonEnabled(equipmentInfo.PrimaryButton, not entry.equipped, Theme.Accent.gold)
+			end
 
 			if profile.kind == "Shield" then
 				equipmentInfo.Stats[1].Value.Text = string.format("%.2fs", profile.activationCooldownSeconds or 0)
@@ -466,6 +483,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			Panel.SetCellRing(card, rarity, false)
 		end,
 		onSelect = function(id, entry)
+			showActions(consumableInfo)
 			local metadata = getConsumableMetadata(entry.consumableId or id)
 			local rarity = metadata.rarity or "Common"
 			local consumableType = metadata.category or "Consumable"
@@ -573,58 +591,6 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		end)
 	end
 
-	local function setMythlingButtons()
-		local deleteButton = mythlingInfo.PrimaryButton
-		if not deleteButton then
-			return
-		end
-
-		if mythlingButtonsConnected then
-			return
-		end
-		mythlingButtonsConnected = true
-
-		ButtonUtil.hookClick(deleteButton, function()
-			local selectedId = mythlingList:GetSelectedId()
-			if not selectedId then
-				return
-			end
-			pendingDeleteId = selectedId
-			openConfirmDeleteModal(mythlingInfo.NameLabel.Text)
-		end)
-
-		if confirmModal.ConfirmButton then
-			ButtonUtil.hookClick(confirmModal.ConfirmButton, function()
-				if not pendingDeleteId then
-					closeConfirmDeleteModal()
-					return
-				end
-
-				if props.inventoryController.DeleteMythling(pendingDeleteId) then
-					clearMythlingInfo()
-					pendingDeleteId = nil
-					closeConfirmDeleteModal()
-				end
-			end)
-		end
-
-		if confirmModal.CancelButton then
-			ButtonUtil.hookClick(confirmModal.CancelButton, function()
-				pendingDeleteId = nil
-				closeConfirmDeleteModal()
-			end)
-		end
-	end
-
-	local function setMaterialButtons()
-		if materialButtonsConnected then
-			return
-		end
-		materialButtonsConnected = true
-
-		-- Materials have no actions yet, so their details column has no footer at all.
-	end
-
 	--------------------------------------------------------------------------------
 	-- Tabs
 	--------------------------------------------------------------------------------
@@ -641,13 +607,11 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		end
 
 		if tab == mythlingsTab then
-			setMythlingButtons()
 			nextFrame = mythlingsFrame
 			nextInfo = mythlingInfoColumn
 		end
 
 		if tab == materialsTab then
-			setMaterialButtons()
 			nextFrame = materialsFrame
 			nextInfo = materialInfoColumn
 		end
@@ -666,6 +630,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			return
 		end
 
+		actionMenu.Close()
 		Panel.SetTabActive(tab, true, panel.Accent)
 		if selectedTab and not skipAnimation then
 			local direction = if selectedTab.LayoutOrder < tab.LayoutOrder then 1 else -1
@@ -739,7 +704,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		ButtonUtil.hookClick(equipmentInfo.PrimaryButton, function()
 			local id = equipmentList:GetSelectedId()
 			local entry = id and equipmentList:GetData(id)
-			if not entry or type(entry.instanceId) ~= "string" then
+			if not entry or entry.equipped or type(entry.instanceId) ~= "string" then
 				return
 			end
 			if props.inventoryController.Equip(entry.instanceId) then
@@ -748,15 +713,9 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		end)
 	end
 
-	-- Inventory carries denser labels than the other panels, especially across four tabs and
-	-- three-column stat rows. Increase only this menu's em-stamped typography; cloned card
-	-- templates inherit the scale attribute, and Panel keeps it when device roots change.
-	for _, descendant in ipairs(inventoryGui:GetDescendants()) do
-		if descendant:GetAttribute("Em") then
-			descendant:SetAttribute("EmScale", (descendant:GetAttribute("EmScale") or 1) * INVENTORY_TEXT_SCALE)
-		end
-	end
-	Panel.RescaleText(inventoryGui, panel.Root)
+	-- Cloned card templates inherit the shared scale attributes, and Panel preserves them
+	-- when a viewport change supplies a new device text root.
+	Panel.ApplyTextScale(inventoryGui, panel.Root, Theme.MenuTextScale)
 
 	local menuTransition = Motion.CreateMenuTransition({
 		screenGui = inventoryGui,
@@ -771,7 +730,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		end,
 		onCloseStart = function()
 			loreModal:Close()
-			closeConfirmDeleteModal()
+			actionMenu.Close()
 		end,
 	})
 	local unregisterMenu = MenuState.Register(PANEL_NAME, menuTransition)

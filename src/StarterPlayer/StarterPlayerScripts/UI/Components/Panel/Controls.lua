@@ -10,6 +10,14 @@ local Radius = Theme.Radius
 local Surface = Theme.Surface
 local Em = Theme.Em
 
+local function setTabIconTransparency(icon: Instance?, transparency: number)
+	if icon and (icon:IsA("ImageLabel") or icon:IsA("ImageButton")) then
+		icon.ImageTransparency = transparency
+	elseif icon and icon:IsA("TextLabel") then
+		icon.TextTransparency = transparency
+	end
+end
+
 function Controls.SetTabActive(button: TextButton, active: boolean, _accent: Color3?)
 	button:SetAttribute("Active", active)
 	local tabLabel = button:FindFirstChild("TabLabel")
@@ -20,15 +28,20 @@ function Controls.SetTabActive(button: TextButton, active: boolean, _accent: Col
 	if title and title:IsA("TextLabel") then
 		title.TextTransparency = if active then 0 else 0.5
 	end
-	if icon and icon:IsA("TextLabel") then
-		icon.TextTransparency = if active then 0 else 0.5
-	end
+	setTabIconTransparency(icon, if active then 0 else 0.5)
 	if selection and selection:IsA("Frame") then
 		selection.Visible = active
 	end
 end
 
-function Controls.Tab(parent: Instance, text: string, accent: Color3?, root: number, glyph: string?): TextButton
+function Controls.Tab(
+	parent: Instance,
+	text: string,
+	accent: Color3?,
+	root: number,
+	iconAsset: string?,
+	iconColor: Color3?
+): TextButton
 	local button = Instance.new("TextButton")
 	button.Name = text
 	button.Size = UDim2.fromOffset(Metric.tabWidth, Metric.tabHeight)
@@ -49,16 +62,17 @@ function Controls.Tab(parent: Instance, text: string, accent: Color3?, root: num
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.VerticalAlignment = Enum.VerticalAlignment.Center
 
-	if glyph then
-		local icon = Primitives.NewLabel("Icon", tabLabel)
-		icon.AutomaticSize = Enum.AutomaticSize.XY
+	if iconAsset then
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
 		icon.Size = UDim2.fromOffset(Metric.tabIconSize, Metric.tabIconSize)
-		icon.FontFace = Theme.Font.heavy
-		icon.Text = glyph
-		icon.TextColor3 = Theme.Text.strong
-		icon.TextXAlignment = Enum.TextXAlignment.Center
-		Primitives.SetText(icon, Em.tab, root)
+		icon.BackgroundTransparency = 1
+		icon.BorderSizePixel = 0
+		icon.Image = iconAsset
+		icon.ImageColor3 = iconColor or Theme.Text.strong
+		icon.ScaleType = Enum.ScaleType.Fit
 		icon.LayoutOrder = 1
+		icon.Parent = tabLabel
 	end
 
 	local title = Primitives.NewLabel("Title", tabLabel)
@@ -85,20 +99,14 @@ function Controls.Tab(parent: Instance, text: string, accent: Color3?, root: num
 			return
 		end
 		title.TextTransparency = 0.2
-		local icon = tabLabel:FindFirstChild("Icon")
-		if icon and icon:IsA("TextLabel") then
-			icon.TextTransparency = 0.2
-		end
+		setTabIconTransparency(tabLabel:FindFirstChild("Icon"), 0.2)
 	end)
 	button.MouseLeave:Connect(function()
 		if button:GetAttribute("Active") then
 			return
 		end
 		title.TextTransparency = 0.5
-		local icon = tabLabel:FindFirstChild("Icon")
-		if icon and icon:IsA("TextLabel") then
-			icon.TextTransparency = 0.5
-		end
+		setTabIconTransparency(tabLabel:FindFirstChild("Icon"), 0.5)
 	end)
 
 	Controls.SetTabActive(button, false, accent)
@@ -174,6 +182,47 @@ function Controls.SquareTextButton(parent: Instance, glyph: string, root: number
 	button.TextColor3 = tint or Theme.Accent.gold
 	button.Parent = parent
 	Theme.corner(button, Radius.buttonSmall)
+	return button
+end
+
+function Controls.MoreButton(parent: Instance): TextButton
+	local button = Instance.new("TextButton")
+	button.Name = "MoreButton"
+	button.Size = UDim2.fromOffset(Metric.squareButton, Metric.buttonHeight)
+	button.AutoButtonColor = false
+	button.BorderSizePixel = 0
+	button.Text = ""
+	button.Parent = parent
+	Theme.paint(button, Surface.chipStrong)
+	Theme.corner(button, Radius.buttonSmall)
+
+	local dots = Instance.new("Frame")
+	dots.Name = "Icon"
+	dots.AnchorPoint = Vector2.new(0.5, 0.5)
+	dots.Position = UDim2.fromScale(0.5, 0.5)
+	dots.Size = UDim2.fromOffset(22, 6)
+	dots.BackgroundTransparency = 1
+	dots.Parent = button
+
+	for index = 1, 3 do
+		local dot = Instance.new("Frame")
+		dot.Name = `Dot{index}`
+		dot.AnchorPoint = Vector2.new(0.5, 0.5)
+		dot.Position = UDim2.fromScale((index - 1) / 2, 0.5)
+		dot.Size = UDim2.fromOffset(5, 5)
+		dot.BorderSizePixel = 0
+		dot.BackgroundColor3 = Theme.Text.strong
+		dot.Parent = dots
+		Theme.pill(dot)
+	end
+
+	button.MouseEnter:Connect(function()
+		button.BackgroundTransparency = 0.76
+	end)
+	button.MouseLeave:Connect(function()
+		button.BackgroundTransparency = Surface.chipStrong.transparency
+	end)
+
 	return button
 end
 

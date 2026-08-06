@@ -10,9 +10,9 @@ local LocalDataValue = require(script.Parent.Parent:WaitForChild("State"):WaitFo
 local MenuState = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("MenuState"))
 local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
 
-local INVENTORY_ICON = "rbxassetid://135273755533681"
+local INVENTORY_ICON = "rbxassetid://6870729295"
 local GOLD_ICON = "rbxassetid://112895221053745"
-local SHOP_ICON = "rbxassetid://9405933217"
+local SHOP_ICON = "rbxassetid://13429538917"
 local SHOP_TINT = Color3.fromHex("00ff69")
 local BUTTON_GAP = 8
 local HOTBAR_WIDTH = 6 * Theme.Metric.hotbarSlot + 5 * Theme.Metric.hotbarGap
@@ -44,6 +44,13 @@ local function HUD(scope: any, props: Props): ScreenGui
 	local screenWidth = scope:Value(initialViewport.X)
 	local viewportSize = scope:Value(initialViewport)
 	local textRoot = scope:Value(Theme.root(initialViewport))
+	local inventoryOpen = scope:Value(false)
+	local shopOpen = scope:Value(false)
+	local unsubscribeMenuState = MenuState.Subscribe(function(activeName)
+		inventoryOpen:set(activeName == "Inventory")
+		shopOpen:set(activeName == "Shop")
+	end)
+	table.insert(scope, unsubscribeMenuState)
 	local currency = LocalDataValue.observe(scope, props.localData, "currency", {})
 	local staminaFill = scope:New("Frame")({
 		Name = "Fill",
@@ -99,7 +106,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 				name = "OpenButton",
 				icon = INVENTORY_ICON,
 				iconColor = Theme.Accent.gold,
-				iconScale = 1,
+				isOpen = inventoryOpen,
 				layoutOrder = 1,
 				buttonSize = buttonSize,
 				onActivated = function()
@@ -110,7 +117,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 				name = "ShopButton",
 				icon = SHOP_ICON,
 				iconColor = SHOP_TINT,
-				iconScale = 0.78,
+				isOpen = shopOpen,
 				layoutOrder = 2,
 				buttonSize = buttonSize,
 				onActivated = function()

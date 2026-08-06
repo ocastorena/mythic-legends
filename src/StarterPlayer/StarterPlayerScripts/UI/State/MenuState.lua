@@ -12,6 +12,22 @@ export type Menu = {
 
 local menus: { [string]: Menu } = {}
 local activeName: string? = nil
+local listeners: { [(string?) -> ()]: boolean } = {}
+
+local function notifyListeners()
+	for listener in listeners do
+		listener(activeName)
+	end
+end
+
+function MenuState.Subscribe(listener: (string?) -> ()): () -> ()
+	listeners[listener] = true
+	listener(activeName)
+
+	return function()
+		listeners[listener] = nil
+	end
+end
 
 function MenuState.Register(name: string, menu: Menu): () -> ()
 	assert(type(name) == "string" and name ~= "", "[MenuState] name required")
@@ -24,6 +40,7 @@ function MenuState.Register(name: string, menu: Menu): () -> ()
 		end
 		if activeName == name then
 			activeName = nil
+			notifyListeners()
 		end
 		menu.Close(true)
 		menus[name] = nil
@@ -43,6 +60,7 @@ function MenuState.Open(name: string): boolean
 	end
 
 	activeName = name
+	notifyListeners()
 
 	-- Claim the backdrop for the incoming menu before the outgoing menu releases it. Both
 	-- operations happen in one task, so there is no frame where world input becomes active.
@@ -63,6 +81,7 @@ function MenuState.Close(name: string): boolean
 	end
 	if activeName == name then
 		activeName = nil
+		notifyListeners()
 	end
 	menu.Close()
 	return true

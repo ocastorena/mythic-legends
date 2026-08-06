@@ -64,9 +64,6 @@ local function Stand(scope: any, props: Props): ScreenGui
 		parent = standGui,
 		title = "Stand",
 		accent = Theme.Accent.gold,
-		onClose = function()
-			MenuState.Close(PANEL_NAME)
-		end,
 	})
 	local standLabel = panel.TitleLabel
 
@@ -77,6 +74,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 	rosterLabel.BackgroundTransparency = 1
 	rosterLabel.BorderSizePixel = 0
 	rosterLabel.FontFace = Theme.Font.extraBold
+	rosterLabel:SetAttribute("Em", Theme.Em.sectionLabel)
 	rosterLabel.TextSize = Theme.text(Theme.Em.sectionLabel, panel.Root)
 	rosterLabel.TextColor3 = Theme.Text.strong
 	rosterLabel.TextTransparency = 0.4
@@ -457,6 +455,8 @@ local function Stand(scope: any, props: Props): ScreenGui
 			MenuState.Open(PANEL_NAME)
 		end)
 	)
+
+	Panel.ApplyTextScale(standGui, panel.Root, Theme.MenuTextScale)
 
 	local menuTransition = Motion.CreateMenuTransition({
 		screenGui = standGui,
