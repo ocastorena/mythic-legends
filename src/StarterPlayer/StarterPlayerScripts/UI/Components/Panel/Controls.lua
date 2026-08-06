@@ -10,33 +10,97 @@ local Radius = Theme.Radius
 local Surface = Theme.Surface
 local Em = Theme.Em
 
-function Controls.SetTabActive(button: TextButton, active: boolean, accent: Color3?)
-	local tint = accent or Theme.Accent.gold
-	if active then
-		button.BackgroundColor3 = tint
-		button.BackgroundTransparency = 0
-		button.TextColor3 = Theme.Ink.onGold
-		button.TextTransparency = 0
-		button.FontFace = Theme.Font.extraBold
-	else
-		Theme.paint(button, Surface.chip)
-		button.TextColor3 = tint
-		button.TextTransparency = 0.4
-		button.FontFace = Theme.Font.bold
+function Controls.SetTabActive(button: TextButton, active: boolean, _accent: Color3?)
+	button:SetAttribute("Active", active)
+	local tabLabel = button:FindFirstChild("TabLabel")
+	local title = tabLabel and tabLabel:FindFirstChild("Title")
+	local icon = tabLabel and tabLabel:FindFirstChild("Icon")
+	local selection = button:FindFirstChild("TabSelection")
+
+	if title and title:IsA("TextLabel") then
+		title.TextTransparency = if active then 0 else 0.5
+	end
+	if icon and icon:IsA("TextLabel") then
+		icon.TextTransparency = if active then 0 else 0.5
+	end
+	if selection and selection:IsA("Frame") then
+		selection.Visible = active
 	end
 end
 
-function Controls.Tab(parent: Instance, text: string, accent: Color3?, root: number): TextButton
+function Controls.Tab(parent: Instance, text: string, accent: Color3?, root: number, glyph: string?): TextButton
 	local button = Instance.new("TextButton")
 	button.Name = text
 	button.Size = UDim2.fromOffset(Metric.tabWidth, Metric.tabHeight)
 	button.AutoButtonColor = false
 	button.BorderSizePixel = 0
-	button.Text = text
-	button.FontFace = Theme.Font.extraBold
-	Primitives.SetText(button, Em.tab, root)
+	button.BackgroundTransparency = 1
+	button.Text = ""
 	button.Parent = parent
-	Theme.corner(button, Radius.tab)
+
+	local tabLabel = Instance.new("Frame")
+	tabLabel.Name = "TabLabel"
+	tabLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	tabLabel.Position = UDim2.fromScale(0.5, 0.5)
+	tabLabel.Size = UDim2.fromScale(1, 1)
+	tabLabel.BackgroundTransparency = 1
+	tabLabel.Parent = button
+	local layout = Primitives.NewList(tabLabel, Enum.FillDirection.Horizontal, Metric.tabIconGap)
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+
+	if glyph then
+		local icon = Primitives.NewLabel("Icon", tabLabel)
+		icon.AutomaticSize = Enum.AutomaticSize.XY
+		icon.Size = UDim2.fromOffset(Metric.tabIconSize, Metric.tabIconSize)
+		icon.FontFace = Theme.Font.heavy
+		icon.Text = glyph
+		icon.TextColor3 = Theme.Text.strong
+		icon.TextXAlignment = Enum.TextXAlignment.Center
+		Primitives.SetText(icon, Em.tab, root)
+		icon.LayoutOrder = 1
+	end
+
+	local title = Primitives.NewLabel("Title", tabLabel)
+	title.AutomaticSize = Enum.AutomaticSize.XY
+	title.Size = UDim2.fromOffset(0, Metric.tabHeight)
+	title.FontFace = Theme.Font.bold
+	title.Text = text
+	title.TextColor3 = Theme.Text.strong
+	Primitives.SetText(title, Em.tab, root)
+	title.LayoutOrder = 2
+
+	local selection = Instance.new("Frame")
+	selection.Name = "TabSelection"
+	selection.AnchorPoint = Vector2.new(0.5, 1)
+	selection.Position = UDim2.fromScale(0.5, 1)
+	selection.Size = UDim2.new(1, -2, 0, 2)
+	selection.BackgroundColor3 = Theme.Text.strong
+	selection.BorderSizePixel = 0
+	selection.Visible = false
+	selection.Parent = button
+
+	button.MouseEnter:Connect(function()
+		if button:GetAttribute("Active") then
+			return
+		end
+		title.TextTransparency = 0.2
+		local icon = tabLabel:FindFirstChild("Icon")
+		if icon and icon:IsA("TextLabel") then
+			icon.TextTransparency = 0.2
+		end
+	end)
+	button.MouseLeave:Connect(function()
+		if button:GetAttribute("Active") then
+			return
+		end
+		title.TextTransparency = 0.5
+		local icon = tabLabel:FindFirstChild("Icon")
+		if icon and icon:IsA("TextLabel") then
+			icon.TextTransparency = 0.5
+		end
+	end)
+
 	Controls.SetTabActive(button, false, accent)
 	return button
 end

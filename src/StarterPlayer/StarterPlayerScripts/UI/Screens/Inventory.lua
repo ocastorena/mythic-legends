@@ -31,7 +31,8 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local Ui = script.Parent.Parent
 	local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 	local CardList = require(Ui:WaitForChild("Components"):WaitForChild("CardList"))
-	local ModalState = require(Ui:WaitForChild("State"):WaitForChild("ModalState"))
+	local MenuState = require(Ui:WaitForChild("State"):WaitForChild("MenuState"))
+	local Motion = require(Ui:WaitForChild("Motion"))
 	local MythlingThumbnailUtil = require(Ui:WaitForChild("MythlingThumbnailUtil"))
 	local Theme = require(Ui:WaitForChild("Theme"))
 	local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
@@ -90,13 +91,18 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		-- This asset contains more transparent margin than the Shop icon, so its image box
 		-- must be larger for both header glyphs to have the same apparent size.
 		titleIconSize = 34,
-		tabs = { "Mythlings", "Equipment", "Consumables", "Materials" },
+		tabs = {
+			{ name = "Mythlings", glyph = "★" },
+			{ name = "Equipment", glyph = "⚔" },
+			{ name = "Consumables", glyph = "+" },
+			{ name = "Materials", glyph = "◆" },
+		},
 		size = inventoryPanelSize,
 		-- No coin pill here. §08 puts one in every panel header, but the HUD's pill stays lit
 		-- and on top while a panel is open, so a second one would just repeat itself.
 		accent = Theme.Accent.gold,
 		onClose = function()
-			inventoryGui.Enabled = false
+			MenuState.Close(PANEL_NAME)
 		end,
 	})
 
@@ -128,7 +134,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	--- Each tab owns a grid; only the selected one is visible, so the 2/3 column always holds
 	--- exactly one set of cells.
 	local function newGridColumn(name: string): ScrollingFrame
-		local holder = Instance.new("Frame")
+		local holder = Instance.new("CanvasGroup")
 		holder.Name = name
 		holder.Size = UDim2.fromScale(1, 1)
 		holder.BackgroundTransparency = 1
@@ -171,8 +177,8 @@ local function Inventory(scope: any, props: Props): ScreenGui
 
 	--- Both tabs get their own details column inside the shell's details slot, toggled with
 	--- the grid so tab switching swaps the whole 1/3 column at once.
-	local function newDetailsColumn(name: string): Frame
-		local column = Instance.new("Frame")
+	local function newDetailsColumn(name: string): CanvasGroup
+		local column = Instance.new("CanvasGroup")
 		column.Name = name
 		column.Size = UDim2.fromScale(1, 1)
 		column.BackgroundTransparency = 1
@@ -182,8 +188,12 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		return column
 	end
 
+	local mythlingInfoColumn = newDetailsColumn("MythlingInfo")
+	local materialInfoColumn = newDetailsColumn("MaterialInfo")
+	local equipmentInfoColumn = newDetailsColumn("EquipmentInfo")
+	local consumableInfoColumn = newDetailsColumn("ConsumableInfo")
 	local mythlingInfo = Panel.CreateDetails({
-		parent = newDetailsColumn("MythlingInfo"),
+		parent = mythlingInfoColumn,
 		root = panel.Root,
 		accent = Theme.Accent.gold,
 		stats = 3,
@@ -191,14 +201,14 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		primary = "Delete",
 	})
 	local materialInfo = Panel.CreateDetails({
-		parent = newDetailsColumn("MaterialInfo"),
+		parent = materialInfoColumn,
 		root = panel.Root,
 		accent = Theme.Accent.gold,
 		stats = 2,
 		info = true,
 	})
 	local equipmentInfo = Panel.CreateDetails({
-		parent = newDetailsColumn("EquipmentInfo"),
+		parent = equipmentInfoColumn,
 		root = panel.Root,
 		accent = Theme.Accent.gold,
 		stats = 3,
@@ -206,7 +216,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		primary = "Equip",
 	})
 	local consumableInfo = Panel.CreateDetails({
-		parent = newDetailsColumn("ConsumableInfo"),
+		parent = consumableInfoColumn,
 		root = panel.Root,
 		accent = Theme.Accent.gold,
 		stats = 3,
@@ -619,53 +629,61 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	-- Tabs
 	--------------------------------------------------------------------------------
 
-	local function selectTab(tab)
+	local function selectTab(tab, skipAnimation: boolean?)
 		if selectedTab == tab then
 			return
 		end
+
+		local nextFrame
+		local nextInfo
 		if selectedTab then
 			Panel.SetTabActive(selectedTab, false, panel.Accent)
-			selectedFrame.Parent.Visible = false
-			selectedInfo.Visible = false
 		end
 
 		if tab == mythlingsTab then
 			setMythlingButtons()
-			Panel.SetTabActive(tab, true, panel.Accent)
-			mythlingsFrame.Parent.Visible = true
-			mythlingInfo.Root.Visible = true
-			selectedTab = tab
-			selectedFrame = mythlingsFrame
-			selectedInfo = mythlingInfo.Root
+			nextFrame = mythlingsFrame
+			nextInfo = mythlingInfoColumn
 		end
 
 		if tab == materialsTab then
 			setMaterialButtons()
-			Panel.SetTabActive(tab, true, panel.Accent)
-			materialsFrame.Parent.Visible = true
-			materialInfo.Root.Visible = true
-			selectedTab = tab
-			selectedFrame = materialsFrame
-			selectedInfo = materialInfo.Root
+			nextFrame = materialsFrame
+			nextInfo = materialInfoColumn
 		end
 
 		if tab == equipmentTab then
-			Panel.SetTabActive(tab, true, panel.Accent)
-			equipmentFrame.Parent.Visible = true
-			equipmentInfo.Root.Visible = true
-			selectedTab = tab
-			selectedFrame = equipmentFrame
-			selectedInfo = equipmentInfo.Root
+			nextFrame = equipmentFrame
+			nextInfo = equipmentInfoColumn
 		end
 
 		if tab == consumablesTab then
-			Panel.SetTabActive(tab, true, panel.Accent)
-			consumablesFrame.Parent.Visible = true
-			consumableInfo.Root.Visible = true
-			selectedTab = tab
-			selectedFrame = consumablesFrame
-			selectedInfo = consumableInfo.Root
+			nextFrame = consumablesFrame
+			nextInfo = consumableInfoColumn
 		end
+
+		if not nextFrame or not nextInfo then
+			return
+		end
+
+		Panel.SetTabActive(tab, true, panel.Accent)
+		if selectedTab and not skipAnimation then
+			local direction = if selectedTab.LayoutOrder < tab.LayoutOrder then 1 else -1
+			Motion.TransitionTab({ selectedFrame.Parent, selectedInfo }, { nextFrame.Parent, nextInfo }, direction)
+		else
+			if selectedFrame then
+				selectedFrame.Parent.Visible = false
+			end
+			if selectedInfo then
+				selectedInfo.Visible = false
+			end
+			nextFrame.Parent.Visible = true
+			nextInfo.Visible = true
+		end
+
+		selectedTab = tab
+		selectedFrame = nextFrame
+		selectedInfo = nextInfo
 	end
 
 	table.insert(
@@ -740,31 +758,25 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	end
 	Panel.RescaleText(inventoryGui, panel.Root)
 
-	-- The root's Enabled property remains the open/close contract while screens move into the
-	-- shared application one at a time. The HUD toggles this Rojo-owned root directly.
-	table.insert(
-		connections,
-		inventoryGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-			if inventoryGui.Enabled then
-				-- Claim the shared backdrop before any yielding server requests. During a direct
-				-- Shop -> Inventory handoff, delaying this until after data refresh briefly left
-				-- ModalState with no owners and flashed the world for one frame.
-				ModalState.Open(PANEL_NAME)
-				mythlingList:Replace(LocalData.Peek("mythlings") or {})
-				equipmentList:Replace(collectEquipment())
-				consumableList:Replace(LocalData.Peek("consumables") or {})
-				materialList:Replace(LocalData.Peek("materials") or {})
-				selectTab(mythlingsTab)
-			else
-				loreModal:Close()
-				closeConfirmDeleteModal()
-				ModalState.Close(PANEL_NAME)
-			end
-		end)
-	)
-	table.insert(scope, function()
-		ModalState.Close(PANEL_NAME)
-	end)
+	local menuTransition = Motion.CreateMenuTransition({
+		screenGui = inventoryGui,
+		motionRoot = panel.MotionRoot,
+		panelName = PANEL_NAME,
+		onOpen = function()
+			mythlingList:Replace(LocalData.Peek("mythlings") or {})
+			equipmentList:Replace(collectEquipment())
+			consumableList:Replace(LocalData.Peek("consumables") or {})
+			materialList:Replace(LocalData.Peek("materials") or {})
+			selectTab(mythlingsTab, true)
+		end,
+		onCloseStart = function()
+			loreModal:Close()
+			closeConfirmDeleteModal()
+		end,
+	})
+	local unregisterMenu = MenuState.Register(PANEL_NAME, menuTransition)
+	table.insert(scope, unregisterMenu)
+	table.insert(scope, menuTransition.Destroy)
 
 	return inventoryGui
 end

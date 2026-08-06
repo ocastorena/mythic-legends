@@ -18,18 +18,26 @@ local InputGuard = require(script.Parent.Parent.InputGuard)
 
 local ModalState = {}
 
--- Names of every panel currently open. The backdrop is up whenever this is non-empty.
+-- openPanels owns the input guard through the complete exit animation. backdropPanels drops
+-- at the start of an exit so the scrim can fade in parallel with the moving panel.
 local openPanels: { [string]: true } = {}
+local backdropPanels: { [string]: true } = {}
 local isGuardActive = false
+local isBackdropVisible = false
 
 -- Anything that needs to get out of a panel's way. The backpack used to be toggled from
 -- here through SetCoreGuiEnabled, but HotbarController owns that CoreGui flag now -- it
 -- keeps the platform hotbar off for the whole session -- so re-enabling it here would put
 -- Roblox's unstyled hotbar back on screen every time a panel closed.
 local listeners: { (boolean) -> () } = {}
+local backdropListeners: { (boolean) -> () } = {}
 
 local function anyOpen(): boolean
 	return next(openPanels) ~= nil
+end
+
+local function anyBackdropVisible(): boolean
+	return next(backdropPanels) ~= nil
 end
 
 --- Brings the backdrop and input guard in line with the set of open panels. Only acts on
@@ -55,6 +63,20 @@ local function sync()
 	end
 end
 
+local function syncBackdrop()
+	local shouldShow = anyBackdropVisible()
+	if shouldShow == isBackdropVisible then
+		return
+	end
+	isBackdropVisible = shouldShow
+	for _, listener in ipairs(table.clone(backdropListeners)) do
+		local ok, err = pcall(listener, shouldShow)
+		if not ok then
+			warn(`[ModalState] Backdrop listener failed: {err}`)
+		end
+	end
+end
+
 --- Calls `listener(anyPanelOpen)` now and on every empty <-> non-empty transition after.
 --- Returns a function that unsubscribes.
 function ModalState.OnChanged(listener: (boolean) -> ()): () -> ()
@@ -72,18 +94,44 @@ function ModalState.OnChanged(listener: (boolean) -> ()): () -> ()
 	end
 end
 
+function ModalState.OnBackdropChanged(listener: (boolean) -> ()): () -> ()
+	table.insert(backdropListeners, listener)
+	local ok, err = pcall(listener, anyBackdropVisible())
+	if not ok then
+		warn(`[ModalState] Initial backdrop listener failed: {err}`)
+	end
+
+	return function()
+		local index = table.find(backdropListeners, listener)
+		if index then
+			table.remove(backdropListeners, index)
+		end
+	end
+end
+
 --- Marks `panelName` as open. Calling twice for the same panel is harmless.
 function ModalState.Open(panelName: string)
 	assert(type(panelName) == "string" and panelName ~= "", "[ModalState] panelName required")
 	openPanels[panelName] = true
+	backdropPanels[panelName] = true
 	sync()
+	syncBackdrop()
+end
+
+--- Starts the visual close while retaining the input guard until Close completes.
+function ModalState.BeginClose(panelName: string)
+	assert(type(panelName) == "string" and panelName ~= "", "[ModalState] panelName required")
+	backdropPanels[panelName] = nil
+	syncBackdrop()
 end
 
 --- Marks `panelName` as closed. The backdrop stays up while any other panel is open.
 function ModalState.Close(panelName: string)
 	assert(type(panelName) == "string" and panelName ~= "", "[ModalState] panelName required")
 	openPanels[panelName] = nil
+	backdropPanels[panelName] = nil
 	sync()
+	syncBackdrop()
 end
 
 function ModalState.IsOpen(panelName: string): boolean
@@ -93,6 +141,10 @@ end
 --- True while any panel holds the backdrop.
 function ModalState.AnyOpen(): boolean
 	return anyOpen()
+end
+
+function ModalState.BackdropVisible(): boolean
+	return anyBackdropVisible()
 end
 
 return ModalState

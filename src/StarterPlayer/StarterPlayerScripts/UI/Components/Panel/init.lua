@@ -63,8 +63,9 @@ export type PanelConfig = {
 	titleIconSize: number?,
 	-- Draws the glyph as a filled element disc rather than a flat icon (the shrine header).
 	iconColor: Color3?,
-	-- Tab labels, centered in the header. Omit for a panel with no tabs.
-	tabs: { string }?,
+	-- Roblox-style icon + label tabs, centered in the header. Strings remain supported for
+	-- title-only tabs; tables add the compact glyph shown beside the title.
+	tabs: { string | { name: string, glyph: string? } }?,
 	-- Adds the coin pill to the header actions.
 	coins: boolean?,
 	coinIcon: string?,
@@ -87,6 +88,7 @@ export type Panel = {
 	CoinLabel: TextLabel?,
 	LevelLabel: TextLabel?,
 	CloseButton: TextButton,
+	MotionRoot: CanvasGroup,
 	Root: number,
 	Accent: Color3,
 }
@@ -111,7 +113,15 @@ function Panel.Create(config: PanelConfig): Panel
 		return config.size and config.size(size) or Theme.panelSize(size)
 	end
 
-	local card = newFrame("Card", config.parent)
+	local motionRoot = Instance.new("CanvasGroup")
+	motionRoot.Name = "MotionRoot"
+	motionRoot.Size = UDim2.fromScale(1, 1)
+	motionRoot.BackgroundTransparency = 1
+	motionRoot.BorderSizePixel = 0
+	motionRoot.ClipsDescendants = true
+	motionRoot.Parent = config.parent
+
+	local card = newFrame("Card", motionRoot)
 	local anchor, position = Theme.panelPlacement(viewport)
 	card.AnchorPoint = anchor
 	card.Position = position
@@ -133,7 +143,8 @@ function Panel.Create(config: PanelConfig): Panel
 	-- Header: three groups, so the tab set stays centered in the card rather than
 	-- drifting with the width of the identity and action groups.
 	local header = newFrame("Header", card)
-	header.Size = UDim2.new(1, 0, 0, Metric.headerPadTop + Metric.closeSize + Metric.headerPadBottom)
+	local headerContentHeight = math.max(Metric.closeSize, Metric.tabHeight)
+	header.Size = UDim2.new(1, 0, 0, Metric.headerPadTop + headerContentHeight + Metric.headerPadBottom)
 	header.LayoutOrder = 1
 	Theme.padding(header, Metric.headerPadTop, Metric.headerPadRight, Metric.headerPadBottom, Metric.headerPadLeft)
 
@@ -185,8 +196,10 @@ function Panel.Create(config: PanelConfig): Panel
 		tabRow.AutomaticSize = Enum.AutomaticSize.X
 		local row = newList(tabRow, Enum.FillDirection.Horizontal, Metric.tabGap)
 		row.HorizontalAlignment = Enum.HorizontalAlignment.Center
-		for index, name in ipairs(config.tabs) do
-			local tab = Panel.Tab(tabRow, name, accent, root)
+		for index, tabConfig in ipairs(config.tabs) do
+			local name = if type(tabConfig) == "table" then tabConfig.name else tabConfig
+			local glyph = if type(tabConfig) == "table" then tabConfig.glyph else nil
+			local tab = Panel.Tab(tabRow, name, accent, root, glyph)
 			tab.LayoutOrder = index
 			tabs[name] = tab
 		end
@@ -227,11 +240,13 @@ function Panel.Create(config: PanelConfig): Panel
 	local grid = newFrame("Grid", body)
 	grid.Size = UDim2.fromScale(1, 1)
 	grid.LayoutOrder = 1
+	grid.ClipsDescendants = true
 	flexFill(grid)
 
 	local details = newFrame("Details", body)
 	details.Size = UDim2.new(0, Theme.detailWidth(viewport), 1, 0)
 	details.LayoutOrder = 2
+	details.ClipsDescendants = true
 
 	if config.onClose then
 		closeButton.Activated:Connect(config.onClose)
@@ -265,6 +280,7 @@ function Panel.Create(config: PanelConfig): Panel
 		CoinLabel = coinLabel,
 		LevelLabel = levelLabel,
 		CloseButton = closeButton,
+		MotionRoot = motionRoot,
 		Root = root,
 		Accent = accent,
 	}

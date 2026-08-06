@@ -4,7 +4,8 @@ local Players = game:GetService("Players")
 
 local Ui = script.Parent.Parent
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
-local ModalState = require(Ui:WaitForChild("State"):WaitForChild("ModalState"))
+local MenuState = require(Ui:WaitForChild("State"):WaitForChild("MenuState"))
+local Motion = require(Ui:WaitForChild("Motion"))
 local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
 local Theme = require(Ui:WaitForChild("Theme"))
 
@@ -48,11 +49,14 @@ local function Shop(scope: any): ScreenGui
 		parent = shopGui,
 		title = "Shop",
 		titleIcon = SHOP_ICON,
-		tabs = { "Featured", "Upgrades" },
+		tabs = {
+			{ name = "Featured", glyph = "★" },
+			{ name = "Upgrades", glyph = "↑" },
+		},
 		size = panelSize,
 		accent = Theme.Accent.green,
 		onClose = function()
-			shopGui.Enabled = false
+			MenuState.Close(PANEL_NAME)
 		end,
 	})
 
@@ -71,7 +75,7 @@ local function Shop(scope: any): ScreenGui
 		)
 	end
 
-	local catalog = Instance.new("Frame")
+	local catalog = Instance.new("CanvasGroup")
 	catalog.Name = "Catalog"
 	catalog.Size = UDim2.fromScale(1, 1)
 	catalog.BackgroundTransparency = 1
@@ -112,8 +116,14 @@ local function Shop(scope: any): ScreenGui
 	emptyBody.TextYAlignment = Enum.TextYAlignment.Top
 	emptyBody.Parent = emptyState
 
+	local offerInfoColumn = Instance.new("CanvasGroup")
+	offerInfoColumn.Name = "OfferInfo"
+	offerInfoColumn.Size = UDim2.fromScale(1, 1)
+	offerInfoColumn.BackgroundTransparency = 1
+	offerInfoColumn.BorderSizePixel = 0
+	offerInfoColumn.Parent = panel.Details
 	local offerInfo = Panel.CreateDetails({
-		parent = panel.Details,
+		parent = offerInfoColumn,
 		root = panel.Root,
 		accent = Theme.Accent.green,
 		stats = 2,
@@ -135,22 +145,32 @@ local function Shop(scope: any): ScreenGui
 	end
 
 	local selectedTab: TextButton? = nil
-	local function selectTab(tab: TextButton)
+	local function selectTab(tab: TextButton, skipAnimation: boolean?)
 		if selectedTab == tab then
 			return
 		end
+		local previousTab = selectedTab
 		if selectedTab then
 			Panel.SetTabActive(selectedTab, false, panel.Accent)
 		end
 		selectedTab = tab
 		Panel.SetTabActive(tab, true, panel.Accent)
 
-		if tab == panel.Tabs.Upgrades then
-			emptyTitle.Text = "Inventory upgrades are on the way"
-			emptyBody.Text = "Capacity upgrades will appear here when their prices and eligibility are configured."
+		local function replaceContent()
+			if tab == panel.Tabs.Upgrades then
+				emptyTitle.Text = "Inventory upgrades are on the way"
+				emptyBody.Text = "Capacity upgrades will appear here when their prices and eligibility are configured."
+			else
+				emptyTitle.Text = "New offers are on the way"
+				emptyBody.Text = "Featured purchases will appear here when the shop catalog is configured."
+			end
+		end
+
+		if previousTab and not skipAnimation then
+			local direction = if previousTab.LayoutOrder < tab.LayoutOrder then 1 else -1
+			Motion.ReplaceTabContent({ catalog, offerInfoColumn }, direction, replaceContent)
 		else
-			emptyTitle.Text = "New offers are on the way"
-			emptyBody.Text = "Featured purchases will appear here when the shop catalog is configured."
+			replaceContent()
 		end
 	end
 
@@ -168,20 +188,17 @@ local function Shop(scope: any): ScreenGui
 	end
 	Panel.RescaleText(shopGui, panel.Root)
 
-	table.insert(
-		scope,
-		shopGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-			if shopGui.Enabled then
-				selectTab(panel.Tabs.Featured)
-				ModalState.Open(PANEL_NAME)
-			else
-				ModalState.Close(PANEL_NAME)
-			end
-		end)
-	)
-	table.insert(scope, function()
-		ModalState.Close(PANEL_NAME)
-	end)
+	local menuTransition = Motion.CreateMenuTransition({
+		screenGui = shopGui,
+		motionRoot = panel.MotionRoot,
+		panelName = PANEL_NAME,
+		onOpen = function()
+			selectTab(panel.Tabs.Featured, true)
+		end,
+	})
+	local unregisterMenu = MenuState.Register(PANEL_NAME, menuTransition)
+	table.insert(scope, unregisterMenu)
+	table.insert(scope, menuTransition.Destroy)
 
 	return shopGui
 end

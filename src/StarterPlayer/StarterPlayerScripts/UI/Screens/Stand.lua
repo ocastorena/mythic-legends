@@ -6,9 +6,10 @@ local TweenService = game:GetService("TweenService")
 
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 local Ui = script.Parent.Parent
-local ModalState = require(Ui:WaitForChild("State"):WaitForChild("ModalState"))
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local CardList = require(Ui:WaitForChild("Components"):WaitForChild("CardList"))
+local MenuState = require(Ui:WaitForChild("State"):WaitForChild("MenuState"))
+local Motion = require(Ui:WaitForChild("Motion"))
 local Theme = require(Ui:WaitForChild("Theme"))
 local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
 local MythlingsMeta =
@@ -64,7 +65,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 		title = "Stand",
 		accent = Theme.Accent.gold,
 		onClose = function()
-			standGui.Enabled = false
+			MenuState.Close(PANEL_NAME)
 		end,
 	})
 	local standLabel = panel.TitleLabel
@@ -366,27 +367,6 @@ local function Stand(scope: any, props: Props): ScreenGui
 	-- UI lifecycle
 	--------------------------------------------------------------------------------
 
-	-- This ScreenGui's own Enabled property is the open/close contract; ModalState handles the
-	-- backdrop, input guard and backpack. The old version called InputGuard.close() here
-	-- AND again from the backdrop handler -- one open, two closes.
-	table.insert(
-		connections,
-		standGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-			if standGui.Enabled then
-				ModalState.Open(PANEL_NAME)
-			else
-				-- The roster is rebuilt from the server every time a prompt opens the panel, so
-				-- dropping it on close keeps a stale stand's cards from flashing up on the next.
-				-- The close button used to do this itself and missed every other close path.
-				loreModal:Close()
-				mythlingList:Clear()
-				clearInfo()
-				updateButtons()
-				ModalState.Close(PANEL_NAME)
-			end
-		end)
-	)
-
 	-- The primary button carries whichever verb updateButtons settled on.
 	ButtonUtil.hookClick(collectButton, function()
 		local selectedId = mythlingList:GetSelectedId()
@@ -474,15 +454,33 @@ local function Stand(scope: any, props: Props): ScreenGui
 			showMythlingInfo()
 			updateButtons()
 
-			standGui.Enabled = true
+			MenuState.Open(PANEL_NAME)
 		end)
 	)
+
+	local menuTransition = Motion.CreateMenuTransition({
+		screenGui = standGui,
+		motionRoot = panel.MotionRoot,
+		panelName = PANEL_NAME,
+		onCloseStart = function()
+			loreModal:Close()
+		end,
+		onClosed = function()
+			-- The roster is rebuilt from the server every time a prompt opens the panel, so
+			-- dropping it on close keeps a stale stand's cards from flashing up on the next.
+			mythlingList:Clear()
+			clearInfo()
+			updateButtons()
+		end,
+	})
+	local unregisterMenu = MenuState.Register(PANEL_NAME, menuTransition)
+	table.insert(scope, unregisterMenu)
+	table.insert(scope, menuTransition.Destroy)
 	table.insert(scope, function()
 		alive = false
 		if productionTween then
 			productionTween:Cancel()
 		end
-		ModalState.Close(PANEL_NAME)
 	end)
 
 	return standGui

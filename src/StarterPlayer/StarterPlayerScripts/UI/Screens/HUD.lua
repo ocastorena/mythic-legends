@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 local HudButton = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("HudButton"))
 local LocalDataValue = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("LocalDataValue"))
+local MenuState = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("MenuState"))
 local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
 
 local INVENTORY_ICON = "rbxassetid://135273755533681"
@@ -74,25 +75,6 @@ local function HUD(scope: any, props: Props): ScreenGui
 	})
 	table.insert(scope, unbindStamina)
 
-	local function togglePanel(guiName: string)
-		local gui = playerGui:FindFirstChild(guiName)
-		if not (gui and gui:IsA("ScreenGui")) then
-			return
-		end
-		local shouldOpen = not gui.Enabled
-		gui.Enabled = shouldOpen
-		if shouldOpen then
-			for _, otherName in { "InventoryGui", "ShopGui" } do
-				if otherName ~= guiName then
-					local otherGui = playerGui:FindFirstChild(otherName)
-					if otherGui and otherGui:IsA("ScreenGui") then
-						otherGui.Enabled = false
-					end
-				end
-			end
-		end
-	end
-
 	local cluster = scope:New("Frame")({
 		Name = "Cluster",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -121,7 +103,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 				layoutOrder = 1,
 				buttonSize = buttonSize,
 				onActivated = function()
-					togglePanel("InventoryGui")
+					MenuState.Toggle("Inventory")
 				end,
 			}),
 			HudButton(scope, {
@@ -132,7 +114,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 				layoutOrder = 2,
 				buttonSize = buttonSize,
 				onActivated = function()
-					togglePanel("ShopGui")
+					MenuState.Toggle("Shop")
 				end,
 			}),
 		},

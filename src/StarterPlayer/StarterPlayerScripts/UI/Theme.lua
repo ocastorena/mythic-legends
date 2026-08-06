@@ -201,7 +201,8 @@ end
 --------------------------------------------------------------------------------
 
 Theme.Radius = {
-	card = 16,
+	-- Roblox's in-experience menu container uses a 10px outer corner radius.
+	card = 10,
 	hero = 14,
 	cell = 10,
 	modal = 16,
@@ -228,10 +229,12 @@ Theme.Metric = {
 	-- Grid cells.
 	cellSize = 112,
 	cellGap = 10,
-	-- Tab pills.
-	tabWidth = 88,
-	tabHeight = 30,
-	tabGap = 6,
+	-- Roblox-style menu tabs: icon + label on a transparent rail with a 2px underline.
+	tabWidth = 96,
+	tabHeight = 40,
+	tabGap = 0,
+	tabIconSize = 16,
+	tabIconGap = 6,
 	-- Round close button, and the [ i ] button on a hero frame.
 	closeSize = 30,
 	infoSize = 26,
@@ -273,6 +276,8 @@ Theme.Platform = {
 	topbarButtonSize = 44,
 	-- Physical gap between a platform control and a display edge.
 	topbarEdgePadding = 12,
+	-- Keep the menu low while leaving one full corner radius inside the safe canvas.
+	menuBottomCornerClearance = Theme.Radius.card,
 	topbarButtonFill = hex("121215"),
 	topbarButtonTransparency = 0.08,
 	-- Slightly more opaque under the cursor, standing in for Roblox's own state overlay.
@@ -318,8 +323,8 @@ end
 local PANEL_MARGIN = 8
 -- On a phone the card only keeps a margin at the top, clear of Roblox's bar.
 local PANEL_TOP_MARGIN = 4
--- Match the physical bottom gap used by the custom hotbar.
-local PANEL_PHONE_BOTTOM_MARGIN = Theme.Platform.topbarEdgePadding
+-- Keep the rounded bottom edge inside the safe canvas instead of clipping it below the screen.
+local PANEL_PHONE_BOTTOM_MARGIN = Theme.Platform.menuBottomCornerClearance
 -- The doc's fixed card height, kept as-is for tablet and desktop.
 local PANEL_HEIGHT = 470
 
