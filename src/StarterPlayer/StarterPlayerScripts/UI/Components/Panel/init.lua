@@ -21,6 +21,7 @@
 local Theme = require(script.Parent.Parent.Theme)
 local ActionMenu = require(script.ActionMenu)
 local Controls = require(script.Controls)
+local EmptyState = require(script.EmptyState)
 local Primitives = require(script.Primitives)
 
 local Panel = {}
@@ -39,6 +40,7 @@ local setText = Primitives.SetText
 Panel.RescaleText = Primitives.RescaleText
 Panel.ApplyTextScale = Primitives.ApplyTextScale
 Panel.CreateActionMenu = ActionMenu.Create
+Panel.CreateEmptyState = EmptyState.Create
 Panel.Tab = Controls.Tab
 Panel.SetTabActive = Controls.SetTabActive
 Panel.PrimaryButton = Controls.PrimaryButton
@@ -257,7 +259,9 @@ function Panel.Create(config: PanelConfig): Panel
 			local size = camera.ViewportSize
 			card.Size = resolveCardSize(size)
 			card.AnchorPoint, card.Position = Theme.panelPlacement(size)
-			details.Size = UDim2.new(0, Theme.detailWidth(size), 1, 0)
+			if details.Visible then
+				details.Size = UDim2.new(0, Theme.detailWidth(size), 1, 0)
+			end
 			Panel.RescaleText(card, Theme.root(size))
 		end)
 		card.Destroying:Once(function()
@@ -280,6 +284,20 @@ function Panel.Create(config: PanelConfig): Panel
 		Root = root,
 		Accent = accent,
 	}
+end
+
+--- Hides the details column and lets the grid consume the complete body for a full-width
+--- empty state. Restoring it re-applies the current responsive details width and body gap.
+function Panel.SetDetailsVisible(panel: Panel, visible: boolean)
+	panel.Details.Visible = visible
+	local camera = workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	panel.Details.Size = if visible then UDim2.new(0, Theme.detailWidth(viewport), 1, 0) else UDim2.fromOffset(0, 0)
+
+	local bodyLayout = panel.Body:FindFirstChildWhichIsA("UIListLayout")
+	if bodyLayout then
+		bodyLayout.Padding = UDim.new(0, if visible then Metric.bodyGap else 0)
+	end
 end
 
 --------------------------------------------------------------------------------

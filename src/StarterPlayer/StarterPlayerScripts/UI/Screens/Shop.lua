@@ -71,46 +71,10 @@ local function Shop(scope: any): ScreenGui
 		)
 	end
 
-	local catalog = Instance.new("CanvasGroup")
-	catalog.Name = "Catalog"
-	catalog.Size = UDim2.fromScale(1, 1)
-	catalog.BackgroundTransparency = 1
-	catalog.Parent = panel.Grid
-
-	local emptyState = Instance.new("Frame")
-	emptyState.Name = "EmptyState"
-	emptyState.AnchorPoint = Vector2.new(0.5, 0.5)
-	emptyState.Position = UDim2.fromScale(0.5, 0.5)
-	emptyState.Size = UDim2.new(1, -32, 0, 96)
-	emptyState.BackgroundTransparency = 1
-	emptyState.Parent = catalog
-
-	local emptyTitle = Instance.new("TextLabel")
-	emptyTitle.Name = "Title"
-	emptyTitle.Size = UDim2.new(1, 0, 0, 34)
-	emptyTitle.BackgroundTransparency = 1
-	emptyTitle.FontFace = Theme.Font.extraBold
-	emptyTitle.Text = "New offers are on the way"
-	emptyTitle.TextColor3 = Theme.Text.strong
-	emptyTitle:SetAttribute("Em", Theme.Em.itemName)
-	emptyTitle.TextSize = Theme.text(Theme.Em.itemName, panel.Root)
-	emptyTitle.TextXAlignment = Enum.TextXAlignment.Center
-	emptyTitle.Parent = emptyState
-
-	local emptyBody = Instance.new("TextLabel")
-	emptyBody.Name = "Body"
-	emptyBody.Position = UDim2.fromOffset(0, 38)
-	emptyBody.Size = UDim2.new(1, 0, 0, 44)
-	emptyBody.BackgroundTransparency = 1
-	emptyBody.FontFace = Theme.Font.bold
-	emptyBody.Text = "Featured purchases will appear here when the shop catalog is configured."
-	emptyBody.TextColor3 = Theme.Text.dim
-	emptyBody:SetAttribute("Em", Theme.Em.body)
-	emptyBody.TextSize = Theme.text(Theme.Em.body, panel.Root)
-	emptyBody.TextWrapped = true
-	emptyBody.TextXAlignment = Enum.TextXAlignment.Center
-	emptyBody.TextYAlignment = Enum.TextYAlignment.Top
-	emptyBody.Parent = emptyState
+	local emptyState = Panel.CreateEmptyState({
+		parent = panel.Grid,
+		root = panel.Root,
+	})
 
 	local offerInfoColumn = Instance.new("CanvasGroup")
 	offerInfoColumn.Name = "OfferInfo"
@@ -137,12 +101,57 @@ local function Shop(scope: any): ScreenGui
 	offerInfo.Stats[2].Value.Text = "—"
 	offerInfo.Stats[2].Label.Text = "Availability"
 	if offerInfo.PrimaryButton then
-		Panel.SetButtonEnabled(offerInfo.PrimaryButton, false, Theme.Accent.green)
+		offerInfo.PrimaryButton:SetAttribute("ServerAction", "PurchaseOffer")
+		Panel.SetButtonEnabled(offerInfo.PrimaryButton, false, Theme.TabIcon.featured)
 	end
+	Panel.SetDetailsVisible(panel, false)
 
 	local selectedTab: TextButton? = nil
+	local emptyStateByTab = {
+		[panel.Tabs.Featured] = {
+			category = "Featured",
+			icon = "rbxassetid://15909461117",
+			color = Theme.TabIcon.featured,
+			title = "No Featured offers yet",
+			body = "Check back later for new Shop offers.",
+			primary = "Purchase",
+			action = "PurchaseOffer",
+		},
+		[panel.Tabs.Upgrades] = {
+			category = "Upgrades",
+			icon = "rbxassetid://12338897538",
+			color = Theme.TabIcon.upgrades,
+			title = "No Upgrades available",
+			body = "Check back later for new Inventory upgrades.",
+			primary = "Upgrade",
+			action = "PurchaseUpgrade",
+		},
+	}
+
+	local function replaceContent(tab: TextButton)
+		local config = emptyStateByTab[tab]
+		if not config then
+			return
+		end
+
+		emptyState.Root.Visible = true
+		emptyState.Root:SetAttribute("ShopCategory", config.category)
+		emptyState.IconDisc.BackgroundColor3 = config.color
+		emptyState.Icon.Image = config.icon
+		emptyState.Icon.ImageColor3 = config.color
+		emptyState.TitleLabel.Text = config.title
+		emptyState.BodyLabel.Text = config.body
+		Panel.SetDetailsVisible(panel, false)
+		if offerInfo.PrimaryButton then
+			offerInfo.PrimaryButton.Text = config.primary
+			offerInfo.PrimaryButton:SetAttribute("ServerAction", config.action)
+			Panel.SetButtonEnabled(offerInfo.PrimaryButton, false, config.color)
+		end
+	end
+
 	local function selectTab(tab: TextButton, skipAnimation: boolean?)
 		if selectedTab == tab then
+			replaceContent(tab)
 			return
 		end
 		local previousTab = selectedTab
@@ -152,21 +161,13 @@ local function Shop(scope: any): ScreenGui
 		selectedTab = tab
 		Panel.SetTabActive(tab, true, panel.Accent)
 
-		local function replaceContent()
-			if tab == panel.Tabs.Upgrades then
-				emptyTitle.Text = "Inventory upgrades are on the way"
-				emptyBody.Text = "Capacity upgrades will appear here when their prices and eligibility are configured."
-			else
-				emptyTitle.Text = "New offers are on the way"
-				emptyBody.Text = "Featured purchases will appear here when the shop catalog is configured."
-			end
-		end
-
 		if previousTab and not skipAnimation then
 			local direction = if previousTab.LayoutOrder < tab.LayoutOrder then 1 else -1
-			Motion.ReplaceTabContent({ catalog, offerInfoColumn }, direction, replaceContent)
+			Motion.ReplaceTabContent({ emptyState.Root }, direction, function()
+				replaceContent(tab)
+			end)
 		else
-			replaceContent()
+			replaceContent(tab)
 		end
 	end
 

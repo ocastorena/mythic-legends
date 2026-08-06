@@ -3,6 +3,7 @@
 ## Product context
 
 - Read `docs/Mythic_Legends_GDD.md` before changing gameplay, economy, progression, Arena, Shrine, crafting, inventory, or live-event systems.
+- Read `docs/UI_GUIDELINES.md` before changing application menus, category actions, or empty states.
 - Do not add excluded systems—eggs, summoning, gacha, Elemental Prism capture, or health-based combat—without explicit approval.
 - Keep the MVP's arena combat non-lethal and positional: server-validated knockback, Stamina, toggle Shields, temporary knockback immunity, and Capture Rings. Do not add ragdoll or elemental weapon effects without explicit post-launch approval.
 

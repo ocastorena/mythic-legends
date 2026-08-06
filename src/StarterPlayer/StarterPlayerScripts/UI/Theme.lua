@@ -264,6 +264,12 @@ Theme.Metric = {
 	actionMenuPadding = 6,
 	actionMenuGap = 4,
 	actionMenuOffset = 8,
+	-- Full-body Inventory empty state.
+	emptyStateMaxWidth = 420,
+	emptyStateHeight = 164,
+	emptyStateIconDiscSize = 72,
+	emptyStateIconSize = 40,
+	emptyStateGap = 8,
 	-- Progress bars.
 	barHeight = 7,
 	barHeightWide = 9,

@@ -221,14 +221,14 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	-- server-authoritative endpoints are added later. Equipment already has a live endpoint.
 	if mythlingInfo.PrimaryButton then
 		mythlingInfo.PrimaryButton:SetAttribute("ServerAction", "Evolve")
-		Panel.SetButtonEnabled(mythlingInfo.PrimaryButton, false, Theme.Accent.gold)
+		Panel.SetButtonEnabled(mythlingInfo.PrimaryButton, false, Theme.TabIcon.mythlings)
 	end
 	if equipmentInfo.PrimaryButton then
 		equipmentInfo.PrimaryButton:SetAttribute("ServerAction", "EquipOrUnequip")
 	end
 	if consumableInfo.PrimaryButton then
 		consumableInfo.PrimaryButton:SetAttribute("ServerAction", "AddToHotbar")
-		Panel.SetButtonEnabled(consumableInfo.PrimaryButton, false, Theme.Accent.gold)
+		Panel.SetButtonEnabled(consumableInfo.PrimaryButton, false, Theme.TabIcon.consumables)
 	end
 
 	local actionMenu = Panel.CreateActionMenu({
@@ -245,6 +245,10 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		},
 	})
 	actionMenu.Options.Sell:SetAttribute("ServerAction", "Sell")
+	local emptyState = Panel.CreateEmptyState({
+		parent = panel.Grid,
+		root = panel.Root,
+	})
 
 	local function connectOverflow(details, category: string)
 		local button = details.SecondaryButton
@@ -428,7 +432,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			Panel.SetHeroRarity(equipmentInfo, rarity)
 			if equipmentInfo.PrimaryButton then
 				equipmentInfo.PrimaryButton.Text = if entry.equipped then "Unequip" else "Equip"
-				Panel.SetButtonEnabled(equipmentInfo.PrimaryButton, not entry.equipped, Theme.Accent.gold)
+				Panel.SetButtonEnabled(equipmentInfo.PrimaryButton, not entry.equipped, Theme.TabIcon.equipment)
 			end
 
 			if profile.kind == "Shield" then
@@ -500,6 +504,65 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			consumableInfo.Stats[3].Label.Text = metadata.effect or "Effect"
 		end,
 	})
+
+	local emptyStateByTab = {
+		[mythlingsTab] = {
+			list = mythlingList,
+			category = "Mythlings",
+			icon = "rbxassetid://15909461117",
+			color = Theme.TabIcon.mythlings,
+			title = "No Mythlings yet",
+			body = "Capture Mythlings in the Arena.",
+		},
+		[equipmentTab] = {
+			list = equipmentList,
+			category = "Equipment",
+			icon = "rbxassetid://16181366859",
+			color = Theme.TabIcon.equipment,
+			title = "No Equipment yet",
+			body = "Craft Equipment at a Crafting Station.",
+		},
+		[consumablesTab] = {
+			list = consumableList,
+			category = "Consumables",
+			icon = "rbxassetid://16181402439",
+			color = Theme.TabIcon.consumables,
+			title = "No Consumables yet",
+			body = "Craft Consumables at a Crafting Station.",
+		},
+		[materialsTab] = {
+			list = materialList,
+			category = "Materials",
+			icon = "rbxassetid://15562720000",
+			color = Theme.TabIcon.materials,
+			title = "No Materials yet",
+			body = "Assign Mythlings to Shrines and collect their output.",
+		},
+	}
+
+	local function refreshEmptyState()
+		local config = selectedTab and emptyStateByTab[selectedTab]
+		if not config then
+			emptyState.Root.Visible = false
+			Panel.SetDetailsVisible(panel, true)
+			return
+		end
+
+		local isEmpty = config.list:GetSelectedId() == nil
+		emptyState.Root.Visible = isEmpty
+		Panel.SetDetailsVisible(panel, not isEmpty)
+		if not isEmpty then
+			return
+		end
+
+		actionMenu.Close()
+		emptyState.Root:SetAttribute("InventoryCategory", config.category)
+		emptyState.IconDisc.BackgroundColor3 = config.color
+		emptyState.Icon.Image = config.icon
+		emptyState.Icon.ImageColor3 = config.color
+		emptyState.TitleLabel.Text = config.title
+		emptyState.BodyLabel.Text = config.body
+	end
 
 	--- The [ i ] button on each hero frame opens the lore modal, which is the only place
 	--- flavour text appears.
@@ -597,6 +660,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 
 	local function selectTab(tab, skipAnimation: boolean?)
 		if selectedTab == tab then
+			refreshEmptyState()
 			return
 		end
 
@@ -649,6 +713,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		selectedTab = tab
 		selectedFrame = nextFrame
 		selectedInfo = nextInfo
+		refreshEmptyState()
 	end
 
 	table.insert(
@@ -660,7 +725,10 @@ local function Inventory(scope: any, props: Props): ScreenGui
 				consumableList:Replace(value or {})
 			elseif key == "materials" then
 				materialList:Replace(value or {})
+			else
+				return
 			end
+			refreshEmptyState()
 		end)
 	)
 
@@ -694,6 +762,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			equipmentRefreshQueued = false
 			if inventoryGui.Enabled then
 				equipmentList:Replace(collectEquipment())
+				refreshEmptyState()
 			end
 		end)
 	end
