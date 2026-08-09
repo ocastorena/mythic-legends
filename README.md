@@ -391,8 +391,8 @@ provenance and local modifications.
 
 ### UI migration status
 
-`HUDGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,
-`ModalBackdropGui`, and `ToastGui` are all application-owned and created under `PlayerGui`; the
-Stamina meter is owned by the HUD screen. `StarterGui` is a strict, intentionally empty Rojo
-boundary: do not add Studio-authored production GUI roots or maintain parallel Studio
-implementations.
+`HUDGui`, `StaminaGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,
+`ModalBackdropGui`, and `ToastGui` are all application-owned and created under `PlayerGui`;
+`StaminaGui` is composed by the HUD screen but shares the hotbar's below-menu display layer.
+`StarterGui` is a strict, intentionally empty Rojo boundary: do not add Studio-authored
+production GUI roots or maintain parallel Studio implementations.

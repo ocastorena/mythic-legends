@@ -11,6 +11,7 @@ local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Typ
 local log = LogUtil.For("ProductionService")
 
 local Accrual = {}
+local ProductionMath = require(script.Parent.ProductionMath)
 
 type InventoryServiceApi = {
 	GetMythling: (Player, string) -> Types.MythlingEntry?,
@@ -50,8 +51,7 @@ local function calculate(player: Player, mythlingId: string): (number, number, n
 		return 0, capacity, rate
 	end
 
-	local currentAmount = rate * (os.time() - lastCollection) / 60
-	return math.floor(math.min(currentAmount, capacity)), capacity, rate
+	return ProductionMath.StoredAmount(os.time(), lastCollection, rate, capacity), capacity, rate
 end
 
 function Accrual.Init(inventoryService: InventoryServiceApi, mythlingsData: { [string]: Types.MythlingDef })
@@ -84,6 +84,9 @@ function Accrual.Collect(player: Player, mythlingId: string): (boolean, string?)
 	end
 
 	local amount = calculate(player, mythlingId)
+	if amount <= 0 then
+		return false, "NothingToCollect"
+	end
 	InventoryService.AddMaterial(player, definition.production.materialId, amount)
 	entry.lastCollectionAt = os.time()
 	InventoryService.MarkDirty(player)

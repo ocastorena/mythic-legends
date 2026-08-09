@@ -245,10 +245,6 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		},
 	})
 	actionMenu.Options.Sell:SetAttribute("ServerAction", "Sell")
-	local emptyState = Panel.CreateEmptyState({
-		parent = panel.Grid,
-		root = panel.Root,
-	})
 
 	local function connectOverflow(details, category: string)
 		local button = details.SecondaryButton
@@ -297,8 +293,6 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	--------------------------------------------------------------------------------
 
 	local selectedTab = nil
-	local selectedFrame = nil
-	local selectedInfo = nil
 
 	--- §05's ring rules do the highlighting now: the rarity colour is always on the cell, and
 	--- selection is the difference between a 3px ring and a dimmed 2px one. The old yellow
@@ -505,63 +499,106 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		end,
 	})
 
+	local function newTabConfig(list, gridPage, detailsPage, category, icon, color, title, body)
+		local emptyState = Panel.CreateEmptyState({
+			parent = panel.Content,
+			root = panel.Root,
+		})
+		emptyState.Root.Name = `{category}EmptyState`
+		emptyState.Root:SetAttribute("InventoryCategory", category)
+		emptyState.IconDisc.BackgroundColor3 = color
+		emptyState.Icon.Image = icon
+		emptyState.Icon.ImageColor3 = color
+		emptyState.TitleLabel.Text = title
+		emptyState.BodyLabel.Text = body
+
+		return {
+			list = list,
+			gridPage = gridPage,
+			detailsPage = detailsPage,
+			emptyState = emptyState,
+		}
+	end
+
 	local emptyStateByTab = {
-		[mythlingsTab] = {
-			list = mythlingList,
-			category = "Mythlings",
-			icon = "rbxassetid://15909461117",
-			color = Theme.TabIcon.mythlings,
-			title = "No Mythlings yet",
-			body = "Capture Mythlings in the Arena.",
-		},
-		[equipmentTab] = {
-			list = equipmentList,
-			category = "Equipment",
-			icon = "rbxassetid://16181366859",
-			color = Theme.TabIcon.equipment,
-			title = "No Equipment yet",
-			body = "Craft Equipment at a Crafting Station.",
-		},
-		[consumablesTab] = {
-			list = consumableList,
-			category = "Consumables",
-			icon = "rbxassetid://16181402439",
-			color = Theme.TabIcon.consumables,
-			title = "No Consumables yet",
-			body = "Craft Consumables at a Crafting Station.",
-		},
-		[materialsTab] = {
-			list = materialList,
-			category = "Materials",
-			icon = "rbxassetid://15562720000",
-			color = Theme.TabIcon.materials,
-			title = "No Materials yet",
-			body = "Assign Mythlings to Shrines and collect their output.",
-		},
+		[mythlingsTab] = newTabConfig(
+			mythlingList,
+			mythlingsFrame.Parent,
+			mythlingInfoColumn,
+			"Mythlings",
+			"rbxassetid://15909461117",
+			Theme.TabIcon.mythlings,
+			"No Mythlings yet",
+			"Capture Mythlings in the Arena."
+		),
+		[equipmentTab] = newTabConfig(
+			equipmentList,
+			equipmentFrame.Parent,
+			equipmentInfoColumn,
+			"Equipment",
+			"rbxassetid://16181366859",
+			Theme.TabIcon.equipment,
+			"No Equipment yet",
+			"Craft Equipment at a Crafting Station."
+		),
+		[consumablesTab] = newTabConfig(
+			consumableList,
+			consumablesFrame.Parent,
+			consumableInfoColumn,
+			"Consumables",
+			"rbxassetid://16181402439",
+			Theme.TabIcon.consumables,
+			"No Consumables yet",
+			"Craft Consumables at a Crafting Station."
+		),
+		[materialsTab] = newTabConfig(
+			materialList,
+			materialsFrame.Parent,
+			materialInfoColumn,
+			"Materials",
+			"rbxassetid://15562720000",
+			Theme.TabIcon.materials,
+			"No Materials yet",
+			"Assign Mythlings to Shrines and collect their output."
+		),
 	}
 
+	local transitionGeneration = 0
+
+	local function isEmpty(config): boolean
+		return config.list:GetSelectedId() == nil
+	end
+
+	local function tabObjects(config): { GuiObject }
+		if isEmpty(config) then
+			return { config.emptyState.Root }
+		end
+		return { config.gridPage, config.detailsPage }
+	end
+
 	local function refreshEmptyState()
+		transitionGeneration += 1
+		for _, config in pairs(emptyStateByTab) do
+			config.gridPage.Visible = false
+			config.detailsPage.Visible = false
+			config.emptyState.Root.Visible = false
+		end
+
 		local config = selectedTab and emptyStateByTab[selectedTab]
 		if not config then
-			emptyState.Root.Visible = false
 			Panel.SetDetailsVisible(panel, true)
 			return
 		end
 
-		local isEmpty = config.list:GetSelectedId() == nil
-		emptyState.Root.Visible = isEmpty
-		Panel.SetDetailsVisible(panel, not isEmpty)
-		if not isEmpty then
-			return
+		local empty = isEmpty(config)
+		Panel.SetDetailsVisible(panel, not empty)
+		if empty then
+			actionMenu.Close()
+			config.emptyState.Root.Visible = true
+		else
+			config.gridPage.Visible = true
+			config.detailsPage.Visible = true
 		end
-
-		actionMenu.Close()
-		emptyState.Root:SetAttribute("InventoryCategory", config.category)
-		emptyState.IconDisc.BackgroundColor3 = config.color
-		emptyState.Icon.Image = config.icon
-		emptyState.Icon.ImageColor3 = config.color
-		emptyState.TitleLabel.Text = config.title
-		emptyState.BodyLabel.Text = config.body
 	end
 
 	--- The [ i ] button on each hero frame opens the lore modal, which is the only place
@@ -664,56 +701,38 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			return
 		end
 
-		local nextFrame
-		local nextInfo
-		if selectedTab then
-			Panel.SetTabActive(selectedTab, false, panel.Accent)
-		end
-
-		if tab == mythlingsTab then
-			nextFrame = mythlingsFrame
-			nextInfo = mythlingInfoColumn
-		end
-
-		if tab == materialsTab then
-			nextFrame = materialsFrame
-			nextInfo = materialInfoColumn
-		end
-
-		if tab == equipmentTab then
-			nextFrame = equipmentFrame
-			nextInfo = equipmentInfoColumn
-		end
-
-		if tab == consumablesTab then
-			nextFrame = consumablesFrame
-			nextInfo = consumableInfoColumn
-		end
-
-		if not nextFrame or not nextInfo then
+		local nextConfig = emptyStateByTab[tab]
+		if not nextConfig then
 			return
+		end
+
+		local previousTab = selectedTab
+		local previousConfig = previousTab and emptyStateByTab[previousTab]
+		if previousTab then
+			Panel.SetTabActive(previousTab, false, panel.Accent)
 		end
 
 		actionMenu.Close()
 		Panel.SetTabActive(tab, true, panel.Accent)
-		if selectedTab and not skipAnimation then
-			local direction = if selectedTab.LayoutOrder < tab.LayoutOrder then 1 else -1
-			Motion.TransitionTab({ selectedFrame.Parent, selectedInfo }, { nextFrame.Parent, nextInfo }, direction)
-		else
-			if selectedFrame then
-				selectedFrame.Parent.Visible = false
-			end
-			if selectedInfo then
-				selectedInfo.Visible = false
-			end
-			nextFrame.Parent.Visible = true
-			nextInfo.Visible = true
-		end
-
 		selectedTab = tab
-		selectedFrame = nextFrame
-		selectedInfo = nextInfo
-		refreshEmptyState()
+		transitionGeneration += 1
+		local generation = transitionGeneration
+
+		if previousConfig and not skipAnimation then
+			local nextIsEmpty = isEmpty(nextConfig)
+			if not nextIsEmpty then
+				Panel.SetDetailsVisible(panel, true)
+			end
+
+			local direction = if previousTab.LayoutOrder < tab.LayoutOrder then 1 else -1
+			Motion.TransitionTab(tabObjects(previousConfig), tabObjects(nextConfig), direction, function()
+				if transitionGeneration == generation and selectedTab == tab then
+					Panel.SetDetailsVisible(panel, not nextIsEmpty)
+				end
+			end)
+		else
+			refreshEmptyState()
+		end
 	end
 
 	table.insert(

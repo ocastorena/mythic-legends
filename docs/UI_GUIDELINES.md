@@ -26,6 +26,8 @@ them.
 - Do not add a call-to-action button when acquisition requires returning to world gameplay.
 - Preserve the panel dimensions so switching between empty and populated tabs does not move
   the menu.
+- Use the same directional page transition for every tab change, whether either tab is empty
+  or populated. Empty-state content must not appear only after the page transition starts.
 - Treat loading and empty as different states if inventory fetching becomes asynchronous; do
   not flash the empty state before the first authoritative snapshot resolves.
 

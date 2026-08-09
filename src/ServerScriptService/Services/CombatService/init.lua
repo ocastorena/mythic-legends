@@ -936,7 +936,12 @@ function CombatService.Start()
 	end
 
 	trove:Connect(SetShieldGuard.OnServerEvent, function(player: Player, enabled: unknown)
-		if guardLimiter:Allow(player) and type(enabled) == "boolean" then
+		if type(enabled) ~= "boolean" then
+			return
+		end
+		-- Releasing guard is idempotent cleanup and must always succeed. Applying the limiter
+		-- to false messages can leave a rate-limited player frozen until another request arrives.
+		if not enabled or guardLimiter:Allow(player) then
 			setShieldGuard(player, enabled)
 		end
 	end)

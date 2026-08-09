@@ -14,7 +14,7 @@ export type Config = {
 }
 
 export type View = {
-	Root: Frame,
+	Root: CanvasGroup,
 	IconDisc: Frame,
 	Icon: ImageLabel,
 	TitleLabel: TextLabel,
@@ -22,10 +22,14 @@ export type View = {
 }
 
 function EmptyState.Create(config: Config): View
-	local root = Primitives.NewFrame("EmptyState", config.parent)
+	local root = Instance.new("CanvasGroup")
+	root.Name = "EmptyState"
 	root.Size = UDim2.fromScale(1, 1)
+	root.BackgroundTransparency = 1
+	root.BorderSizePixel = 0
 	root.Visible = false
 	root.ZIndex = 10
+	root.Parent = config.parent
 
 	local content = Primitives.NewFrame("Content", root)
 	content.AnchorPoint = Vector2.new(0.5, 0.5)

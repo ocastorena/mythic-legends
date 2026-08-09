@@ -8,9 +8,6 @@ local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Typ
 
 local NORMAL_BUTTON_COLOR = Color3.fromRGB(60, 60, 64)
 local FALLBACK_JUMP_SIZE = 70
-local ACTION_SCALE = 0.8
-local MIN_ACTION_SIZE = 52
-local MAX_ACTION_SIZE = 68
 local JUMP_GAP = 10
 local CLUSTER_INSET = 18
 
@@ -89,7 +86,7 @@ local function CombatActions(scope: any, props: Props): ScreenGui
 		local jumpSize = if jumpButton and jumpButton.AbsoluteSize.X > 0
 			then jumpButton.AbsoluteSize.X
 			else FALLBACK_JUMP_SIZE
-		local actionSize = math.clamp(math.round(jumpSize * ACTION_SCALE), MIN_ACTION_SIZE, MAX_ACTION_SIZE)
+		local actionSize = math.round(jumpSize)
 		local jumpCenter = if jumpButton and jumpButton.AbsoluteSize.X > 0
 			then jumpButton.AbsolutePosition + jumpButton.AbsoluteSize / 2
 			else Vector2.new(

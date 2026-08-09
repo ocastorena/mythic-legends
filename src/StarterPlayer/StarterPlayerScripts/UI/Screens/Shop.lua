@@ -71,11 +71,6 @@ local function Shop(scope: any): ScreenGui
 		)
 	end
 
-	local emptyState = Panel.CreateEmptyState({
-		parent = panel.Grid,
-		root = panel.Root,
-	})
-
 	local offerInfoColumn = Instance.new("CanvasGroup")
 	offerInfoColumn.Name = "OfferInfo"
 	offerInfoColumn.Size = UDim2.fromScale(1, 1)
@@ -107,40 +102,54 @@ local function Shop(scope: any): ScreenGui
 	Panel.SetDetailsVisible(panel, false)
 
 	local selectedTab: TextButton? = nil
+	local function newEmptyTabConfig(category, icon, color, title, body, primary, action)
+		local emptyState = Panel.CreateEmptyState({
+			parent = panel.Content,
+			root = panel.Root,
+		})
+		emptyState.Root.Name = `{category}EmptyState`
+		emptyState.Root:SetAttribute("ShopCategory", category)
+		emptyState.IconDisc.BackgroundColor3 = color
+		emptyState.Icon.Image = icon
+		emptyState.Icon.ImageColor3 = color
+		emptyState.TitleLabel.Text = title
+		emptyState.BodyLabel.Text = body
+
+		return {
+			emptyState = emptyState,
+			primary = primary,
+			action = action,
+			color = color,
+		}
+	end
+
 	local emptyStateByTab = {
-		[panel.Tabs.Featured] = {
-			category = "Featured",
-			icon = "rbxassetid://15909461117",
-			color = Theme.TabIcon.featured,
-			title = "No Featured offers yet",
-			body = "Check back later for new Shop offers.",
-			primary = "Purchase",
-			action = "PurchaseOffer",
-		},
-		[panel.Tabs.Upgrades] = {
-			category = "Upgrades",
-			icon = "rbxassetid://12338897538",
-			color = Theme.TabIcon.upgrades,
-			title = "No Upgrades available",
-			body = "Check back later for new Inventory upgrades.",
-			primary = "Upgrade",
-			action = "PurchaseUpgrade",
-		},
+		[panel.Tabs.Featured] = newEmptyTabConfig(
+			"Featured",
+			"rbxassetid://15909461117",
+			Theme.TabIcon.featured,
+			"No Featured offers yet",
+			"Check back later for new Shop offers.",
+			"Purchase",
+			"PurchaseOffer"
+		),
+		[panel.Tabs.Upgrades] = newEmptyTabConfig(
+			"Upgrades",
+			"rbxassetid://12338897538",
+			Theme.TabIcon.upgrades,
+			"No Upgrades available",
+			"Check back later for new Inventory upgrades.",
+			"Upgrade",
+			"PurchaseUpgrade"
+		),
 	}
 
-	local function replaceContent(tab: TextButton)
+	local function applyAction(tab: TextButton)
 		local config = emptyStateByTab[tab]
 		if not config then
 			return
 		end
 
-		emptyState.Root.Visible = true
-		emptyState.Root:SetAttribute("ShopCategory", config.category)
-		emptyState.IconDisc.BackgroundColor3 = config.color
-		emptyState.Icon.Image = config.icon
-		emptyState.Icon.ImageColor3 = config.color
-		emptyState.TitleLabel.Text = config.title
-		emptyState.BodyLabel.Text = config.body
 		Panel.SetDetailsVisible(panel, false)
 		if offerInfo.PrimaryButton then
 			offerInfo.PrimaryButton.Text = config.primary
@@ -151,23 +160,30 @@ local function Shop(scope: any): ScreenGui
 
 	local function selectTab(tab: TextButton, skipAnimation: boolean?)
 		if selectedTab == tab then
-			replaceContent(tab)
+			applyAction(tab)
 			return
 		end
 		local previousTab = selectedTab
+		local previousConfig = previousTab and emptyStateByTab[previousTab]
+		local nextConfig = emptyStateByTab[tab]
+		if not nextConfig then
+			return
+		end
 		if selectedTab then
 			Panel.SetTabActive(selectedTab, false, panel.Accent)
 		end
 		selectedTab = tab
 		Panel.SetTabActive(tab, true, panel.Accent)
+		applyAction(tab)
 
-		if previousTab and not skipAnimation then
+		if previousConfig and not skipAnimation then
 			local direction = if previousTab.LayoutOrder < tab.LayoutOrder then 1 else -1
-			Motion.ReplaceTabContent({ emptyState.Root }, direction, function()
-				replaceContent(tab)
-			end)
+			Motion.TransitionTab({ previousConfig.emptyState.Root }, { nextConfig.emptyState.Root }, direction)
 		else
-			replaceContent(tab)
+			for _, config in pairs(emptyStateByTab) do
+				config.emptyState.Root.Visible = false
+			end
+			nextConfig.emptyState.Root.Visible = true
 		end
 	end
 

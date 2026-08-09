@@ -194,7 +194,12 @@ end
 --- Slides complete tab pages in the direction of the selected tab. Passing parallel arrays
 --- lets Inventory move its grid and details columns as one page without coupling the shell
 --- to feature content.
-function Motion.TransitionTab(previous: { GuiObject }, nextPage: { GuiObject }, direction: number)
+function Motion.TransitionTab(
+	previous: { GuiObject },
+	nextPage: { GuiObject },
+	direction: number,
+	onComplete: (() -> ())?
+)
 	for _, object in previous do
 		prepareTabObject(object)
 		object.Visible = true
@@ -205,6 +210,14 @@ function Motion.TransitionTab(previous: { GuiObject }, nextPage: { GuiObject }, 
 	end
 
 	if Motion.IsReduced() then
+		local pending = #previous
+		local function completePrevious()
+			pending -= 1
+			if pending == 0 and onComplete then
+				onComplete()
+			end
+		end
+
 		for _, object in nextPage do
 			if object:IsA("CanvasGroup") then
 				object.GroupTransparency = 1
@@ -218,16 +231,21 @@ function Motion.TransitionTab(previous: { GuiObject }, nextPage: { GuiObject }, 
 					if playbackState == Enum.PlaybackState.Completed then
 						object.Visible = false
 						object.GroupTransparency = 0
+						completePrevious()
 					end
 				end)
 			else
 				object.Visible = false
+				completePrevious()
 			end
 		end
 		for _, object in nextPage do
 			if object:IsA("CanvasGroup") then
 				playTween(object, TweenInfo.new(REDUCED_MOTION_TIME), { GroupTransparency = 0 })
 			end
+		end
+		if #previous == 0 and onComplete then
+			onComplete()
 		end
 		return
 	end
@@ -240,6 +258,7 @@ function Motion.TransitionTab(previous: { GuiObject }, nextPage: { GuiObject }, 
 			{ Position = UDim2.new() }
 		)
 	end
+	local pending = #previous
 	for _, object in previous do
 		local tween = playTween(
 			object,
@@ -250,56 +269,15 @@ function Motion.TransitionTab(previous: { GuiObject }, nextPage: { GuiObject }, 
 			if playbackState == Enum.PlaybackState.Completed then
 				object.Visible = false
 				object.Position = UDim2.new()
+				pending -= 1
+				if pending == 0 and onComplete then
+					onComplete()
+				end
 			end
 		end)
 	end
-end
-
---- Shop currently reuses one placeholder composition for both tabs. This preserves the same
---- total Roblox tab-transition duration while swapping that composition at the midpoint.
-function Motion.ReplaceTabContent(objects: { GuiObject }, direction: number, replace: () -> ())
-	local halfDuration = if Motion.IsReduced() then REDUCED_MOTION_TIME / 2 else TAB_TIME / 2
-	local pending = #objects
-	if pending == 0 then
-		replace()
-		return
-	end
-
-	local function animateIn()
-		replace()
-		for _, object in objects do
-			if Motion.IsReduced() and object:IsA("CanvasGroup") then
-				object.GroupTransparency = 1
-				playTween(object, TweenInfo.new(halfDuration), { GroupTransparency = 0 })
-			else
-				object.Position = UDim2.fromScale(direction, 0)
-				playTween(
-					object,
-					TweenInfo.new(halfDuration, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-					{ Position = UDim2.new() }
-				)
-			end
-		end
-	end
-
-	for _, object in objects do
-		prepareTabObject(object)
-		local goal = if Motion.IsReduced() and object:IsA("CanvasGroup")
-			then { GroupTransparency = 1 }
-			else { Position = UDim2.fromScale(-direction, 0) }
-		local tweenInfo = if Motion.IsReduced()
-			then TweenInfo.new(halfDuration)
-			else TweenInfo.new(halfDuration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-		local tween = playTween(object, tweenInfo, goal)
-		tween.Completed:Once(function(playbackState)
-			if playbackState ~= Enum.PlaybackState.Completed then
-				return
-			end
-			pending -= 1
-			if pending == 0 then
-				animateIn()
-			end
-		end)
+	if #previous == 0 and onComplete then
+		onComplete()
 	end
 end
 

@@ -5,17 +5,26 @@ local Players = game:GetService("Players")
 
 local PlayerUtil = {}
 
--- Runs `onAdded` for every player already in the server, then for each new joiner.
+-- Runs `onAdded` once for every player already in the server and each new joiner.
 --
--- Services connect PlayerAdded inside Start(), which races the first joiners on a fresh
--- server: a player who arrives before Start() runs would never be registered, leaving a
--- nil cache entry that every later request errors on. Always use this instead of a bare
--- Players.PlayerAdded:Connect for per-player setup.
+-- Connect before taking the snapshot so a player cannot join between GetPlayers() and
+-- PlayerAdded:Connect(). The seen set collapses the overlap when the new player is also
+-- present in the snapshot.
 function PlayerUtil.OnPlayer(onAdded: (Player) -> ()): RBXScriptConnection
-	for _, player in ipairs(Players:GetPlayers()) do
-		task.spawn(onAdded, player)
+	local seen: { [Player]: boolean } = {}
+	local function dispatch(player: Player)
+		if seen[player] then
+			return
+		end
+		seen[player] = true
+		onAdded(player)
 	end
-	return Players.PlayerAdded:Connect(onAdded)
+
+	local connection = Players.PlayerAdded:Connect(dispatch)
+	for _, player in ipairs(Players:GetPlayers()) do
+		task.spawn(dispatch, player)
+	end
+	return connection
 end
 
 -- Server-authoritative character position. Returns nil while the character is loading,

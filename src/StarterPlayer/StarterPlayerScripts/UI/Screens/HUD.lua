@@ -81,6 +81,16 @@ local function HUD(scope: any, props: Props): ScreenGui
 		fill = staminaFill,
 	})
 	table.insert(scope, unbindStamina)
+	scope:New("ScreenGui")({
+		Name = "StaminaGui",
+		DisplayOrder = Theme.Layer.stamina,
+		IgnoreGuiInset = true,
+		ResetOnSpawn = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		ScreenInsets = Enum.ScreenInsets.None,
+		Parent = playerGui,
+		[scope.Children] = { staminaMeter },
+	})
 
 	local cluster = scope:New("Frame")({
 		Name = "Cluster",
@@ -260,7 +270,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		ScreenInsets = Enum.ScreenInsets.None,
 		Parent = playerGui,
-		[scope.Children] = { mainFrame, staminaMeter },
+		[scope.Children] = { mainFrame },
 	}) :: ScreenGui
 
 	refreshLayout()

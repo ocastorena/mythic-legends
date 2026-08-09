@@ -1,6 +1,7 @@
 -- ServerScriptService/Services/InventoryService/Mythlings
 -- Owns the player's mythling records. Production timing is owned by ProductionService.
 
+local HttpService = game:GetService("HttpService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -15,7 +16,7 @@ local DataService: any
 local sessionsByUserId: { [number]: any }
 
 local function makeId(): string
-	return string.format("%s%d%04x", "myth_", os.time(), math.random(0, 0xFFFF))
+	return `myth_{HttpService:GenerateGUID(false)}`
 end
 
 local function getOwned(player: Player)
@@ -58,7 +59,11 @@ function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: 
 		claimedAt = os.time(),
 	}
 
-	DataService.MarkDirty(player)
+	if not DataService.MarkDirty(player) then
+		list[id] = nil
+		log.warn(`Profile became unavailable while granting Mythling to userId {player.UserId}`)
+		return nil
+	end
 	DataService.SaveNow(player)
 	return id
 end

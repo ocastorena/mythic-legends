@@ -86,6 +86,8 @@ export type Panel = {
 	Card: Frame,
 	Header: Frame,
 	Body: Frame,
+	Content: Frame,
+	Columns: Frame,
 	Grid: Frame,
 	Details: Frame,
 	TitleLabel: TextLabel,
@@ -237,16 +239,26 @@ function Panel.Create(config: PanelConfig): Panel
 	body.LayoutOrder = 2
 	flexFill(body)
 	Theme.padding(body, Metric.bodyPadTop, Metric.bodyPad, Metric.bodyPad, Metric.bodyPad)
-	local bodyLayout = newList(body, Enum.FillDirection.Horizontal, Metric.bodyGap)
+	local bodyLayout = newList(body, Enum.FillDirection.Vertical, 0)
+	bodyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	bodyLayout.VerticalAlignment = Enum.VerticalAlignment.Top
 
-	local grid = newFrame("Grid", body)
+	local content = newFrame("Content", body)
+	content.Size = UDim2.fromScale(1, 1)
+	flexFill(content)
+
+	local columns = newFrame("Columns", content)
+	columns.Size = UDim2.fromScale(1, 1)
+	local columnsLayout = newList(columns, Enum.FillDirection.Horizontal, Metric.bodyGap)
+	columnsLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+
+	local grid = newFrame("Grid", columns)
 	grid.Size = UDim2.fromScale(1, 1)
 	grid.LayoutOrder = 1
 	grid.ClipsDescendants = true
 	flexFill(grid)
 
-	local details = newFrame("Details", body)
+	local details = newFrame("Details", columns)
 	details.Size = UDim2.new(0, Theme.detailWidth(viewport), 1, 0)
 	details.LayoutOrder = 2
 	details.ClipsDescendants = true
@@ -273,6 +285,8 @@ function Panel.Create(config: PanelConfig): Panel
 		Card = card,
 		Header = header,
 		Body = body,
+		Content = content,
+		Columns = columns,
 		Grid = grid,
 		Details = details,
 		TitleLabel = titleLabel,
@@ -294,9 +308,9 @@ function Panel.SetDetailsVisible(panel: Panel, visible: boolean)
 	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
 	panel.Details.Size = if visible then UDim2.new(0, Theme.detailWidth(viewport), 1, 0) else UDim2.fromOffset(0, 0)
 
-	local bodyLayout = panel.Body:FindFirstChildWhichIsA("UIListLayout")
-	if bodyLayout then
-		bodyLayout.Padding = UDim.new(0, if visible then Metric.bodyGap else 0)
+	local columnsLayout = panel.Columns:FindFirstChildWhichIsA("UIListLayout")
+	if columnsLayout then
+		columnsLayout.Padding = UDim.new(0, if visible then Metric.bodyGap else 0)
 	end
 end
 

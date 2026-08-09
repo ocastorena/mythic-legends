@@ -453,11 +453,11 @@ end
 -- The HUD sits above both the scrim and the panels. It occupies the top bar strip, which
 -- no panel reaches, so being on top costs nothing and keeps the persistent chrome lit and
 -- clickable whenever a menu is open.
--- The hotbar sits below the scrim: it is world chrome like the Roblox backpack it replaces,
--- so an open panel dims it and blocks its input while leaving it visible as persistent
--- loadout context.
+-- The hotbar and Stamina meter sit below the scrim: they are world chrome, so an open panel
+-- dims them and blocks any input while leaving them visible as persistent combat context.
 Theme.Layer = {
 	hotbar = 0,
+	stamina = 0,
 	scrim = 1,
 	panel = 2,
 	hud = 5,

@@ -83,9 +83,23 @@ local function sendClear(userId)
 end
 
 local function handleClaimWin(player, mythlingId, mythlingData)
-	if not mythlingData or mythlingData.claimed then
+	if not mythlingData or mythlingData.claimed or mythlingData.claiming then
 		return
 	end
+	mythlingData.claiming = true
+
+	-- Commit the authoritative inventory mutation before removing the contest. SaveWonMythling
+	-- can yield while ProfileStore saves, so `claiming` also prevents a second Heartbeat from
+	-- granting the same spawn to another player.
+	local ownedMythlingId = InventoryService.SaveWonMythling(player, {
+		typeId = mythlingData.typeId,
+		variantId = mythlingData.variantId or "regular",
+	})
+	if not ownedMythlingId then
+		mythlingData.claiming = nil
+		return
+	end
+	mythlingData.claiming = nil
 	mythlingData.claimed = true
 
 	-- Notify MythlingSpawnService (reward, despawn, etc.)
@@ -106,16 +120,6 @@ local function handleClaimWin(player, mythlingId, mythlingData)
 			sendClear(userId)
 		end
 	end
-	-- Add the claimed mythling to the player's inventory.
-	-- params:
-	--   mythlingId (spawn id)  - optional, for analytics/backrefs
-	--   typeId / typeName      - identify the Mythling kind
-	--   rarity / variantId     - optional extra tags
-	--   model                  - optional live model instance (to read traits/seed)
-	InventoryService.SaveWonMythling(player, {
-		typeId = mythlingData.typeId,
-		variantId = "regular",
-	})
 end
 
 local function integrateProgress(player, state, now, activeMythlings)
