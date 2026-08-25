@@ -19,13 +19,24 @@ afterEach(function()
 end)
 
 describe("ArenaBounds.Contains", function()
-	it("uses the transformed circular footprint", function()
+	it("uses the transformed circular footprint when polygon attributes are absent", function()
 		arena = Instance.new("Part")
 		arena.Size = Vector3.new(20, 4, 20)
 		arena.CFrame = CFrame.new(50, 10, -25) * CFrame.Angles(0, math.rad(30), 0)
 
 		expect(ArenaBounds.Contains(arena, arena.Position, 0)).toBe(true)
 		expect(ArenaBounds.Contains(arena, arena.CFrame:PointToWorldSpace(Vector3.new(11, 0, 0)), 0)).toBe(false)
+	end)
+
+	it("uses an attributed regular polygon footprint", function()
+		arena = Instance.new("Part")
+		arena.Size = Vector3.new(20, 4, 20)
+		arena:SetAttribute("BoundarySides", 16)
+		arena:SetAttribute("BoundaryApothem", 10)
+
+		expect(ArenaBounds.Contains(arena, Vector3.new(9.9, 0, 0), 0)).toBe(true)
+		expect(ArenaBounds.Contains(arena, Vector3.new(10.1, 0, 0), 0)).toBe(false)
+		expect(ArenaBounds.Contains(arena, Vector3.new(9.9, 0, 4), 0)).toBe(false)
 	end)
 
 	it("honors vertical allowance and safely rejects a missing arena", function()

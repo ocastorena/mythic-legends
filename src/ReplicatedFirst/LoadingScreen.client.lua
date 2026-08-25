@@ -237,9 +237,17 @@ local function criticalWorldReady(): boolean
 
 	for index = 0, 7 do
 		local island = baseIslands:FindFirstChild("BaseIsland" .. index)
-		if
-			not (island and island:IsA("Model") and island:FindFirstChild("Grass") and #island:GetDescendants() >= 16)
-		then
+		local grass = island and island:FindFirstChild("Grass")
+		local hasVisualGeometry = false
+		if island then
+			for _, descendant in island:GetDescendants() do
+				if descendant:IsA("BasePart") and descendant ~= grass then
+					hasVisualGeometry = true
+					break
+				end
+			end
+		end
+		if not (island and island:IsA("Model") and grass and grass:IsA("BasePart") and hasVisualGeometry) then
 			return false
 		end
 	end

@@ -22,6 +22,11 @@ end
 -- Utility markers can extend below the visible base and make the platform appear to float.
 -- Use the largest visible footprint as the structural placement surface instead.
 local function getPivotAboveStructuralBottom(model: Model): number
+	local authoredOffset = model:GetAttribute("PlacementBottomOffset")
+	if type(authoredOffset) == "number" then
+		return authoredOffset
+	end
+
 	local structuralPart: BasePart? = nil
 	local largestFootprint = 0
 
