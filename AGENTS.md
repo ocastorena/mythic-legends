@@ -45,7 +45,8 @@
 
 ## Architecture
 
-- Read `docs/TECHNICAL_DESIGN.md` before changing architecture, networking, combat implementation, persistence, configuration schemas, or UI code ownership. Follow its Rojo structure and naming conventions; `README.md` owns setup and verification commands.
+- Read `docs/Conventions.md` before changing source code or project structure. It owns the repository layout, Rojo hierarchy, naming, typing, cleanup, formatting, and logging conventions.
+- Read `docs/TECHNICAL_DESIGN.md` before changing architecture, networking, combat implementation, persistence, configuration schemas, or UI code ownership. It owns implementation contracts; `README.md` owns setup and verification commands.
 - Keep capture, currency, production, crafting, inventory, and permission checks server-authoritative. Divine Intervention is post-launch and must not be implemented or expanded without explicit approval.
 - Store static content and balance data in `src/ReplicatedStorage/Shared/Configurations`.
 - Persist only mutable player state and metadata IDs. Do not duplicate static metadata in player saves.

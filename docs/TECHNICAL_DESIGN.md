@@ -3,8 +3,9 @@
 This document is the canonical implementation contract for architecture, networking, persistence,
 transactions, and source ownership. The [GDD](GDD.md) owns gameplay rules, progression, launch
 scope, pacing targets, and gameplay acceptance criteria. [UI guidelines](UI_GUIDELINES.md) own menu
-behavior and presentation; the [README](../README.md) owns setup and verification commands. Runtime
-tuning lives in [shared configuration](../src/ReplicatedStorage/Shared/Configurations).
+behavior and presentation. [Conventions](Conventions.md) owns project structure and coding practices;
+the [README](../README.md) owns setup and verification commands. Runtime tuning lives in
+[shared configuration](../src/ReplicatedStorage/Shared/Configurations).
 
 Requirements below describe the approved launch target unless explicitly labeled as current
 implementation or a future update. Moving a contract into this document does not mean the prototype
@@ -49,138 +50,13 @@ descendants are preserved only at explicitly mixed-ownership containers.
   combat](#client-reported-sword-combat). This architecture must not be changed by the general UI
   synchronization rule below.
 
-## Current project structure
+## Project structure and coding conventions
 
-The checkout places shared definitions under `src/ReplicatedStorage/Shared`, authoritative domains
-under `src/ServerScriptService/Services`, and cross-service utilities under
-`src/ServerScriptService/Infrastructure`. Each service has an `init.lua` entry point and cohesive
-private children where needed. Player-data templates live under `src/ServerStorage/Databases`.
-
-Client controllers, `State/LocalData.lua`, character helpers, and UI modules live under
-`src/StarterPlayer/StarterPlayerScripts`. `MainServer.server.lua` and `MainClient.client.lua` are
-the lifecycle owners of bootstrapped features. The intentionally self-running
-`ReplicatedFirst/LoadingScreen.client.lua` is the early loading-screen entry point.
-
-Generated shared Wally packages live in `Packages/`; server-only vendored packages live under
-`src/ServerScriptService/Packages`; isolated test source and dependencies live in `tests/`. The
-Explorer structure below is the instance-path contract even when the repository uses additional
-organizational folders.
-
-## Target Roblox Explorer structure
-
-`default.project.json` is responsible for producing this structure in Roblox Studio. The repository
-layout may use additional folders for organization, but the synced Roblox instance paths are the
-architectural contract.
-
-```text
-Workspace
-  Map                 -- authored terrain, buildings, and static environment
-  Spawns              -- authored player spawn locations
-  Visuals             -- authored particles, lights, and decorations
-  Runtime             -- server-created Mythlings, bases, effects, and other session state
-ReplicatedStorage
-  Network             -- RemoteEvents and RemoteFunctions
-  Packages            -- Wally packages shared by client and server
-  Shared              -- configurations, types, and logic required by server and client
-  Assets              -- client-visible UI, audio, VFX, and preview assets
-ServerScriptService
-  MainServer          -- the only server bootstrap
-  Services            -- authoritative domain services
-  Infrastructure      -- logging, rate limits, remotes, and server utilities
-  Packages            -- server-only external libraries such as ProfileStore
-  PostLaunch          -- inactive post-launch modules; never launch dependencies
-ServerStorage
-  Databases           -- player-data templates and server-only mock/test definitions
-  ServerAssets        -- weapons, NPCs, base assets, and other server-only templates
-  Authoring           -- Studio-only backups, source templates, and staged content
-StarterGui
-  <empty>             -- production application roots are created under PlayerGui
-StarterPlayer
-  StarterCharacterScripts
-  StarterPlayerScripts
-    MainClient        -- the only client bootstrap
-    Controllers       -- bootstrapped feature, input, UI, audio, and VFX controllers
-    State             -- private replicated client state
-    Character         -- shared client character helpers
-    UI                -- declarative application, screens, components, state adapters, theme
-```
-
-`Runtime` is intentionally separate from authored Workspace content. New production UI is created by
-the repository-owned Fusion application directly under `PlayerGui`; do not add a `GameHUD` folder or
-new authored `ScreenGui` roots to `StarterGui`.
-
-## Naming conventions
-
-| Role | Server | Client |
-| --- | --- | --- |
-| Bootstrap | `MainServer.server.lua` | `MainClient.client.lua` |
-| Domain module | `<Domain>Service/init.lua` | `<Domain>Controller.lua` |
-| Stateless helper namespace | `<Thing>Util.lua` | `<Thing>Util.lua` |
-| Constructed object or subsystem | Precise noun such as `RateLimiter.lua` | Precise noun such as `CardList.lua` |
-| Shared state or event channel | Precise noun such as `<Thing>State.lua` | Precise noun such as `ModalState.lua` or `ToastBus.lua` |
-| Module with private children | service folder + `init.lua` | controller folder + `init.lua` |
-
-- Use **PascalCase** for files, folders, Roblox instances, module tables, exported types, services,
-  and controllers: `DataService/init.lua`, `UIController.lua`, and `PlayerData`.
-- Every server service owns a directory named `<Domain>Service`, even when it has no private child
-  modules. Its public entry point is always `init.lua`. This keeps service paths uniform and leaves
-  room for cohesive private modules without a later structural migration.
-- Reserve the `Util` suffix for stateless helper namespaces that do not own a domain lifecycle,
-  shared application state, or a long-lived feature object. Name constructed objects, runtime
-  subsystems, state stores, and event channels for what they are: `RateLimiter`, `BaseRuntime`,
-  `CardList`, `ModalState`, and `ToastBus`.
-- Use **PascalCase** for public module methods: `DataService.Load`, `Release`, `GetState`, and
-  `UIController.Init`. Established constructor `.new` and tagged logger `.warn`/`.error` methods are
-  exceptions; preserve external library APIs as supplied.
-- Use **PascalCase** for local references to Roblox services and required module tables: `Players`,
-  `ReplicatedStorage`, and `LogUtil`.
-- Use **camelCase** for local functions, parameters, mutable module state, and ordinary runtime
-  values: `loadProfile`, `activeProfiles`, `playerData`, and `stateRevision`.
-- Use **UPPER_SNAKE_CASE** for immutable module constants: `STORE_NAME`, `PROFILE_KEY_PREFIX`, and
-  `LOAD_TIMEOUT_SECONDS`.
-- Name booleans as predicates: `isLoaded`, `hasInventorySpace`, `shouldReplicate`, and `canAttack`.
-  Avoid ambiguous names such as `flag`, `check`, or `status` when a precise name is available.
-- Name events and signals for occurrences: `OnStateChanged`, `OnProfileLoaded`, and
-  `OnSessionEnded`.
-- Group remotes by domain and give each one a single direction and responsibility. Name
-  `RemoteEvent` instances as actions or notifications (`StartAttack`, `ClaimState`) and
-  `RemoteFunction` instances as requests or commands that return a result (`Request`,
-  `DeleteMythling`, `GetStatus`).
-- Use singular nouns for data types and owned records: `PlayerData`, `StatePacket`, and
-  `MythlingEntry`. Collection configuration modules are plural: `Configurations/Mythlings.lua`.
-- Use **camelCase** for serialized field and remote-payload keys. Stable metadata IDs use lowercase
-  `snake_case`; they are identifiers, not display names.
-- Keep module-private state `local` without an underscore prefix: use `profiles` and `localCache`,
-  not `_profiles` or `_localCache`.
-- Use `Init(context)`, `Start()`, and `Stop()` for every bootstrapped server service and client
-  controller. `Init` captures dependencies, `Start` connects events and starts tasks, and `Stop`
-  releases runtime resources. Reserve `Destroy()` for constructed objects that are permanently
-  unusable afterward. Requiring a module must not connect events or start tasks.
-- Use `.server.lua` and `.client.lua` only for executable bootstrap scripts or intentionally
-  self-running scripts. Bootstrapped controllers are ordinary ModuleScripts named
-  `<Domain>Controller.lua`; do not use redundant names such as `CombatClient.client.lua`.
-- A module's exported value must match its filename, and any log/assert tag must use that name:
-  `RateLimiter.lua` returns `RateLimiter` and uses `[RateLimiter]`.
-- Helper modules live under their owning domain and are required through `script`, keeping domain
-  internals cohesive.
-- Files using gradual Luau type checking begin with `--!strict`; their next line is the exact Roblox
-  instance path. All other Luau source files use the exact instance path as their first line, for
-  example `-- ServerScriptService/Services/DataService`.
-
-## Logging conventions
-
-- Project-owned runtime code logs only abnormal conditions. Successful initialization, startup,
-  profile loading, saves, requests, and gameplay actions must not emit console output.
-- Server code creates a tagged logger with `local log = LogUtil.For("ModuleName")`, then uses
-  `log.warn` for recoverable anomalies and `log.error` for serious failures that were safely
-  contained. Both log without throwing. Use `error()` or `assert()` only when continuing would leave
-  the runtime invalid.
-- Client code uses `warn` only when a required operation fails, such as controller startup or state
-  synchronization.
-- Invalid and rate-limited remote requests are rejected silently. Never let exploit traffic flood
-  logs, and never log complete profiles or sensitive payloads.
-- Include stable diagnostic context such as a service tag, `userId`, metadata ID, or error code.
-  Prefer `userId` over player display names.
+[Conventions](Conventions.md) owns the [repository layout](Conventions.md#project-structure),
+[Roblox Explorer hierarchy](Conventions.md#roblox-explorer-hierarchy), naming, file organization,
+typing, lifecycle cleanup, formatting, and logging rules. `default.project.json` is the executable
+source of the Rojo mapping. This document retains runtime responsibilities, network and persistence
+contracts, UI ownership, and the [Studio/Rojo boundary](#roblox-studio-and-rojo-ownership).
 
 ## Network contract
 

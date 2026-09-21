@@ -8,7 +8,8 @@ shared Arena, assign them to elemental Shrines, and grow their roster and Base.
 | Document | Canonical content |
 | --- | --- |
 | [Game Design Document](docs/GDD.md) | Player experience, gameplay rules, launch/future scope, pacing goals, and gameplay acceptance criteria. |
-| [Technical Design](docs/TECHNICAL_DESIGN.md) | Rojo structure, naming, networking, combat implementation, data schemas, persistence, UI code ownership, and implementation alignment. |
+| [Technical Design](docs/TECHNICAL_DESIGN.md) | Runtime architecture, networking, combat implementation, data schemas, persistence, UI code ownership, and implementation alignment. |
+| [Coding Conventions](docs/Conventions.md) | Project layout, Rojo hierarchy, naming, module organization, typing, cleanup, formatting, and logging. |
 | [UI Guidelines](docs/UI_GUIDELINES.md) | Menu behavior, visual conventions, accessibility, empty states, and player feedback. |
 | This README | Project setup and development/verification commands. |
 
@@ -76,8 +77,7 @@ For more help, check out [the Rojo documentation](https://rojo.space/docs).
 
 ## Working in the repository
 
-Read [AGENTS.md](AGENTS.md) before making changes. Follow the [project
-structure](docs/TECHNICAL_DESIGN.md#current-project-structure), [naming
-conventions](docs/TECHNICAL_DESIGN.md#naming-conventions), and [Studio/Rojo ownership
+Read [AGENTS.md](AGENTS.md) before making changes. Follow the [project structure and coding
+conventions](docs/Conventions.md), along with the [Studio/Rojo ownership
 rules](docs/TECHNICAL_DESIGN.md#roblox-studio-and-rojo-ownership) in Technical Design. Art-source
 conventions are in [art/README.md](art/README.md).
