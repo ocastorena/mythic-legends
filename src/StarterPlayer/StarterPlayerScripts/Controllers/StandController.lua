@@ -88,33 +88,52 @@ function StandController.Start()
 	end)
 end
 
-function StandController.GetProductionStatus(mythlingId: string): Types.ProductionStatus
+function StandController.GetProductionStatus(standId: number): Types.ProductionStatus?
 	assert(initialized, "[StandController] Init must run before GetProductionStatus")
-	if not validMythlingId(mythlingId) then
-		return { production = 0, rate = 0, capacity = 0 }
+	if not validStandId(standId) then
+		return nil
 	end
-	local ok, response = pcall(getStatus.InvokeServer, getStatus, mythlingId)
+	local ok, response = pcall(getStatus.InvokeServer, getStatus, standId)
 	if not ok then
 		warn("[StandController] Production status request failed")
-		return { production = 0, rate = 0, capacity = 0 }
+		return nil
 	end
 	if type(response) ~= "table" or response.ok ~= true or type(response.value) ~= "table" then
-		return { production = 0, rate = 0, capacity = 0 }
+		return nil
 	end
 	local value = response.value
-	return {
-		production = if type(value.production) == "number" then math.max(value.production, 0) else 0,
-		rate = if type(value.rate) == "number" then math.max(value.rate, 0) else 0,
-		capacity = if type(value.capacity) == "number" then math.max(value.capacity, 0) else 0,
-	}
+	if
+		type(value.production) ~= "number"
+		or type(value.rate) ~= "number"
+		or type(value.capacity) ~= "number"
+		or type(value.progress) ~= "number"
+		or type(value.materials) ~= "table"
+		or type(value.active) ~= "boolean"
+		or type(value.sampledAt) ~= "number"
+	then
+		return nil
+	end
+	return value
 end
 
-function StandController.Collect(mythlingId: string): boolean
+function StandController.Collect(standId: number): Types.ProductionCollection?
 	assert(initialized, "[StandController] Init must run before Collect")
-	if not validMythlingId(mythlingId) then
-		return false
+	if not validStandId(standId) then
+		return nil
 	end
-	return invokeAction(collect, mythlingId, "Collect")
+	local ok, response = pcall(collect.InvokeServer, collect, standId)
+	if not ok then
+		warn("[StandController] Collect request failed")
+		return nil
+	end
+	if type(response) ~= "table" or response.ok ~= true or type(response.value) ~= "table" then
+		return nil
+	end
+	local value = response.value
+	if type(value.collected) ~= "number" or type(value.remaining) ~= "number" or type(value.materials) ~= "table" then
+		return nil
+	end
+	return value
 end
 
 function StandController.Place(standId: number, mythlingId: string): boolean

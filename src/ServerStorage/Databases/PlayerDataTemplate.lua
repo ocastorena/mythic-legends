@@ -2,7 +2,7 @@
 -- ServerStorage/Databases/PlayerDataTemplate
 
 local PlayerDataTemplate = {
-	version = 2,
+	version = 3,
 	profile = {
 		userId = 0,
 		createdAt = 0,

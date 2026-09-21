@@ -10,6 +10,7 @@ local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
 local PlayerDataTemplate = require(ServerStorage:WaitForChild("Databases"):WaitForChild("PlayerDataTemplate"))
+local Migrations = require(script.Migrations)
 
 local log = LogUtil.For("DataService")
 
@@ -52,6 +53,7 @@ DataService.OnReleased = releasedBindable.Event
 local updateState: RemoteEvent?
 local requestState: RemoteFunction?
 local stateRequestLimiter = RateLimiter.new(6, 1)
+local mythlingsData: any
 
 local function deepClone(value: any): any
 	if type(value) ~= "table" then
@@ -151,6 +153,7 @@ end
 function DataService.Init(context: any)
 	updateState = context.Remotes.State.Update
 	requestState = context.Remotes.State.Request
+	mythlingsData = context.Configurations.Mythlings
 end
 
 function DataService.Start()
@@ -212,6 +215,15 @@ function DataService.Load(player: Player): boolean
 	end
 
 	profile:AddUserId(player.UserId)
+	local migrationOk, migrated, migrationError = pcall(Migrations.Apply, profile.Data, mythlingsData, os.time())
+	if not migrationOk or not migrated then
+		log.error(`Profile migration failed for userId {player.UserId}`, migrationError or migrated)
+		profile:EndSession()
+		if player.Parent == Players then
+			player:Kick("Your data could not be updated safely. Please rejoin.")
+		end
+		return false
+	end
 	profile:Reconcile()
 	profile.OnSessionEnd:Connect(function()
 		local endedIntentionally = releasing[player] == profile
@@ -259,6 +271,17 @@ function DataService.Release(player: Player)
 	end
 	projections[player] = nil
 	revisions[player] = nil
+end
+
+-- Non-yielding access for already-loaded production operations. Unlike GetOrCreateSection,
+-- this never starts a load or publishes defaults in the middle of a mutation.
+function DataService.GetLoadedSection(player: Player, sectionName: string): { [any]: any }?
+	local profile = profiles[player]
+	if not profile or not profile:IsActive() then
+		return nil
+	end
+	local section = profile.Data[sectionName]
+	return if type(section) == "table" then section else nil
 end
 
 function DataService.GetOrCreateSection(player: Player, sectionName: string): { [any]: any }

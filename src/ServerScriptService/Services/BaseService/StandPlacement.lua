@@ -100,6 +100,10 @@ local function findStand(baseModel: any, standId: number): (BasePart?, string?)
 	return nil, `Stand {standId} was not found`
 end
 
+function StandPlacement.HasStand(baseModel: any, standId: number): boolean
+	return findStand(baseModel, standId) ~= nil
+end
+
 function StandPlacement.LoadMythlingsOnStands(
 	mythlingSection: any,
 	baseModel: any,

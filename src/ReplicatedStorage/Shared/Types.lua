@@ -14,7 +14,7 @@ export type MythlingEntry = {
 	variantId: string,
 	claimedAt: number,
 	standId: number?,
-	-- nil while production is stopped (mythling not placed on a stand)
+	-- Legacy v2 cursor, consumed by the v3 migration. New work belongs to the stand.
 	lastCollectionAt: number?,
 }
 
@@ -100,7 +100,7 @@ export type PlayerDoc = {
 		shieldInstanceId: string?,
 	},
 	base: {
-		stands: { [number]: any },
+		stands: { [string]: { production: StandProduction? } },
 	},
 }
 
@@ -138,12 +138,27 @@ export type ProductionStatus = {
 	production: number,
 	rate: number,
 	capacity: number,
+	progress: number,
+	materials: { [string]: { stored: number, progress: number } },
+	active: boolean,
+	sampledAt: number,
+}
+
+export type StandProduction = {
+	lastAccruedAt: number,
+	materials: { [string]: { stored: number, progress: number } },
+}
+
+export type ProductionCollection = {
+	collected: number,
+	remaining: number,
+	materials: { [string]: number },
 }
 
 export type StandControllerApi = {
 	OnStandRequested: RBXScriptSignal,
-	GetProductionStatus: (string) -> ProductionStatus,
-	Collect: (string) -> boolean,
+	GetProductionStatus: (number) -> ProductionStatus?,
+	Collect: (number) -> ProductionCollection?,
 	Place: (number, string) -> boolean,
 	Remove: (number, string) -> boolean,
 }

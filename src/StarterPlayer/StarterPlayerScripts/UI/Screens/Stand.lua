@@ -10,6 +10,7 @@ local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local CardList = require(Ui:WaitForChild("Components"):WaitForChild("CardList"))
 local MenuState = require(Ui:WaitForChild("State"):WaitForChild("MenuState"))
 local Motion = require(Ui:WaitForChild("Motion"))
+local ToastBus = require(Ui:WaitForChild("State"):WaitForChild("ToastBus"))
 local Theme = require(Ui:WaitForChild("Theme"))
 local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
 local MythlingsMeta =
@@ -27,20 +28,7 @@ local PANEL_NAME = "Stand"
 local function Stand(scope: any, props: Props): ScreenGui
 	local connections: { RBXScriptConnection } = scope
 	local alive = true
-	--
-	-- The stand panel is the design's shrine panel: same shell, a roster grid in the 2/3
-	-- column under a section label, and a details column of hero art, hero stats, a storage
-	-- bar and a footer.
-	--
-	-- The four actions used to be four buttons in a `Bottom` frame outside the card, three of
-	-- which were always visible and two of which overlapped. §07 allows one wide primary and
-	-- one square secondary, so they collapse onto the selection instead:
-	--
-	--   selected card is on this stand -> primary "Collect" · secondary "−" (remove)
-	--   selected card is another one    -> primary "Station" or "Swap In"
-	--
-	-- Every action the old layout offered is still reachable, and which one applies is now
-	-- obvious from what is selected.
+	-- Storage belongs to the stand and remains accessible independently of its worker.
 
 	local LocalData = props.localData
 	local standGui = scope:New("ScreenGui")({
@@ -85,7 +73,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 	local rosterHolder = Instance.new("Frame")
 	rosterHolder.Name = "MythlingsFrame"
 	rosterHolder.Position = UDim2.fromOffset(0, 26)
-	rosterHolder.Size = UDim2.new(1, 0, 1, -26)
+	rosterHolder.Size = UDim2.new(1, 0, 1, -178)
 	rosterHolder.BackgroundTransparency = 1
 	rosterHolder.BorderSizePixel = 0
 	rosterHolder.Parent = panel.Grid
@@ -96,6 +84,52 @@ local function Stand(scope: any, props: Props): ScreenGui
 		check = true,
 		root = panel.Root,
 	})
+
+	local storage = Instance.new("Frame")
+	storage.Name = "StandStorage"
+	storage.AnchorPoint = Vector2.new(0, 1)
+	storage.Position = UDim2.fromScale(0, 1)
+	storage.Size = UDim2.new(1, 0, 0, 142)
+	storage.BackgroundTransparency = 1
+	storage.Parent = panel.Grid
+
+	local function storageText(name: string, parent: Instance, y: number, height: number): TextLabel
+		local label = Instance.new("TextLabel")
+		label.Name = name
+		label.Position = UDim2.fromOffset(0, y)
+		label.Size = UDim2.new(1, -6, 0, height)
+		label.BackgroundTransparency = 1
+		label.FontFace = Theme.Font.bold
+		label:SetAttribute("Em", Theme.Em.caption)
+		label.TextSize = Theme.text(Theme.Em.caption, panel.Root)
+		label.TextColor3 = Theme.Text.strong
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.TextYAlignment = Enum.TextYAlignment.Top
+		label.Text = ""
+		label.Parent = parent
+		return label
+	end
+
+	local storageTitle = storageText("StoredMaterials", storage, 0, 20)
+	storageTitle.Text = "Stored Materials"
+	local materialScroll = Instance.new("ScrollingFrame")
+	materialScroll.Name = "StoredMaterialList"
+	materialScroll.Position = UDim2.fromOffset(0, 22)
+	materialScroll.Size = UDim2.new(1, 0, 0, 42)
+	materialScroll.BackgroundTransparency = 1
+	materialScroll.BorderSizePixel = 0
+	materialScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	materialScroll.CanvasSize = UDim2.new()
+	materialScroll.ScrollBarThickness = 3
+	materialScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	materialScroll.Parent = storage
+	local materialSummary = storageText("Materials", materialScroll, 0, 0)
+	materialSummary.AutomaticSize = Enum.AutomaticSize.Y
+	materialSummary.TextWrapped = true
+	local productionLabel = storageText("ProductionState", storage, 68, 22)
+	local storageCollectButton = Panel.PrimaryButton(storage, "Collect", panel.Root, Theme.Accent.green)
+	storageCollectButton.Name = "CollectStoredMaterials"
+	storageCollectButton.Position = UDim2.fromOffset(0, 98)
 
 	local details = Panel.CreateDetails({
 		parent = panel.Details,
@@ -124,69 +158,112 @@ local function Stand(scope: any, props: Props): ScreenGui
 	local mythlingList
 
 	local productionTween: Tween? = nil
-	local productionValue: NumberValue = Instance.new("NumberValue")
-	productionValue.Value = 0
-	table.insert(scope, productionValue)
-	-- Capacity for the bar currently on screen, so the value listener can size the fill.
-	local productionCapacity = 0
-	-- Connected once; the old code added a new listener on every tween.
-	local productionConnected = false
+	local progressValue = Instance.new("NumberValue")
+	table.insert(scope, progressValue)
+	local productionStatus: Types.ProductionStatus? = nil
+	local productionUnavailable = false
+	local actionPending = false
+	local refreshQueued = false
+	local refreshInFlight = false
+	local viewGeneration = 0
 
 	--------------------------------------------------------------------------------
 	-- Helpers
 	--------------------------------------------------------------------------------
 
-	--- Shows how full the stand's storage is, using §06's progress row: label left, figures
-	--- right, accent fill. Replaces the old "12/300 (+5/min)" text line.
-	local function renderProduction()
-		local stored = math.floor(productionValue.Value)
-		if details.ProgressLabel then
-			details.ProgressLabel.Text = "Storage"
-		end
-		if details.ProgressDetail then
-			details.ProgressDetail.Text = `{stored} / {productionCapacity}`
-		end
-		Panel.SetProgress(details, productionCapacity > 0 and stored / productionCapacity or 0)
+	local function canCollect(): boolean
+		local status = productionStatus
+		return not actionPending
+			and not productionUnavailable
+			and status ~= nil
+			and (status.production > 0 or (status.active and progressValue.Value >= 1))
 	end
 
-	local function startProductionTween(production: number, capacity: number, rate: number): ()
+	local function renderProduction()
+		local status = productionStatus
+		storageCollectButton.Text = if actionPending
+			then "Updating…"
+			elseif productionUnavailable then "Retry"
+			else "Collect"
+		Panel.SetButtonEnabled(
+			storageCollectButton,
+			not actionPending and (productionUnavailable or canCollect()),
+			Theme.Accent.green
+		)
+		if not status then
+			storageTitle.Text = "Stored Materials"
+			materialSummary.Text = if productionUnavailable
+				then "Storage could not be synchronized."
+				else "Loading storage…"
+			productionLabel.Text = ""
+			if details.ProgressLabel then
+				details.ProgressLabel.Text = "Unfinished"
+			end
+			if details.ProgressDetail then
+				details.ProgressDetail.Text = "—"
+			end
+			Panel.SetProgress(details, 0)
+			return
+		end
+		storageTitle.Text = if status.active
+			then `{status.production} / {status.capacity} stored Materials`
+			else `{status.production} stored Materials`
+		if productionUnavailable then
+			productionLabel.Text = "Sync unavailable · last confirmed values"
+		elseif not status.active then
+			productionLabel.Text = "Paused · earned work retained"
+		elseif status.production >= status.capacity then
+			productionLabel.Text = "Paused · storage full"
+		elseif status.rate <= 0 then
+			productionLabel.Text = "Paused · no production"
+		elseif progressValue.Value >= 1 then
+			productionLabel.Text = "Next Material ready (estimate)"
+		else
+			local seconds = math.ceil((1 - progressValue.Value) * 60 / status.rate)
+			productionLabel.Text = `Next Material in about {seconds}s`
+		end
+		if details.ProgressLabel then
+			details.ProgressLabel.Text = "Unfinished"
+		end
+		if details.ProgressDetail then
+			details.ProgressDetail.Text = if status.active then `{math.floor(progressValue.Value * 100)}%` else "Paused"
+		end
+		Panel.SetProgress(details, progressValue.Value)
+		if activeId and mythlingList and mythlingList:GetSelectedId() == activeId then
+			Panel.SetButtonEnabled(collectButton, canCollect(), Theme.Accent.green)
+		end
+	end
+
+	local function applyProductionStatus(status: Types.ProductionStatus)
 		if productionTween then
 			productionTween:Cancel()
 		end
-
-		productionCapacity = capacity
-		-- Reset starting value
-		productionValue.Value = production
-
-		-- Compute how long it should take to fill up (in seconds)
-		local ratePerSec = rate / 60
-		local remaining = math.max(capacity - production, 0)
-		local duration = ratePerSec > 0 and remaining / ratePerSec or 0
-
-		renderProduction()
-
-		if not productionConnected then
-			productionConnected = true
-			table.insert(
-				connections,
-				productionValue:GetPropertyChangedSignal("Value"):Connect(function()
-					renderProduction()
-					-- Only the Collect state belongs to production. While another card is selected
-					-- the footer is showing Station/Swap In, and repainting it here would recolour
-					-- that button green and toggle it on a timer that has nothing to do with it.
-					if mythlingList and mythlingList:GetSelectedId() == activeId then
-						Panel.SetButtonEnabled(collectButton, productionValue.Value >= 1, Theme.Accent.green)
-					end
-				end)
-			)
+		productionStatus = status
+		productionUnavailable = false
+		local lines = {}
+		for materialId, bucket in pairs(status.materials) do
+			local metadata = MaterialsMeta[materialId]
+			local name = metadata and metadata.displayName or materialId
+			local unfinished = if bucket.progress > 0 then ` · {math.floor(bucket.progress * 100)}% unfinished` else ""
+			table.insert(lines, `{name}: {bucket.stored} ready{unfinished}`)
 		end
-
+		table.sort(lines)
+		materialSummary.Text = if #lines > 0
+			then table.concat(lines, "\n")
+			else "No stored Materials or unfinished work."
+		local elapsed = math.max(workspace:GetServerTimeNow() - status.sampledAt, 0)
+		local isWorking = status.active and status.rate > 0 and status.production < status.capacity
+		local progress = if isWorking then status.progress + elapsed * status.rate / 60 else status.progress
+		progressValue.Value = math.clamp(progress, 0, 1)
+		renderProduction()
+		local duration = if isWorking then (1 - progressValue.Value) * 60 / status.rate else 0
 		if duration > 0 then
-			local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-			productionTween = TweenService:Create(productionValue, tweenInfo, { Value = capacity })
+			productionTween =
+				TweenService:Create(progressValue, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Value = 1 })
 			productionTween:Play()
 		end
 	end
+	table.insert(connections, progressValue:GetPropertyChangedSignal("Value"):Connect(renderProduction))
 
 	--- Resets the details column to its empty state.
 	local function clearInfo(): ()
@@ -199,12 +276,6 @@ local function Stand(scope: any, props: Props): ScreenGui
 			stat.Value.Text = "—"
 			stat.Label.Text = ""
 		end
-		productionCapacity = 0
-		if productionTween then
-			productionTween:Cancel()
-		end
-		productionValue.Value = 0
-		renderProduction()
 		activeId = nil
 	end
 
@@ -233,24 +304,25 @@ local function Stand(scope: any, props: Props): ScreenGui
 		local selectedId = mythlingList:GetSelectedId()
 
 		if selectedId and selectedId == activeId then
-			-- Looking at the stationed mythling: collect from it, or take it off.
+			-- Collection remains available separately even when this worker is removed.
 			collectButton.Text = "Collect"
-			Panel.SetButtonEnabled(collectButton, productionValue.Value >= 1, Theme.Accent.green)
+			Panel.SetButtonEnabled(collectButton, canCollect(), Theme.Accent.green)
 			removeButton.Visible = true
 		elseif selectedId and activeId then
 			-- Another mythling is stationed, so this one has to displace it.
 			collectButton.Text = "Swap In"
-			Panel.SetButtonEnabled(collectButton, true, Theme.Accent.gold)
+			Panel.SetButtonEnabled(collectButton, not actionPending, Theme.Accent.gold)
 			removeButton.Visible = false
 		elseif selectedId then
 			collectButton.Text = "Station"
-			Panel.SetButtonEnabled(collectButton, true, Theme.Accent.gold)
+			Panel.SetButtonEnabled(collectButton, not actionPending, Theme.Accent.gold)
 			removeButton.Visible = false
 		else
 			collectButton.Text = "Collect"
 			Panel.SetButtonEnabled(collectButton, false, Theme.Accent.green)
 			removeButton.Visible = false
 		end
+		Panel.SetButtonEnabled(removeButton, not actionPending, Theme.Accent.red)
 	end
 
 	--- Fills the details column from the mythling on this stand.
@@ -277,21 +349,12 @@ local function Stand(scope: any, props: Props): ScreenGui
 		details.ElementIcon.Image = materialMeta.thumbnail
 		details.ElementIcon.BackgroundColor3 = tint
 
-		local status = props.standController.GetProductionStatus(id)
-		if not alive or standGui.Parent == nil or activeId ~= id then
-			return
-		end
-		local production = status.production or 0
-		local rate = status.rate or 0
-		local capacity = status.capacity or 0
-
-		details.Stats[1].Value.Text = `{rate}/min`
+		local status = productionStatus
+		details.Stats[1].Value.Text = if status then `{status.rate}/min` else "—"
 		details.Stats[1].Label.Text = "Total Yield"
 		details.Stats[2].Value.Text = materialMeta.displayName
 		details.Stats[2].Label.Text = "Material"
 		details.Stats[2].Value.TextColor3 = tint
-
-		startProductionTween(production, capacity, rate)
 	end
 
 	mythlingList = CardList.new({
@@ -323,6 +386,91 @@ local function Stand(scope: any, props: Props): ScreenGui
 		activeId = nil
 		mythlingList:Replace(list)
 		refreshCards()
+	end
+
+	local function refreshProduction()
+		local requestedStandId = standId
+		if not requestedStandId or refreshInFlight then
+			return
+		end
+		local generation = viewGeneration
+		refreshInFlight = true
+		local status = props.standController.GetProductionStatus(requestedStandId)
+		if not alive or generation ~= viewGeneration then
+			return
+		end
+		refreshInFlight = false
+		if status then
+			applyProductionStatus(status)
+		else
+			productionUnavailable = true
+			if productionTween then
+				productionTween:Cancel()
+			end
+			renderProduction()
+		end
+		showMythlingInfo()
+		updateButtons()
+	end
+
+	local function queueProductionRefresh()
+		-- A status request may itself settle work and replicate the base. Do not turn that
+		-- acknowledgement into a status-request loop.
+		if refreshQueued or refreshInFlight or actionPending then
+			return
+		end
+		refreshQueued = true
+		local generation = viewGeneration
+		task.defer(function()
+			if not alive or generation ~= viewGeneration then
+				return
+			end
+			refreshQueued = false
+			refreshProduction()
+		end)
+	end
+
+	local function beginAction(): number
+		viewGeneration += 1
+		refreshInFlight = false
+		refreshQueued = false
+		actionPending = true
+		if productionTween then
+			productionTween:Cancel()
+		end
+		renderProduction()
+		updateButtons()
+		return viewGeneration
+	end
+
+	local function collectStorage()
+		if productionUnavailable then
+			queueProductionRefresh()
+			return
+		end
+		if not standId or not canCollect() then
+			return
+		end
+		local generation = beginAction()
+		local result = props.standController.Collect(standId)
+		if not alive or generation ~= viewGeneration then
+			return
+		end
+		actionPending = false
+		if result then
+			if result.collected > 0 then
+				ToastBus.Show(`Collected {result.collected} Materials. {result.remaining} remain in storage.`)
+			elseif result.remaining > 0 then
+				ToastBus.Show(`No Materials fit in Inventory. {result.remaining} remain in storage.`)
+			else
+				ToastBus.Show("No whole Materials are ready yet. Unfinished work is retained.")
+			end
+		else
+			ToastBus.Show("Collection could not be confirmed. Refreshing storage.")
+		end
+		renderProduction()
+		updateButtons()
+		queueProductionRefresh()
 	end
 
 	--------------------------------------------------------------------------------
@@ -367,17 +515,13 @@ local function Stand(scope: any, props: Props): ScreenGui
 
 	-- The primary button carries whichever verb updateButtons settled on.
 	ButtonUtil.hookClick(collectButton, function()
+		if actionPending or not standId then
+			return
+		end
 		local selectedId = mythlingList:GetSelectedId()
 
 		if selectedId and selectedId == activeId then
-			-- Collect
-			if productionValue.Value > 0 then
-				if props.standController.Collect(activeId :: string) then
-					if alive then
-						showMythlingInfo()
-					end
-				end
-			end
+			collectStorage()
 			return
 		end
 
@@ -385,55 +529,73 @@ local function Stand(scope: any, props: Props): ScreenGui
 			return
 		end
 
+		local generation = beginAction()
 		if activeId then
 			-- Swap In: remove the current occupant, then place the selection.
-			if not props.standController.Remove(standId :: number, activeId) then
+			local removed = props.standController.Remove(standId, activeId)
+			if not alive or generation ~= viewGeneration then
+				return
+			end
+			if not removed then
+				actionPending = false
+				updateButtons()
+				renderProduction()
+				queueProductionRefresh()
 				return
 			end
 			activeId = nil
-			if not alive then
-				return
-			end
 		end
-		if not props.standController.Place(standId :: number, selectedId) then
-			refreshCards()
-			updateButtons()
-			showMythlingInfo()
+		local placed = props.standController.Place(standId, selectedId)
+		if not alive or generation ~= viewGeneration then
 			return
 		end
-		if not alive then
-			return
+		actionPending = false
+		if placed then
+			activeId = selectedId
 		end
-
-		activeId = selectedId
 		refreshCards()
 		updateButtons()
 		showMythlingInfo()
+		renderProduction()
+		queueProductionRefresh()
 	end)
+	ButtonUtil.hookClick(storageCollectButton, collectStorage)
 
 	-- Square secondary: take the stationed mythling off this stand.
 	ButtonUtil.hookClick(removeButton, function()
-		if not activeId then
+		if not activeId or not standId or actionPending then
 			return
 		end
-		if not props.standController.Remove(standId :: number, activeId) then
+		local generation = beginAction()
+		local removed = props.standController.Remove(standId, activeId)
+		if not alive or generation ~= viewGeneration then
 			return
 		end
-		if not alive then
-			return
+		actionPending = false
+		if removed then
+			activeId = nil
 		end
-		activeId = nil
 		refreshCards()
 		updateButtons()
 		showMythlingInfo()
+		renderProduction()
+		queueProductionRefresh()
 	end)
 
 	-- The replicated private state cache keeps this view current without polling.
 	table.insert(
 		connections,
 		LocalData.OnStateChanged:Connect(function(key, value)
-			if key == "mythlings" and standGui.Enabled then
+			if not standGui.Enabled then
+				return
+			end
+			if key == "mythlings" then
 				addMythlingCards(value or {})
+				showMythlingInfo()
+				updateButtons()
+			end
+			if key == "base" or key == "materials" or key == "mythlings" then
+				queueProductionRefresh()
 			end
 		end)
 	)
@@ -444,6 +606,18 @@ local function Stand(scope: any, props: Props): ScreenGui
 	table.insert(
 		connections,
 		props.standController.OnStandRequested:Connect(function(requestedStandId: number)
+			viewGeneration += 1
+			refreshInFlight = false
+			refreshQueued = false
+			actionPending = false
+			if standId ~= requestedStandId then
+				productionStatus = nil
+				progressValue.Value = 0
+			end
+			productionUnavailable = false
+			if productionTween then
+				productionTween:Cancel()
+			end
 			standId = requestedStandId
 			standLabel.Text = "Stand #" .. tostring(standId)
 			local list = LocalData.Peek("mythlings") or {}
@@ -451,8 +625,10 @@ local function Stand(scope: any, props: Props): ScreenGui
 			addMythlingCards(list)
 			showMythlingInfo()
 			updateButtons()
+			renderProduction()
 
 			MenuState.Open(PANEL_NAME)
+			queueProductionRefresh()
 		end)
 	)
 
@@ -470,6 +646,13 @@ local function Stand(scope: any, props: Props): ScreenGui
 			-- dropping it on close keeps a stale stand's cards from flashing up on the next.
 			mythlingList:Clear()
 			clearInfo()
+			viewGeneration += 1
+			refreshInFlight = false
+			refreshQueued = false
+			actionPending = false
+			if productionTween then
+				productionTween:Cancel()
+			end
 			updateButtons()
 		end,
 	})

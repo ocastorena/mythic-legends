@@ -9,8 +9,8 @@ local expect = JestGlobals.expect
 local it = JestGlobals.it
 
 describe("PlayerDataTemplate", function()
-	it("starts the v2 schema with Gold and no legacy Runies field", function()
-		expect(PlayerDataTemplate.version).toBe(2)
+	it("starts the v3 schema with Gold and no legacy Runies field", function()
+		expect(PlayerDataTemplate.version).toBe(3)
 		expect(PlayerDataTemplate.currency.gold).toBe(0)
 		expect(PlayerDataTemplate.currency.runies).toBeNil()
 	end)

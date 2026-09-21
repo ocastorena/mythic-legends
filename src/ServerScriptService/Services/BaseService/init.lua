@@ -91,6 +91,10 @@ local function handlePlayerAdded(player: Player)
 	StandPlacement.LoadMythlingsOnStands(mythlingsSection, base, MythlingAssets, MythlingsMeta)
 end
 
+function BaseService.HasStand(player: Player, standId: number): boolean
+	return StandPlacement.HasStand(getPlayerBase(player), standId)
+end
+
 local function validRequest(standId: unknown, mythlingId: unknown): boolean
 	return type(standId) == "number"
 		and standId % 1 == 0
@@ -120,6 +124,12 @@ local function handlePlaceMythling(player: Player, payload: unknown)
 		return { ok = false, code = "BaseUnavailable" }
 	end
 	local mythlingMeta = MythlingsMeta[mythlingEntry.typeId]
+	-- Settle the old occupant/empty interval before changing the assignment. A failed
+	-- placement may checkpoint work, but cannot erase it or backfill empty time.
+	local settled, settleCode = ProductionService.SettleProduction(player, standId)
+	if not settled then
+		return { ok = false, code = settleCode or "ProductionUnavailable" }
+	end
 	local result, message =
 		StandPlacement.SetMythlingOnStand(mythlingEntry, base, standId, MythlingAssets, mythlingMeta)
 	if not result then
@@ -127,7 +137,6 @@ local function handlePlaceMythling(player: Player, payload: unknown)
 		return { ok = false, code = "PlacementRejected" }
 	end
 	InventoryService.MarkDirty(player)
-	ProductionService.StartProduction(player, mythlingId)
 	return { ok = true }
 end
 
@@ -151,6 +160,10 @@ local function handleRemoveMythling(player: Player, payload: unknown)
 	if not base then
 		return { ok = false, code = "BaseUnavailable" }
 	end
+	local settled, settleCode = ProductionService.SettleProduction(player, payload.standId)
+	if not settled then
+		return { ok = false, code = settleCode or "ProductionUnavailable" }
+	end
 	local result, message = StandPlacement.RemoveMythlingFromStand(mythlingEntry, base)
 	if result then
 		InventoryService.MarkDirty(player)
@@ -158,7 +171,6 @@ local function handleRemoveMythling(player: Player, payload: unknown)
 		log.warn(message)
 		return { ok = false, code = "RemovalRejected" }
 	end
-	ProductionService.StopProduction(player, mythlingId)
 	return { ok = true }
 end
 
@@ -174,11 +186,14 @@ function BaseService.RemoveMythlingFromStand(player: Player, mythlingId: string)
 	if not base then
 		return false
 	end
+	if not ProductionService.SettleProduction(player, mythlingEntry.standId) then
+		return false
+	end
 	local removed = StandPlacement.RemoveMythlingFromStand(mythlingEntry, base)
 	if not removed then
 		return false
 	end
-	ProductionService.StopProduction(player, mythlingId)
+	InventoryService.MarkDirty(player)
 	return true
 end
 
