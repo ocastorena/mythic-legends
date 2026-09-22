@@ -36,7 +36,7 @@ function ViewportUtil.Observe(owner: Instance, update: (Vector2) -> ()): () -> (
 			return
 		end
 		local function refresh()
-			if isAlive then
+			if isAlive and workspace.CurrentCamera == camera then
 				update(camera.ViewportSize)
 			end
 		end

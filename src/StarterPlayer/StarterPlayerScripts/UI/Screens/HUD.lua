@@ -13,6 +13,7 @@ local LocalDataValue =
 local MenuState = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("MenuState"))
 local FusionUtil = require(script.Parent.Parent.State.FusionUtil)
 local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
+local ViewportUtil = require(script.Parent.Parent.ViewportUtil)
 
 local INVENTORY_ICON = "rbxassetid://6870729295"
 local GOLD_ICON = "rbxassetid://112895221053745"
@@ -41,6 +42,7 @@ local function HUD(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenGui
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local camera = workspace.CurrentCamera
 	local initialViewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	local currentViewport = initialViewport
 	local initialTopbar = Theme.Topbar(initialViewport)
 	local rowTop = scope:Value(initialTopbar.rowTop)
 	local rowHeight = scope:Value(initialTopbar.rowHeight)
@@ -253,7 +255,7 @@ local function HUD(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenGui
 	}) :: Frame
 
 	local function refreshLayout()
-		local viewport = camera and camera.ViewportSize or initialViewport
+		local viewport = currentViewport
 		local topbar = Theme.Topbar(viewport)
 		rowTop:set(topbar.rowTop)
 		rowHeight:set(topbar.rowHeight)
@@ -265,9 +267,6 @@ local function HUD(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenGui
 	end
 
 	table.insert(scope, mainFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(refreshLayout))
-	if camera then
-		table.insert(scope, camera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshLayout))
-	end
 	local insetOk, insetConnection = pcall(function()
 		return GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshLayout)
 	end)
@@ -286,6 +285,13 @@ local function HUD(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenGui
 		[scope.Children] = { mainFrame },
 	}) :: ScreenGui
 
+	table.insert(
+		scope,
+		ViewportUtil.Observe(screenGui, function(viewport)
+			currentViewport = viewport
+			refreshLayout()
+		end)
+	)
 	refreshLayout()
 	task.defer(function()
 		if screenGui.Parent then

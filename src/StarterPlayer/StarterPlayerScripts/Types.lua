@@ -32,7 +32,7 @@ export type InventoryEquipmentSession = {
 }
 export type InventoryControllerApi = {
 	OnEquipmentChanged: RBXScriptSignal,
-	RequestEquipmentSnapshot: () -> InventoryEquipmentMap,
+	RequestEquipmentSnapshot: () -> InventoryEquipmentMap?,
 	Equip: (string) -> boolean,
 	DeleteMythling: (string) -> boolean,
 	BindEquipmentView: (InventoryEquipmentViewProps) -> InventoryEquipmentSession,

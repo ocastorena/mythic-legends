@@ -8,6 +8,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Types = require(script.Parent.Parent.Parent.Types)
 local Theme = require(script.Parent.Parent.Theme)
+local ViewportUtil = require(script.Parent.Parent.ViewportUtil)
 
 local NORMAL_BUTTON_COLOR = Color3.fromRGB(60, 60, 64)
 local FALLBACK_JUMP_SIZE = 70
@@ -133,10 +134,7 @@ local function CombatActions(scope: Fusion.Scope<typeof(Fusion)>, props: Props):
 		relayout = relayout,
 	})
 	table.insert(scope, unbind)
-	local camera = workspace.CurrentCamera
-	if camera then
-		table.insert(scope, camera:GetPropertyChangedSignal("ViewportSize"):Connect(relayout))
-	end
+	table.insert(scope, ViewportUtil.Observe(screenGui, relayout))
 	table.insert(
 		scope,
 		playerGui.ChildAdded:Connect(function(child: Instance)

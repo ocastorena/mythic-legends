@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
+local Assets = require(script.Assets)
 
 type Controls = {
 	controlsEnabled: boolean?,
@@ -291,235 +292,44 @@ end
 -- World readiness
 --------------------------------------------------------------------------------
 
-local function criticalWorldReady(): boolean
-	local map = workspace:FindFirstChild("Map")
-	if not map then
-		return false
-	end
-
-	local arena = map:FindFirstChild("Arena")
-	local floatingIsland = map:FindFirstChild("FloatingIsland")
-	local baseIslands = map:FindFirstChild("BaseIslands")
-	if not (arena and arena:IsA("BasePart") and floatingIsland and baseIslands) then
-		return false
-	end
-	if #floatingIsland:GetDescendants() < 67 then
-		return false
-	end
-
-	for index = 0, 7 do
-		local island = baseIslands:FindFirstChild("BaseIsland" .. index)
-		local grass = island and island:FindFirstChild("Grass")
-		local hasVisualGeometry = false
-		if island then
-			for _, descendant in island:GetDescendants() do
-				if descendant:IsA("BasePart") and descendant ~= grass then
-					hasVisualGeometry = true
-					break
-				end
-			end
-		end
-		if
-			not (
-				island
-				and island:IsA("Model")
-				and grass
-				and grass:IsA("BasePart")
-				and hasVisualGeometry
-			)
-		then
-			return false
-		end
-	end
-	return true
+local function resolveEssentials(): Assets.Snapshot
+	return Assets.Resolve(workspace, playerGui, localPlayer.Character, localPlayer.UserId)
 end
 
-local function waitForCriticalWorld(maxWaitSeconds: number)
+local function waitForSpawnPosition(maxWaitSeconds: number): Assets.Snapshot
 	local deadline = os.clock() + maxWaitSeconds
-	while not isDismissed and not criticalWorldReady() and os.clock() < deadline do
+	local snapshot = resolveEssentials()
+	while not isDismissed and not Assets.GetStreamPosition(snapshot) and os.clock() < deadline do
 		task.wait(0.1)
+		snapshot = resolveEssentials()
 	end
+	return snapshot
 end
 
-local function streamCoreWorld()
-	if not workspace.StreamingEnabled then
+local function streamStartingArea(snapshot: Assets.Snapshot)
+	local position = Assets.GetStreamPosition(snapshot)
+	if isDismissed or not workspace.StreamingEnabled or not position then
 		return
 	end
-
-	local map = workspace:FindFirstChild("Map")
-	local baseIslands = map and map:FindFirstChild("BaseIslands")
-	local arena = map and map:FindFirstChild("Arena")
-	if not (map and baseIslands and arena and arena:IsA("BasePart")) then
-		return
-	end
-
-	local positions = { arena.Position }
-	for index = 0, 7 do
-		local island = baseIslands:FindFirstChild("BaseIsland" .. index)
-		if island and island:IsA("Model") then
-			table.insert(positions, island:GetPivot().Position)
-		end
-	end
-
-	local remaining = #positions
-	for _, position in ipairs(positions) do
-		deferLoading(function()
-			pcall(function()
-				localPlayer:RequestStreamAroundAsync(position, STREAM_TIMEOUT_SECONDS)
-			end)
-			remaining -= 1
-		end)
-	end
-
-	local deadline = os.clock() + STREAM_TIMEOUT_SECONDS
-	while not isDismissed and remaining > 0 and os.clock() < deadline do
-		task.wait(0.1)
-	end
+	-- One bounded request at the actual character position, with the owned Spawn as fallback.
+	pcall(function()
+		localPlayer:RequestStreamAroundAsync(position, STREAM_TIMEOUT_SECONDS)
+	end)
 end
 
-local function waitForRuntimeBase(maxWaitSeconds: number)
-	local runtime = workspace:FindFirstChild("Runtime")
-	local bases = runtime and runtime:FindFirstChild("Bases")
-	if not bases then
-		return
-	end
-
-	local baseName = tostring(localPlayer.UserId)
+local function waitForEssentials(maxWaitSeconds: number): Assets.Snapshot
 	local deadline = os.clock() + maxWaitSeconds
-	while not isDismissed and not bases:FindFirstChild(baseName) and os.clock() < deadline do
+	local snapshot = resolveEssentials()
+	while not isDismissed and not Assets.IsReady(snapshot) and os.clock() < deadline do
 		task.wait(0.1)
+		snapshot = resolveEssentials()
 	end
+	return snapshot
 end
 
 --------------------------------------------------------------------------------
 -- Asset loading
 --------------------------------------------------------------------------------
-
-local function isPreloadable(instance: Instance): boolean
-	return instance:IsA("MeshPart")
-		or instance:IsA("Decal")
-		or instance:IsA("Texture")
-		or instance:IsA("ImageLabel")
-		or instance:IsA("ImageButton")
-		or instance:IsA("Sound")
-		or instance:IsA("ParticleEmitter")
-		or instance:IsA("Beam")
-		or instance:IsA("Trail")
-		or instance:IsA("Animation")
-		or instance:IsA("SpecialMesh")
-		or instance:IsA("Sky")
-		or instance:IsA("Shirt")
-		or instance:IsA("Pants")
-		or instance:IsA("ShirtGraphic")
-		or instance:IsA("CharacterMesh")
-end
-
-local function appendPreloadables(
-	target: { Instance },
-	seen: { [Instance]: boolean },
-	root: Instance?
-)
-	if not root then
-		return
-	end
-	if isPreloadable(root) and not seen[root] then
-		seen[root] = true
-		table.insert(target, root)
-	end
-	for _, instance in root:GetDescendants() do
-		if isPreloadable(instance) and not seen[instance] then
-			seen[instance] = true
-			table.insert(target, instance)
-		end
-	end
-end
-
-local function appendGeometry(target: { Instance }, seen: { [Instance]: boolean }, root: Instance?)
-	if not root then
-		return
-	end
-	if root:IsA("BasePart") and not seen[root] then
-		seen[root] = true
-		table.insert(target, root)
-	end
-	for _, instance in root:GetDescendants() do
-		if instance:IsA("BasePart") and not seen[instance] then
-			seen[instance] = true
-			table.insert(target, instance)
-		end
-	end
-end
-
-local function assetRoots(): { Instance }
-	local roots: { Instance } = {
-		workspace,
-		game:GetService("Lighting"),
-		game:GetService("SoundService"),
-		game:GetService("ReplicatedStorage"),
-		game:GetService("StarterGui"),
-		game:GetService("StarterPack"),
-		playerGui,
-	}
-	local backpack = localPlayer:FindFirstChildOfClass("Backpack")
-	if backpack then
-		table.insert(roots, backpack)
-	end
-	return roots
-end
-
-local function countPresentPreloadables(): number
-	local count = 0
-	for _, root in ipairs(assetRoots()) do
-		if isPreloadable(root) then
-			count += 1
-		end
-		for _, instance in root:GetDescendants() do
-			if isPreloadable(instance) then
-				count += 1
-			end
-		end
-	end
-	return count
-end
-
-local function waitForAssetPopulation(maxWaitSeconds: number)
-	local deadline = os.clock() + maxWaitSeconds
-	local lastCount = -1
-	local stableSince = os.clock()
-	while not isDismissed and os.clock() < deadline do
-		local currentCount = countPresentPreloadables()
-		if currentCount ~= lastCount then
-			lastCount = currentCount
-			stableSince = os.clock()
-		elseif os.clock() - stableSince >= 0.75 then
-			return
-		end
-		task.wait(0.15)
-	end
-end
-
-local function collectAssets(): { Instance }
-	local assets = {}
-	local seen: { [Instance]: boolean } = {}
-	for _, root in ipairs(assetRoots()) do
-		appendPreloadables(assets, seen, root)
-	end
-
-	-- Let the Arena stream and render naturally instead of blocking startup on more than a
-	-- thousand static parts. Only the authored spawn-island geometry is explicitly preloaded.
-	local map = workspace:FindFirstChild("Map")
-	if map then
-		appendGeometry(assets, seen, map:FindFirstChild("FloatingIsland"))
-
-		local baseIslands = map:FindFirstChild("BaseIslands")
-		if baseIslands then
-			for index = 0, 7 do
-				appendGeometry(assets, seen, baseIslands:FindFirstChild("BaseIsland" .. index))
-			end
-		end
-	end
-	return assets
-end
 
 local function preloadAssets(assets: { Instance }, startProgress: number)
 	if #assets == 0 then
@@ -614,15 +424,19 @@ deferLoading(function()
 	end
 
 	setProgress(0.08)
-	waitForCriticalWorld(6)
+	local snapshot = waitForSpawnPosition(6)
 	setProgress(0.2)
-	streamCoreWorld()
+	streamStartingArea(snapshot)
+	if isDismissed then
+		return
+	end
 	setProgress(0.4)
-	waitForRuntimeBase(4)
-	setProgress(0.48)
-	waitForAssetPopulation(3)
+	snapshot = waitForEssentials(4)
+	if isDismissed then
+		return
+	end
 	setProgress(0.55)
-	preloadAssets(collectAssets(), 0.55)
+	preloadAssets(Assets.Collect(workspace, playerGui, screenGui, snapshot), 0.55)
 	-- Give the renderer a brief quiet window after the essential preload completes.
 	task.wait(1)
 	dismiss()

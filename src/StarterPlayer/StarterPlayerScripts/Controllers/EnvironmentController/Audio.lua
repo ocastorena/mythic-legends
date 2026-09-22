@@ -88,8 +88,20 @@ function Audio.Start()
 	if not isRunning or generation ~= currentGeneration then
 		return
 	end
-	local fireLandmark = landmarks:FindFirstChild("FireLandmark")
-	if fireLandmark and (fireLandmark:IsA("Model") or fireLandmark:IsA("BasePart")) then
+	local volcanoStarted = false
+	local function tryStartVolcano(fireLandmark: Instance?)
+		if not isRunning or generation ~= currentGeneration or volcanoStarted then
+			return
+		end
+		if
+			not fireLandmark
+			or fireLandmark.Name ~= "FireLandmark"
+			or fireLandmark.Parent ~= landmarks
+			or not (fireLandmark:IsA("Model") or fireLandmark:IsA("BasePart"))
+		then
+			return
+		end
+		volcanoStarted = true
 		local volcanoAnchor = createAnchor("VolcanoAudioAnchor", fireLandmark:GetPivot().Position)
 		local volcano = createSound("VolcanoRumble", VOLCANO_SOUND_ID, volcanoAnchor, ambienceGroup)
 		volcano.Looped = true
@@ -107,6 +119,9 @@ function Audio.Start()
 		volcanoEqualizer.Parent = volcano
 		volcano:Play()
 	end
+	-- Persistent models can arrive after their parent folder during initial replication.
+	lifetime:Add(landmarks.ChildAdded:Connect(tryStartVolcano))
+	tryStartVolcano(landmarks:FindFirstChild("FireLandmark"))
 
 	local arenaStructure = map:WaitForChild("ArenaStructure")
 	if not isRunning or generation ~= currentGeneration then

@@ -36,23 +36,46 @@ function Quality.Start()
 	end
 	local originalMultiplier = script:GetAttribute("AppliedMultiplier")
 	local appliedMultiplier: number?
-	lifetime:Add(function()
-		for emitter, rate in baseParticleRates do
-			if emitter.Parent and emitter.Rate == appliedParticleRates[emitter] then
-				emitter.Rate = rate
+	local function releaseInstance(instance: Instance)
+		-- Streaming removes descendants without destroying them. Drop both references even
+		-- when a later owner changed the property, and capture a fresh baseline on re-entry.
+		if instance:IsA("ParticleEmitter") then
+			local rate = baseParticleRates[instance]
+			local appliedRate = appliedParticleRates[instance]
+			baseParticleRates[instance] = nil
+			appliedParticleRates[instance] = nil
+			if rate ~= nil and instance.Rate == appliedRate then
+				instance.Rate = rate
 			end
-		end
-		for beam, segments in baseBeamSegments do
-			if beam.Parent and beam.Segments == appliedBeamSegments[beam] then
-				beam.Segments = segments
+		elseif instance:IsA("Beam") then
+			local segments = baseBeamSegments[instance]
+			local appliedSegments = appliedBeamSegments[instance]
+			baseBeamSegments[instance] = nil
+			appliedBeamSegments[instance] = nil
+			if segments ~= nil and instance.Segments == appliedSegments then
+				instance.Segments = segments
 			end
-		end
-		for mesh, fidelity in baseRenderFidelity do
-			if mesh.Parent and mesh.RenderFidelity == appliedRenderFidelity[mesh] then
+		elseif instance:IsA("MeshPart") then
+			local fidelity = baseRenderFidelity[instance]
+			local appliedFidelity = appliedRenderFidelity[instance]
+			baseRenderFidelity[instance] = nil
+			appliedRenderFidelity[instance] = nil
+			if fidelity ~= nil and instance.RenderFidelity == appliedFidelity then
 				pcall(function()
-					mesh.RenderFidelity = fidelity
+					instance.RenderFidelity = fidelity
 				end)
 			end
+		end
+	end
+	lifetime:Add(function()
+		for emitter in baseParticleRates do
+			releaseInstance(emitter)
+		end
+		for beam in baseBeamSegments do
+			releaseInstance(beam)
+		end
+		for mesh in baseRenderFidelity do
+			releaseInstance(mesh)
 		end
 		if script:GetAttribute("AppliedMultiplier") == appliedMultiplier then
 			script:SetAttribute("AppliedMultiplier", originalMultiplier)
@@ -147,6 +170,9 @@ function Quality.Start()
 	end
 
 	local function applyEnvironmentQuality()
+		if not isRunning or generation ~= currentGeneration then
+			return
+		end
 		local multiplier = qualityMultiplier()
 		appliedMultiplier = multiplier
 		script:SetAttribute("AppliedMultiplier", multiplier)
@@ -156,11 +182,17 @@ function Quality.Start()
 		end
 	end
 
-	applyEnvironmentQuality()
-
 	lifetime:Add(environment.DescendantAdded:Connect(function(instance)
-		applyInstance(instance, qualityMultiplier())
+		if
+			isRunning
+			and generation == currentGeneration
+			and instance:IsDescendantOf(environment)
+		then
+			applyInstance(instance, qualityMultiplier())
+		end
 	end))
+	lifetime:Add(environment.DescendantRemoving:Connect(releaseInstance))
+	applyEnvironmentQuality()
 
 	local ok, gameSettings = pcall(function()
 		return UserSettings().GameSettings

@@ -23,6 +23,7 @@ local EquipmentPresentation = require(script.EquipmentPresentation)
 local ArenaBounds = require(script.ArenaBounds)
 local CombatMath = require(script.CombatMath)
 local CombatState = require(script.CombatState)
+local LoadoutRequests = require(script.LoadoutRequests)
 local lifecycle = ServiceLifecycle.new("CombatService")
 local presentation: { Clear: (Model) -> (), Rebuild: (Model) -> () }
 local Equipment: Types.EquipmentConfiguration
@@ -35,6 +36,7 @@ local combatReaction: RemoteEvent
 local combatImpact: RemoteEvent
 local getLoadoutRemote: RemoteFunction
 local equipRemote: RemoteFunction
+local loadoutRequests: LoadoutRequests.Requests
 local arena: BasePart
 
 local CombatService = {}
@@ -83,7 +85,6 @@ type PlayerLifecycle = {
 
 local runtimes: { [Player]: CombatRuntime } = {}
 local playerLifecycles: { [Player]: PlayerLifecycle } = {}
-local nextLoadoutRequestAt: { [Player]: number } = {}
 local nextHitId = 0
 local serviceTrove: TroveInstance?
 local shieldTweens: { [Model]: Tween } = {}
@@ -225,14 +226,11 @@ end
 
 type EquipmentEntries = { [string]: { definitionId: string } }
 type Loadout = { primaryWeaponInstanceId: string?, shieldInstanceId: string? }
-type LoadoutSnapshot = {
-	equipment: { { instanceId: string, definitionId: string } },
-	primaryWeaponInstanceId: string?,
-	shieldInstanceId: string?,
-}
-type LoadoutResult = { ok: boolean, code: string?, snapshot: LoadoutSnapshot }
+type LoadoutSnapshot = LoadoutRequests.Snapshot
 local function getEquipmentAndLoadout(player: Player): (EquipmentEntries, Loadout)
-	return DataService.GetData(player).equipment, DataService.GetData(player).combatLoadout
+	local data = DataService.GetLoadedData(player)
+	assert(data, "[CombatService] Loadout requires an active profile")
+	return data.equipment, data.combatLoadout
 end
 
 local function getOwnedDefinition(
@@ -908,7 +906,7 @@ local function onPlayerRemoving(player: Player)
 		playerLifecycles[player] = nil
 		lifecycle.trove:Remove(playerLifetime.trove)
 	end
-	nextLoadoutRequestAt[player] = nil
+	loadoutRequests.Forget(player)
 	local runtime: CombatRuntime? = runtimes[player]
 	if runtime then
 		restoreMovement(runtime)
@@ -940,6 +938,20 @@ function CombatService.Init(serviceContext: ServerTypes.Context)
 	combatImpact = serviceContext.Remotes.Combat.Impact
 	getLoadoutRemote = serviceContext.Remotes.Combat.GetLoadout
 	equipRemote = serviceContext.Remotes.Combat.Equip
+	loadoutRequests = LoadoutRequests.new({
+		DataService = DataService,
+		isAvailable = function(player)
+			return lifecycle:IsRunning() and player.Parent == Players
+		end,
+		allowRequest = function(player)
+			return loadoutLimiter:Allow(player)
+		end,
+		resolveLoadout = function(player)
+			resolveLoadout(player)
+		end,
+		snapshotLoadout = snapshotLoadout,
+		equipOwnedInstance = equipOwnedInstance,
+	})
 	arena = serviceContext.Instances.Arena
 end
 
@@ -957,39 +969,8 @@ function CombatService.Start()
 		end
 	end
 
-	getLoadoutRemote.OnServerInvoke = function(player: Player): LoadoutResult?
-		if
-			not DataService.Load(player)
-			or not lifecycle:IsRunning()
-			or player.Parent ~= Players
-		then
-			return nil
-		end
-		if not loadoutLimiter:Allow(player) then
-			return { ok = false, code = "RateLimited", snapshot = snapshotLoadout(player) }
-		end
-		resolveLoadout(player)
-		return { ok = true, snapshot = snapshotLoadout(player) }
-	end
-	equipRemote.OnServerInvoke = function(player: Player, instanceId: unknown): LoadoutResult?
-		if
-			not DataService.Load(player)
-			or not lifecycle:IsRunning()
-			or player.Parent ~= Players
-		then
-			return nil
-		end
-		if not loadoutLimiter:Allow(player) then
-			return { ok = false, code = "RateLimited", snapshot = snapshotLoadout(player) }
-		end
-		local now = os.clock()
-		if now < (nextLoadoutRequestAt[player] or 0) then
-			return { ok = false, code = "RateLimited", snapshot = snapshotLoadout(player) }
-		end
-		nextLoadoutRequestAt[player] = now + 0.5
-		local ok, reason = equipOwnedInstance(player, instanceId)
-		return { ok = ok, code = reason, snapshot = snapshotLoadout(player) }
-	end
+	getLoadoutRemote.OnServerInvoke = loadoutRequests.Get
+	equipRemote.OnServerInvoke = loadoutRequests.Equip
 
 	trove:Connect(setShieldGuardRemote.OnServerEvent, handleGuardRequest)
 	trove:Connect(startAttack.OnServerEvent, function(player: Player, payload: unknown)
@@ -1043,6 +1024,7 @@ function CombatService.Stop()
 		onPlayerRemoving(player)
 	end
 	loadoutLimiter:Clear()
+	loadoutRequests.Clear()
 	guardLimiter:Clear()
 	startAttackLimiter:Clear()
 	reportHitLimiter:Clear()

@@ -11,6 +11,7 @@ local MenuState = require(Ui:WaitForChild("State"):WaitForChild("MenuState"))
 local Motion = require(Ui:WaitForChild("Motion"))
 local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
 local Theme = require(Ui:WaitForChild("Theme"))
+local ViewportUtil = require(Ui.ViewportUtil)
 
 local PANEL_NAME = "Shop"
 local SHOP_ICON = "rbxassetid://9405933217"
@@ -73,14 +74,12 @@ local function Shop(scope: Fusion.Scope<typeof(Fusion)>): ScreenGui
 	responsiveScale.Name = "ResponsiveContentScale"
 	responsiveScale.Scale = contentScale(initialViewport)
 	responsiveScale.Parent = panel.Card
-	if camera then
-		table.insert(
-			scope,
-			camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-				responsiveScale.Scale = contentScale(camera.ViewportSize)
-			end)
-		)
-	end
+	table.insert(
+		scope,
+		ViewportUtil.Observe(shopGui, function(viewport)
+			responsiveScale.Scale = contentScale(viewport)
+		end)
+	)
 
 	local offerInfoColumn = Instance.new("CanvasGroup")
 	offerInfoColumn.Name = "OfferInfo"

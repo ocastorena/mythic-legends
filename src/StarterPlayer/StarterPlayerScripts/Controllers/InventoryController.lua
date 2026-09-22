@@ -67,30 +67,30 @@ function InventoryController.Start()
 	end
 end
 
-function InventoryController.RequestEquipmentSnapshot(): Types.InventoryEquipmentMap
+function InventoryController.RequestEquipmentSnapshot(): Types.InventoryEquipmentMap?
 	assert(isInitialized, "[InventoryController] Init must run before RequestEquipmentSnapshot")
 	local equipment: Types.InventoryEquipmentMap = {}
 	local requestGeneration = generation
 	local success, rawResponse = pcall(getCombatLoadout.InvokeServer, getCombatLoadout)
 	if hasStopped or requestGeneration ~= generation then
-		return equipment
+		return nil
 	end
 	if not success then
 		warn("[InventoryController] Combat Loadout request failed")
-		return equipment
+		return nil
 	end
 	local response: unknown = rawResponse
 	if type(response) ~= "table" then
-		return equipment
+		return nil
 	end
 	local record = response :: { [string]: unknown }
 	if record.ok ~= true or type(record.snapshot) ~= "table" then
-		return equipment
+		return nil
 	end
 
 	local snapshot = record.snapshot :: { [string]: unknown }
 	if type(snapshot.equipment) ~= "table" then
-		return equipment
+		return nil
 	end
 	for _, rawOwned in snapshot.equipment :: { [unknown]: unknown } do
 		if type(rawOwned) ~= "table" then
@@ -209,7 +209,7 @@ function InventoryController.BindEquipmentView(
 				return
 			end
 			isRequesting = false
-			if props.isVisible() then
+			if snapshot and props.isVisible() then
 				props.onSnapshot(snapshot)
 			end
 			if needsRefresh then

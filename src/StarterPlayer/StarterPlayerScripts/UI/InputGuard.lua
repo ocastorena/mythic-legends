@@ -70,9 +70,9 @@ type PlayerModuleApi = { GetControls: (PlayerModuleApi) -> ControlsApi }
 local Controls: ControlsApi? = nil
 local controlsWasEnabled: boolean? = nil
 
-local camera = workspace.CurrentCamera
-local savedCamType: Enum.CameraType? = nil
-local savedCamSubject: (BasePart | Humanoid)? = nil
+local lockedCamera: Camera? = nil
+local savedCameraType: Enum.CameraType? = nil
+local cameraConnection: RBXScriptConnection? = nil
 
 local function ensureControls()
 	if Controls then
@@ -110,29 +110,50 @@ local function restoreControls()
 	controlsWasEnabled = nil
 end
 
-local function lockCamera()
-	if not savedCamType then
-		camera = workspace.CurrentCamera
+local function restoreCamera()
+	local camera = lockedCamera
+	local previousType = savedCameraType
+	lockedCamera = nil
+	savedCameraType = nil
+	if
+		camera
+		and camera.Parent
+		and previousType
+		and camera.CameraType == Enum.CameraType.Scriptable
+	then
+		camera.CameraType = previousType
 	end
-	if not opts.lockCamera or not camera then
+	-- CameraSubject is never changed by this guard; respawn and other camera owners keep it.
+end
+
+local function lockCurrentCamera()
+	if workspace.CurrentCamera == lockedCamera then
 		return
 	end
-	if not savedCamType then
-		savedCamType = camera.CameraType
-		savedCamSubject = camera.CameraSubject
+	restoreCamera()
+	local camera = workspace.CurrentCamera
+	if refCount > 0 and opts.lockCamera and camera and camera.Parent then
+		lockedCamera = camera
+		savedCameraType = camera.CameraType
+		camera.CameraType = Enum.CameraType.Scriptable
 	end
-	camera.CameraType = Enum.CameraType.Scriptable
+end
+
+local function lockCamera()
+	if not opts.lockCamera then
+		return
+	end
+	cameraConnection =
+		workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(lockCurrentCamera)
+	lockCurrentCamera()
 end
 
 local function unlockCamera()
-	if not opts.lockCamera or not camera then
-		return
+	if cameraConnection then
+		cameraConnection:Disconnect()
+		cameraConnection = nil
 	end
-	if savedCamType and camera.CameraType == Enum.CameraType.Scriptable then
-		camera.CameraType = savedCamType
-		camera.CameraSubject = savedCamSubject
-	end
-	savedCamType, savedCamSubject = nil, nil
+	restoreCamera()
 end
 
 -- ===== ContextActionService binds =====

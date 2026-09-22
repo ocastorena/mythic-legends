@@ -39,6 +39,7 @@ local function Inventory(scope: Fusion.Scope<typeof(Fusion)>, props: Props): Scr
 	local MenuState = require(Ui:WaitForChild("State"):WaitForChild("MenuState"))
 	local Motion = require(Ui:WaitForChild("Motion"))
 	local Theme = require(Ui:WaitForChild("Theme"))
+	local ViewportUtil = require(Ui.ViewportUtil)
 	local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
 	local MythlingsData = require(
 		ReplicatedStorage:WaitForChild("Shared")
@@ -126,14 +127,12 @@ local function Inventory(scope: Fusion.Scope<typeof(Fusion)>, props: Props): Scr
 	)
 	inventoryScale.Parent = panel.Card
 
-	if workspace.CurrentCamera then
-		table.insert(
-			connections,
-			workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-				inventoryScale.Scale = inventoryContentScale(workspace.CurrentCamera.ViewportSize)
-			end)
-		)
-	end
+	table.insert(
+		connections,
+		ViewportUtil.Observe(inventoryGui, function(viewport)
+			inventoryScale.Scale = inventoryContentScale(viewport)
+		end)
+	)
 
 	local mythlingsTab = panel.Tabs.Mythlings
 	local equipmentTab = panel.Tabs.Equipment
