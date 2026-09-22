@@ -69,6 +69,7 @@ type ControlsApi = {
 type PlayerModuleApi = { GetControls: (PlayerModuleApi) -> ControlsApi }
 local Controls: ControlsApi? = nil
 local controlsWasEnabled: boolean? = nil
+local pendingCharacterConnection: RBXScriptConnection? = nil
 
 local lockedCamera: Camera? = nil
 local savedCameraType: Enum.CameraType? = nil
@@ -84,30 +85,75 @@ local function ensureControls()
 	Controls = PlayerModule:GetControls()
 end
 
-local function disableControls()
-	if not opts.disableControls then
-		return
-	end
-	ensureControls()
-	if Controls and refCount > 0 then
-		-- Remember previous state on first disable
-		if controlsWasEnabled == nil then
-			controlsWasEnabled = Controls.controlsEnabled
-		end
-		Controls:Disable()
+local function cancelPendingCharacter()
+	if pendingCharacterConnection then
+		pendingCharacterConnection:Disconnect()
+		pendingCharacterConnection = nil
 	end
 end
 
-local function restoreControls()
-	if not opts.disableControls then
+local function withCharacter(callback: () -> ())
+	cancelPendingCharacter()
+	if localPlayer.Character then
+		callback()
 		return
 	end
-	if Controls and controlsWasEnabled ~= nil then
-		if controlsWasEnabled and not Controls.controlsEnabled then
+	-- PlayerModule disabling, including touch visibility changes, calls Player:Move.
+	pendingCharacterConnection = localPlayer.CharacterAdded:Connect(function(character)
+		if localPlayer.Character == character then
+			cancelPendingCharacter()
+			callback()
+		end
+	end)
+end
+
+local function disableControls(generation: number)
+	if opts.disableControls then
+		ensureControls()
+	end
+	if refCount == 0 or generation ~= guardGeneration then
+		return
+	end
+	withCharacter(function()
+		if refCount == 0 or generation ~= guardGeneration then
+			return
+		end
+		if opts.disableControls and Controls then
+			if controlsWasEnabled == nil then
+				controlsWasEnabled = Controls.controlsEnabled
+			end
+			if Controls.controlsEnabled then
+				Controls:Disable()
+			end
+		end
+		if opts.hideMobileControls and UserInputService.TouchEnabled then
+			if touchControlsWereEnabled == nil then
+				touchControlsWereEnabled = GuiService.TouchControlsEnabled
+			end
+			if GuiService.TouchControlsEnabled then
+				GuiService.TouchControlsEnabled = false
+			end
+		end
+	end)
+end
+
+local function restoreControls(generation: number)
+	if controlsWasEnabled == nil and touchControlsWereEnabled == nil then
+		return
+	end
+	withCharacter(function()
+		if refCount > 0 or generation ~= guardGeneration then
+			return
+		end
+		if touchControlsWereEnabled and not GuiService.TouchControlsEnabled then
+			GuiService.TouchControlsEnabled = true
+		end
+		touchControlsWereEnabled = nil
+		if Controls and controlsWasEnabled and not Controls.controlsEnabled then
 			Controls:Enable()
 		end
-	end
-	controlsWasEnabled = nil
+		controlsWasEnabled = nil
+	end)
 end
 
 local function restoreCamera()
@@ -224,13 +270,6 @@ local function bindCameraBlocks()
 			Enum.UserInputType.Touch
 		)
 	end
-
-	-- Hide mobile controls cosmetically while menus are up
-	local isTouchEnabled = UserInputService.TouchEnabled
-	if opts.hideMobileControls and isTouchEnabled then
-		touchControlsWereEnabled = GuiService.TouchControlsEnabled
-		GuiService.TouchControlsEnabled = false
-	end
 end
 
 local function unbindCameraBlocks()
@@ -238,10 +277,6 @@ local function unbindCameraBlocks()
 	ContextActionService:UnbindAction(ACTION_RMB)
 	ContextActionService:UnbindAction(ACTION_KEYS)
 	ContextActionService:UnbindAction(ACTION_TOUCH)
-	if touchControlsWereEnabled ~= nil and not GuiService.TouchControlsEnabled then
-		GuiService.TouchControlsEnabled = touchControlsWereEnabled
-	end
-	touchControlsWereEnabled = nil
 end
 
 -- ===== Public API =====
@@ -252,13 +287,11 @@ function InputGuard.Open()
 	if refCount == 1 then
 		guardGeneration += 1
 		local generation = guardGeneration
-		disableControls()
-		if refCount == 0 or generation ~= guardGeneration then
-			return
-		end
+		cancelPendingCharacter()
 		lockCamera()
 		bindMovement()
 		bindCameraBlocks()
+		disableControls(generation)
 	end
 end
 
@@ -269,10 +302,11 @@ function InputGuard.Close()
 	refCount -= 1
 	if refCount == 0 then
 		guardGeneration += 1
+		cancelPendingCharacter()
 		unbindMovement()
 		unbindCameraBlocks()
 		unlockCamera()
-		restoreControls()
+		restoreControls(guardGeneration)
 	end
 end
 

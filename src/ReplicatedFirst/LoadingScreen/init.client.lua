@@ -133,9 +133,17 @@ deferLoading(function()
 	if not success or not controls or not isAlive or isDismissed then
 		return
 	end
+	-- Roblox's Disable calls Player:Move internally. The action sinks above already
+	-- block input while no character exists; dismissal cancels this owned wait.
+	while not localPlayer.Character do
+		localPlayer.CharacterAdded:Wait()
+		if not isAlive or isDismissed then
+			return
+		end
+	end
 	movementControls = controls
 	wereControlsEnabled = controls.controlsEnabled
-	if isMovementLocked and wereControlsEnabled ~= nil then
+	if isMovementLocked and wereControlsEnabled == true then
 		pcall(function()
 			controls:Disable()
 		end)
@@ -149,9 +157,9 @@ local function releaseMovement()
 	isMovementLocked = false
 	ContextActionService:UnbindAction(MOVEMENT_LOCK_ACTION)
 	local controls = movementControls
-	if controls and wereControlsEnabled ~= nil and controls.controlsEnabled == false then
+	if controls and wereControlsEnabled == true and controls.controlsEnabled == false then
 		pcall(function()
-			controls:Enable(wereControlsEnabled)
+			controls:Enable(true)
 		end)
 	end
 end
