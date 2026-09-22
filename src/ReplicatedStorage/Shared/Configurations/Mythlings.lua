@@ -1,6 +1,9 @@
 --!strict
 -- ReplicatedStorage/Shared/Configurations/Mythlings
-return {
+
+local FreezeUtil = require(script.Parent.Parent.FreezeUtil)
+local Types = require(script.Parent.Parent.Types)
+local Mythlings: { [string]: Types.MythlingDef } = {
 	axolotl = {
 		displayName = "Stream Axolotl",
 		rarity = "Legendary",
@@ -11,7 +14,7 @@ return {
 		description = "A gentle, luminous creature of flowing water that thrives in currents and calms storms within the stream.",
 		production = {
 			materialId = "essence",
-			baseRate = 1.20,
+			materialsPerMinute = 1.20,
 			baseCapacity = 420,
 		},
 		variants = {
@@ -31,7 +34,7 @@ return {
 		description = "A rare and regal dragon whose gemstone scales shimmer with light, drawing awe as much as power.",
 		production = {
 			materialId = "crystal",
-			baseRate = 0.70,
+			materialsPerMinute = 0.70,
 			baseCapacity = 300,
 		},
 		variants = {
@@ -51,7 +54,7 @@ return {
 		description = "A cunning dweller of twilight, dancing between shadows, unseen until its music echoes in silence.",
 		production = {
 			materialId = "shadow_dust",
-			baseRate = 0.85,
+			materialsPerMinute = 0.85,
 			baseCapacity = 340,
 		},
 		variants = {
@@ -62,3 +65,5 @@ return {
 		},
 	},
 }
+
+return FreezeUtil.DeepFreeze(Mythlings)

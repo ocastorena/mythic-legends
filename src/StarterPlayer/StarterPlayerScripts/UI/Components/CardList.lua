@@ -1,171 +1,148 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Components/CardList
--- Scrolling grid of selectable cards cloned from a template.
---
--- The Inventory and Stand screens share this card-list behavior rather than growing their own
--- copy of this: clone/name/parent the template, keep an id -> card map alongside an
--- id -> data map, track one selection, rebuild from a server list. Only the highlight
--- styling actually differed, so that is a callback rather than baked in.
---
---   local list = CardList.new({
---       template = cardTemplate,
---       parent = scrollFrame,
---       setHighlight = function(card, selected) ... end,
---       decorate = function(card, id, entry) ... end,
---       onSelect = function(id, entry, card) ... end,
---   })
---   list:Replace(serverList)
+-- Typed selectable cards; each card owns its click connection through GUI destruction.
 
 local ButtonUtil = require(script.Parent.Parent.ButtonUtil)
 
 local CardList = {}
-CardList.__index = CardList
 
-export type Config = {
-	template: GuiObject,
+export type Config<T> = {
+	template: GuiButton,
 	parent: Instance,
-	-- Applies the selected/deselected look. Required: styling is the one thing that
-	-- genuinely differs between the GUIs.
-	setHighlight: (card: GuiObject, selected: boolean) -> (),
-	-- Fills in the card's images and labels for this entry.
-	decorate: ((card: GuiObject, id: string, entry: any) -> ())?,
-	-- Called after a card becomes selected, including the automatic first selection.
-	onSelect: ((id: string, entry: any, card: GuiObject) -> ())?,
-	-- Return false to leave an entry out of the list entirely.
-	filter: ((id: string, entry: any) -> boolean)?,
-	-- Select the first card added when nothing is selected yet. Defaults to true.
+	setHighlight: (GuiButton, boolean) -> (),
+	decorate: ((GuiButton, string, T) -> ())?,
+	onSelect: ((string, T, GuiButton) -> ())?,
+	filter: ((string, T) -> boolean)?,
 	autoSelectFirst: boolean?,
 }
 
-function CardList.new(config: Config)
-	assert(config.template, "[CardList] template is required")
-	assert(config.parent, "[CardList] parent is required")
-	assert(config.setHighlight, "[CardList] setHighlight is required")
+export type List<T> = {
+	GetSelectedId: (List<T>) -> string?,
+	GetSelectedCard: (List<T>) -> GuiButton?,
+	GetData: (List<T>, string) -> T?,
+	GetCard: (List<T>, string) -> GuiButton?,
+	ClearSelection: (List<T>) -> (),
+	Select: (List<T>, string) -> (),
+	Add: (List<T>, string, T) -> GuiButton?,
+	Remove: (List<T>, string) -> (),
+	Clear: (List<T>) -> (),
+	Replace: (List<T>, { [string]: T }) -> (),
+	Cards: (List<T>) -> { [string]: GuiButton },
+}
 
-	return setmetatable({
-		_config = config,
-		_cards = {} :: { [string]: GuiObject },
-		_data = {} :: { [string]: any },
-		_selectedId = nil :: string?,
-	}, CardList)
-end
+function CardList.new<T>(config: Config<T>): List<T>
+	local cards: { [string]: GuiButton } = {}
+	local data: { [string]: T } = {}
+	local selectedId: string? = nil
 
---- The currently selected card's id, or nil.
-function CardList:GetSelectedId(): string?
-	return self._selectedId
-end
-
-function CardList:GetSelectedCard(): GuiObject?
-	return self._selectedId and self._cards[self._selectedId] or nil
-end
-
-function CardList:GetData(id: string): any
-	return self._data[id]
-end
-
-function CardList:GetCard(id: string): GuiObject?
-	return self._cards[id]
-end
-
---- Drops the highlight without selecting anything else.
-function CardList:ClearSelection()
-	local card = self:GetSelectedCard()
-	if card then
-		self._config.setHighlight(card, false)
-	end
-	self._selectedId = nil
-end
-
---- Selects by id. Re-selecting the current id is a no-op, so callers can call this
---- freely from click handlers without fighting their own state.
-function CardList:Select(id: string)
-	if self._selectedId == id then
-		return
-	end
-	local card = self._cards[id]
-	if not card then
-		return
+	local function clearSelection()
+		local card = if selectedId then cards[selectedId] else nil
+		if card then
+			config.setHighlight(card, false)
+		end
+		selectedId = nil
 	end
 
-	self:ClearSelection()
-	self._config.setHighlight(card, true)
-	self._selectedId = id
-
-	if self._config.onSelect then
-		self._config.onSelect(id, self._data[id], card)
-	end
-end
-
---- Adds one card. Idempotent by id, and respects the configured filter.
-function CardList:Add(id: string, entry: any): GuiObject?
-	if self._cards[id] then
-		return self._cards[id]
-	end
-	if self._config.filter and not self._config.filter(id, entry) then
-		return nil
-	end
-
-	local card = self._config.template:Clone()
-	card.Name = id
-	card.Visible = true
-	card.LayoutOrder = 1
-	card.Parent = self._config.parent
-
-	if self._config.decorate then
-		self._config.decorate(card, id, entry)
+	local function selectCard(id: string)
+		if selectedId == id then
+			return
+		end
+		local card = cards[id]
+		if not card then
+			return
+		end
+		clearSelection()
+		config.setHighlight(card, true)
+		selectedId = id
+		local onSelect = config.onSelect
+		if onSelect then
+			onSelect(id, data[id], card)
+		end
 	end
 
-	self._cards[id] = card
-	self._data[id] = entry
-
-	ButtonUtil.hookClick(card, function()
-		self:Select(id)
-	end)
-
-	local autoSelect = self._config.autoSelectFirst
-	if autoSelect == nil then
-		autoSelect = true
+	local function add(id: string, entry: T): GuiButton?
+		if cards[id] then
+			return cards[id]
+		end
+		local filter = config.filter
+		if filter and not filter(id, entry) then
+			return nil
+		end
+		local card = config.template:Clone()
+		card.Name = id
+		card.Visible = true
+		card.LayoutOrder = 1
+		card.Parent = config.parent
+		local decorate = config.decorate
+		if decorate then
+			decorate(card, id, entry)
+		end
+		cards[id] = card
+		data[id] = entry
+		ButtonUtil.HookClick(card, function()
+			selectCard(id)
+		end)
+		if config.autoSelectFirst ~= false and not selectedId then
+			selectCard(id)
+		end
+		return card
 	end
-	if autoSelect and not self._selectedId then
-		self:Select(id)
+
+	local function clear()
+		for _, card in cards do
+			card:Destroy()
+		end
+		table.clear(cards)
+		table.clear(data)
+		selectedId = nil
 	end
 
-	return card
-end
-
---- Removes one card and its data, clearing the selection if it was selected.
-function CardList:Remove(id: string)
-	if self._selectedId == id then
-		self._selectedId = nil
-	end
-	local card = self._cards[id]
-	if card then
-		card:Destroy()
-	end
-	self._cards[id] = nil
-	self._data[id] = nil
-end
-
---- Destroys every card. Does not fire onSelect.
-function CardList:Clear()
-	for _, card in pairs(self._cards) do
-		card:Destroy()
-	end
-	table.clear(self._cards)
-	table.clear(self._data)
-	self._selectedId = nil
-end
-
---- Rebuilds the whole list from a server-provided table of id -> entry.
-function CardList:Replace(list: { [string]: any })
-	self:Clear()
-	for id, entry in pairs(list or {}) do
-		self:Add(id, entry)
-	end
-end
-
---- Iterates id -> card, for callers that need to restyle everything.
-function CardList:Cards(): { [string]: GuiObject }
-	return self._cards
+	return {
+		GetSelectedId = function(_self)
+			return selectedId
+		end,
+		GetSelectedCard = function(_self)
+			return if selectedId then cards[selectedId] else nil
+		end,
+		GetData = function(_self, id)
+			return data[id]
+		end,
+		GetCard = function(_self, id)
+			return cards[id]
+		end,
+		ClearSelection = function(_self)
+			clearSelection()
+		end,
+		Select = function(_self, id)
+			selectCard(id)
+		end,
+		Add = function(_self, id, entry)
+			return add(id, entry)
+		end,
+		Remove = function(_self, id)
+			if selectedId == id then
+				selectedId = nil
+			end
+			local card = cards[id]
+			if card then
+				card:Destroy()
+			end
+			cards[id] = nil
+			data[id] = nil
+		end,
+		Clear = function(_self)
+			clear()
+		end,
+		Replace = function(_self, values)
+			clear()
+			for id, entry in values do
+				add(id, entry)
+			end
+		end,
+		Cards = function(_self)
+			return cards
+		end,
+	}
 end
 
 return CardList

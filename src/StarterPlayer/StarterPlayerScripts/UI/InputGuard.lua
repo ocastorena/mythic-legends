@@ -1,10 +1,12 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/InputGuard
 -- Blocks movement/camera across KB/mouse/gamepad/touch while modal UIs are open.
 
 local Players = game:GetService("Players")
-local CAS = game:GetService("ContextActionService")
-local UIS = game:GetService("UserInputService")
-local LP = Players.LocalPlayer
+local GuiService = game:GetService("GuiService")
+local ContextActionService = game:GetService("ContextActionService")
+local UserInputService = game:GetService("UserInputService")
+local localPlayer = Players.LocalPlayer
 
 local ACTION_MOVE = "UI_BlockCharacterMovement"
 local ACTION_SCROLL = "UI_DisableScrollZoom"
@@ -15,6 +17,8 @@ local ACTION_TOUCH = "UI_DisableTouchTap"
 local PRIORITY = Enum.ContextActionPriority.High.Value + 100
 
 local refCount = 0
+local guardGeneration = 0
+local touchControlsWereEnabled: boolean? = nil
 
 -- Input policy for application panels.
 local opts = {
@@ -29,7 +33,7 @@ local opts = {
 }
 
 -- Movement inputs (WASD/arrows/thumbstick/DPad + jump)
-local MOVE_INPUTS = {
+local MOVE_INPUTS: { Enum.KeyCode | Enum.PlayerActions } = {
 	Enum.KeyCode.W,
 	Enum.KeyCode.A,
 	Enum.KeyCode.S,
@@ -57,18 +61,26 @@ local function sink()
 end
 
 -- ===== Controls & camera bookkeeping =====
-local Controls -- PlayerModule controls handle
-local controlsWasEnabled = nil
+type ControlsApi = {
+	controlsEnabled: boolean,
+	Enable: (ControlsApi) -> (),
+	Disable: (ControlsApi) -> (),
+}
+type PlayerModuleApi = { GetControls: (PlayerModuleApi) -> ControlsApi }
+local Controls: ControlsApi? = nil
+local controlsWasEnabled: boolean? = nil
 
-local cam = workspace.CurrentCamera
-local savedCamType, savedCamSubject
+local camera = workspace.CurrentCamera
+local savedCamType: Enum.CameraType? = nil
+local savedCamSubject: (BasePart | Humanoid)? = nil
 
 local function ensureControls()
 	if Controls then
 		return
 	end
-	local pmod = LP:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")
-	local PlayerModule = require(pmod)
+	local pmod = localPlayer:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")
+	-- PlayerModule is injected by Roblox and has no source-backed Rojo module to analyze.
+	local PlayerModule = (require :: (ModuleScript) -> PlayerModuleApi)(pmod :: ModuleScript)
 	Controls = PlayerModule:GetControls()
 end
 
@@ -77,10 +89,10 @@ local function disableControls()
 		return
 	end
 	ensureControls()
-	if Controls then
+	if Controls and refCount > 0 then
 		-- Remember previous state on first disable
 		if controlsWasEnabled == nil then
-			controlsWasEnabled = Controls.enabled ~= false
+			controlsWasEnabled = Controls.controlsEnabled
 		end
 		Controls:Disable()
 	end
@@ -91,7 +103,7 @@ local function restoreControls()
 		return
 	end
 	if Controls and controlsWasEnabled ~= nil then
-		if controlsWasEnabled then
+		if controlsWasEnabled and not Controls.controlsEnabled then
 			Controls:Enable()
 		end
 	end
@@ -99,30 +111,33 @@ local function restoreControls()
 end
 
 local function lockCamera()
-	if not opts.lockCamera or not cam then
+	if not savedCamType then
+		camera = workspace.CurrentCamera
+	end
+	if not opts.lockCamera or not camera then
 		return
 	end
 	if not savedCamType then
-		savedCamType = cam.CameraType
-		savedCamSubject = cam.CameraSubject
+		savedCamType = camera.CameraType
+		savedCamSubject = camera.CameraSubject
 	end
-	cam.CameraType = Enum.CameraType.Scriptable
+	camera.CameraType = Enum.CameraType.Scriptable
 end
 
 local function unlockCamera()
-	if not opts.lockCamera or not cam then
+	if not opts.lockCamera or not camera then
 		return
 	end
-	if savedCamType then
-		cam.CameraType = savedCamType
-		cam.CameraSubject = savedCamSubject
+	if savedCamType and camera.CameraType == Enum.CameraType.Scriptable then
+		camera.CameraType = savedCamType
+		camera.CameraSubject = savedCamSubject
 	end
 	savedCamType, savedCamSubject = nil, nil
 end
 
--- ===== CAS binds =====
+-- ===== ContextActionService binds =====
 local function bindMovement()
-	local list = table.create(#MOVE_INPUTS)
+	local list: { Enum.KeyCode | Enum.PlayerActions } = {}
 	for _, code in ipairs(MOVE_INPUTS) do
 		local isJumpInput = code == Enum.PlayerActions.CharacterJump
 			or code == Enum.KeyCode.Space
@@ -131,25 +146,43 @@ local function bindMovement()
 			table.insert(list, code)
 		end
 	end
-	CAS:BindActionAtPriority(ACTION_MOVE, sink, false, PRIORITY, table.unpack(list))
+	ContextActionService:BindActionAtPriority(
+		ACTION_MOVE,
+		sink,
+		false,
+		PRIORITY,
+		table.unpack(list)
+	)
 end
 
 local function unbindMovement()
-	CAS:UnbindAction(ACTION_MOVE)
+	ContextActionService:UnbindAction(ACTION_MOVE)
 end
 
 local function bindCameraBlocks()
 	-- Mouse wheel (zoom)
 	if opts.blockScrollZoom then
-		CAS:BindActionAtPriority(ACTION_SCROLL, sink, false, PRIORITY, Enum.UserInputType.MouseWheel)
+		ContextActionService:BindActionAtPriority(
+			ACTION_SCROLL,
+			sink,
+			false,
+			PRIORITY,
+			Enum.UserInputType.MouseWheel
+		)
 	end
 	-- Right mouse button (drag to rotate)
 	if opts.blockRMBRotate then
-		CAS:BindActionAtPriority(ACTION_RMB, sink, false, PRIORITY, Enum.UserInputType.MouseButton2)
+		ContextActionService:BindActionAtPriority(
+			ACTION_RMB,
+			sink,
+			false,
+			PRIORITY,
+			Enum.UserInputType.MouseButton2
+		)
 	end
 	-- Keyboard camera controls (I/O zoom, Left/Right rotate)
 	if opts.blockCameraKeys then
-		CAS:BindActionAtPriority(
+		ContextActionService:BindActionAtPriority(
 			ACTION_KEYS,
 			sink,
 			false,
@@ -161,24 +194,33 @@ local function bindCameraBlocks()
 		)
 	end
 	-- Generic touch taps (extra safety)
-	if opts.blockTouchTap and UIS.TouchEnabled then
-		CAS:BindActionAtPriority(ACTION_TOUCH, sink, false, PRIORITY, Enum.UserInputType.Touch)
+	if opts.blockTouchTap and UserInputService.TouchEnabled then
+		ContextActionService:BindActionAtPriority(
+			ACTION_TOUCH,
+			sink,
+			false,
+			PRIORITY,
+			Enum.UserInputType.Touch
+		)
 	end
 
 	-- Hide mobile controls cosmetically while menus are up
-	if opts.hideMobileControls and UIS.TouchEnabled then
-		UIS.ModalEnabled = true
+	local isTouchEnabled = UserInputService.TouchEnabled
+	if opts.hideMobileControls and isTouchEnabled then
+		touchControlsWereEnabled = GuiService.TouchControlsEnabled
+		GuiService.TouchControlsEnabled = false
 	end
 end
 
 local function unbindCameraBlocks()
-	CAS:UnbindAction(ACTION_SCROLL)
-	CAS:UnbindAction(ACTION_RMB)
-	CAS:UnbindAction(ACTION_KEYS)
-	CAS:UnbindAction(ACTION_TOUCH)
-	if UIS.TouchEnabled then
-		UIS.ModalEnabled = false
+	ContextActionService:UnbindAction(ACTION_SCROLL)
+	ContextActionService:UnbindAction(ACTION_RMB)
+	ContextActionService:UnbindAction(ACTION_KEYS)
+	ContextActionService:UnbindAction(ACTION_TOUCH)
+	if touchControlsWereEnabled ~= nil and not GuiService.TouchControlsEnabled then
+		GuiService.TouchControlsEnabled = touchControlsWereEnabled
 	end
+	touchControlsWereEnabled = nil
 end
 
 -- ===== Public API =====
@@ -187,7 +229,12 @@ local InputGuard = {}
 function InputGuard.Open()
 	refCount += 1
 	if refCount == 1 then
+		guardGeneration += 1
+		local generation = guardGeneration
 		disableControls()
+		if refCount == 0 or generation ~= guardGeneration then
+			return
+		end
 		lockCamera()
 		bindMovement()
 		bindCameraBlocks()
@@ -200,6 +247,7 @@ function InputGuard.Close()
 	end
 	refCount -= 1
 	if refCount == 0 then
+		guardGeneration += 1
 		unbindMovement()
 		unbindCameraBlocks()
 		unlockCamera()

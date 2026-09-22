@@ -1,19 +1,23 @@
+--!strict
 -- ServerScriptService/Services/ClaimService
 
 local ClaimService = {}
-local connections: { RBXScriptConnection } = {}
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local PlayerUtil = require(infrastructure:WaitForChild("PlayerUtil"))
+local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
+local lifecycle = ServiceLifecycle.new("ClaimService")
 
-local ClaimEvent: RemoteEvent
-local MythlingSpawnService
-local InventoryService
-local MythlingsData
+local claimEvent: RemoteEvent
+local MythlingSpawnService: ServerTypes.SpawnApi
+local InventoryService: ServerTypes.InventoryApi
+local MythlingsData: { [string]: Types.MythlingDef }
 
 -- PlayersState[userId] = {
 --   mythlingId: string?;              -- nil = not contesting
@@ -21,7 +25,14 @@ local MythlingsData
 --   progress: number;                 -- 0..100
 --   lastUpdateTime: number;           -- os.clock()
 -- }
-local PlayersState: { [number]: any } = {}
+type ClaimState = {
+	mythlingId: string?,
+	mode: "Idle" | "Filling" | "Draining",
+	progress: number,
+	lastUpdateTime: number,
+}
+type ActiveMythlings = { [string]: ServerTypes.SpawnEntry }
+local playersState: { [number]: ClaimState } = {}
 
 -- how often we run server-side claim checks
 local TICK_INTERVAL = 0.1
@@ -39,31 +50,31 @@ local function distXZ(a: Vector3, b: Vector3): number
 	return math.sqrt(dx * dx + dz * dz)
 end
 
-local function ensurePlayerState(player)
-	local userId = player.UserId
-	local state = PlayersState[userId]
-	if not state then
-		state = {
-			mythlingId = nil,
-			mode = "Idle",
-			progress = 0,
-			lastUpdateTime = os.clock(),
-		}
-		PlayersState[userId] = state
+local function ensurePlayerState(player: Player): ClaimState
+	local existing = playersState[player.UserId]
+	if existing then
+		return existing
 	end
-	return state
+	local created: ClaimState = {
+		mythlingId = nil,
+		mode = "Idle",
+		progress = 0,
+		lastUpdateTime = os.clock(),
+	}
+	playersState[player.UserId] = created
+	return created
 end
 
-local function resetPlayerClaimState(state)
+local function resetPlayerClaimState(state: ClaimState)
 	state.mythlingId = nil
 	state.mode = "Idle"
 	state.progress = 0
 	state.lastUpdateTime = os.clock()
 end
 
-local function sendStateUpdate(userId, state, extra)
+local function sendStateUpdate(userId: number, state: ClaimState, extra: Types.MythlingDef?)
 	-- One player’s state snapshot to all clients
-	ClaimEvent:FireAllClients("StateUpdate", {
+	claimEvent:FireAllClients("StateUpdate", {
 		userId = userId,
 		mythlingId = state.mythlingId,
 		mode = state.mode,
@@ -73,8 +84,8 @@ local function sendStateUpdate(userId, state, extra)
 	})
 end
 
-local function sendClear(userId)
-	ClaimEvent:FireAllClients("StateUpdate", {
+local function sendClear(userId: number)
+	claimEvent:FireAllClients("StateUpdate", {
 		userId = userId,
 		mythlingId = nil,
 		mode = "Idle",
@@ -82,15 +93,18 @@ local function sendClear(userId)
 	})
 end
 
-local function handleClaimWin(player, mythlingId, mythlingData)
+local function handleClaimWin(
+	player: Player,
+	mythlingId: string,
+	mythlingData: ServerTypes.SpawnEntry
+)
 	if not mythlingData or mythlingData.claimed or mythlingData.claiming then
 		return
 	end
 	mythlingData.claiming = true
 
-	-- Commit the authoritative inventory mutation before removing the contest. SaveWonMythling
-	-- can yield while ProfileStore saves, so `claiming` also prevents a second Heartbeat from
-	-- granting the same spawn to another player.
+	-- Commit ownership before removing the contest. The guard protects this transaction if
+	-- persistence later gains a yielding step; the current mutation and save request do not yield.
 	local ownedMythlingId = InventoryService.SaveWonMythling(player, {
 		typeId = mythlingData.typeId,
 		variantId = mythlingData.variantId or "regular",
@@ -108,13 +122,13 @@ local function handleClaimWin(player, mythlingId, mythlingData)
 	end
 
 	-- Tell everyone who won
-	ClaimEvent:FireAllClients("Claimed", {
+	claimEvent:FireAllClients("Claimed", {
 		mythlingId = mythlingId,
 		winnerId = player.UserId,
 	})
 
 	-- Reset any players tracking this mythling
-	for userId, state in pairs(PlayersState) do
+	for userId, state in pairs(playersState) do
 		if state.mythlingId == mythlingId then
 			resetPlayerClaimState(state)
 			sendClear(userId)
@@ -122,7 +136,12 @@ local function handleClaimWin(player, mythlingId, mythlingData)
 	end
 end
 
-local function integrateProgress(player, state, now, activeMythlings)
+local function integrateProgress(
+	player: Player,
+	state: ClaimState,
+	now: number,
+	activeMythlings: ActiveMythlings
+)
 	-- Advance this player’s progress based on elapsed time + mode
 	if state.mode == "Idle" or not state.mythlingId then
 		state.lastUpdateTime = now
@@ -170,14 +189,16 @@ local function integrateProgress(player, state, now, activeMythlings)
 end
 
 --- The id of whichever active mythling's zone the player is standing in, or nil.
-local function findZoneUnderPlayer(player: Player, activeMythlings): string?
+local function findZoneUnderPlayer(player: Player, activeMythlings: ActiveMythlings): string?
 	local pos = PlayerUtil.GetPosition(player)
 	if not pos then
 		return nil
 	end
 	for mythlingId, data in pairs(activeMythlings) do
 		if not data.claimed and data.zone then
-			if distXZ(pos, data.zone.Position) <= (data.zone.Size.X * 0.5 + ZONE_TOLERANCE_STUDS) then
+			if
+				distXZ(pos, data.zone.Position) <= (data.zone.Size.X * 0.5 + ZONE_TOLERANCE_STUDS)
+			then
 				return mythlingId
 			end
 		end
@@ -191,7 +212,12 @@ end
 --- the transition -- if the server rejected that one message (for example the character
 --- had just respawned and its position had not replicated yet) the client never re-sent,
 --- and the player could stand in a zone indefinitely with nothing happening.
-local function resolveState(player: Player, state, now: number, activeMythlings)
+local function resolveState(
+	player: Player,
+	state: ClaimState,
+	now: number,
+	activeMythlings: ActiveMythlings
+)
 	local userId = player.UserId
 	local zoneMythlingId = findZoneUnderPlayer(player, activeMythlings)
 
@@ -211,7 +237,7 @@ local function resolveState(player: Player, state, now: number, activeMythlings)
 		return
 	end
 
-	local expected = zoneMythlingId and "Filling" or "Draining"
+	local expected: "Filling" | "Draining" = if zoneMythlingId then "Filling" else "Draining"
 	if state.mode == expected or state.mode == "Idle" then
 		return
 	end
@@ -234,60 +260,48 @@ end
 
 -- Public
 
-function ClaimService.Init(context)
-	ClaimEvent = context.Remotes.World.ClaimState
-	MythlingSpawnService = context.Services.MythlingSpawnService
-	InventoryService = context.Services.InventoryService
-	MythlingsData = context.Configurations.Mythlings
+function ClaimService.Init(serviceContext: ServerTypes.Context)
+	claimEvent = serviceContext.Remotes.World.ClaimState
+	MythlingSpawnService = serviceContext.Services.MythlingSpawnService
+	InventoryService = serviceContext.Services.InventoryService
+	MythlingsData = serviceContext.Configurations.Mythlings
 end
 
 function ClaimService.Start()
-	table.insert(
-		connections,
-		PlayerUtil.OnPlayer(function(player)
-			ensurePlayerState(player)
-		end)
-	)
-
-	table.insert(
-		connections,
-		Players.PlayerRemoving:Connect(function(player)
-			PlayersState[player.UserId] = nil
-		end)
-	)
-
-	local acc = 0
-	table.insert(
-		connections,
-		RunService.Heartbeat:Connect(function(dt)
-			acc += dt
-			if acc < TICK_INTERVAL then
-				return
+	if not lifecycle:Start() then
+		return
+	end
+	PlayerUtil.OnPlayer(function(player: Player)
+		ensurePlayerState(player)
+	end, lifecycle.trove)
+	lifecycle.trove:Connect(Players.PlayerRemoving, function(player: Player)
+		playersState[player.UserId] = nil
+	end)
+	local accumulatedSeconds = 0
+	lifecycle.trove:Connect(RunService.Heartbeat, function(deltaSeconds: number)
+		accumulatedSeconds += deltaSeconds
+		if accumulatedSeconds < TICK_INTERVAL then
+			return
+		end
+		accumulatedSeconds = 0
+		local now = os.clock()
+		local activeMythlings = MythlingSpawnService.GetActiveMythlings()
+		for userId, state in playersState do
+			local player = Players:GetPlayerByUserId(userId)
+			if player then
+				resolveState(player, state, now, activeMythlings)
+				integrateProgress(player, state, now, activeMythlings)
+			else
+				playersState[userId] = nil
 			end
-			acc = 0
-
-			local now = os.clock()
-			local activeMythlings = MythlingSpawnService.GetActiveMythlings()
-
-			for userId, state in pairs(PlayersState) do
-				local player = Players:GetPlayerByUserId(userId)
-				if not player then
-					PlayersState[userId] = nil
-				else
-					resolveState(player, state, now, activeMythlings)
-					integrateProgress(player, state, now, activeMythlings)
-				end
-			end
-		end)
-	)
+		end
+	end)
 end
 
 function ClaimService.Stop()
-	for _, connection in connections do
-		connection:Disconnect()
+	if lifecycle:Stop() then
+		table.clear(playersState)
 	end
-	table.clear(connections)
-	table.clear(PlayersState)
 end
 
 return ClaimService

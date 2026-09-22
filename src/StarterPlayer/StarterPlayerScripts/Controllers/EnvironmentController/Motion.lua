@@ -1,11 +1,19 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/EnvironmentController/Motion
 
 local Motion = {}
-local connections: { RBXScriptConnection } = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Trove = require(ReplicatedStorage.Packages.Trove)
+local lifetime = Trove.new()
+local isRunning = false
 
 function Motion.Init(_context: unknown) end
 
 function Motion.Start()
+	if isRunning then
+		return
+	end
+	isRunning = true
 	-- Lightweight client-only motion for tagged ambient lights and arena banners.
 
 	local CollectionService = game:GetService("CollectionService")
@@ -21,6 +29,8 @@ function Motion.Start()
 		amplitude: number,
 		speed: number,
 		phase: number,
+		originalBrightness: number,
+		lastBrightness: number?,
 	}
 
 	type BannerState = {
@@ -29,6 +39,7 @@ function Motion.Start()
 		swayDegrees: number,
 		speed: number,
 		phase: number,
+		lastPivot: CFrame?,
 	}
 
 	local lightStates: { [Light]: LightState } = {}
@@ -51,8 +62,31 @@ function Motion.Start()
 			amplitude = math.max(0, numberAttribute(instance, "VariationAmplitude", 0.12)),
 			speed = math.max(0.05, numberAttribute(instance, "VariationSpeed", 1)),
 			phase = numberAttribute(instance, "VariationPhase", 0),
+			originalBrightness = instance.Brightness,
 		}
 	end
+	local function restoreLight(instance: Light)
+		local state = lightStates[instance]
+		if state and instance.Parent and instance.Brightness == state.lastBrightness then
+			instance.Brightness = state.originalBrightness
+		end
+		lightStates[instance] = nil
+	end
+	local function restoreBanner(instance: Model)
+		local state = bannerStates[instance]
+		if state and instance.Parent and instance:GetPivot() == state.lastPivot then
+			instance:PivotTo(state.basePivot)
+		end
+		bannerStates[instance] = nil
+	end
+	lifetime:Add(function()
+		for instance in lightStates do
+			restoreLight(instance)
+		end
+		for instance in bannerStates do
+			restoreBanner(instance)
+		end
+	end)
 
 	local function registerBanner(instance: Instance)
 		if not instance:IsA("Model") or bannerStates[instance] then
@@ -76,68 +110,62 @@ function Motion.Start()
 		registerBanner(instance)
 	end
 
-	table.insert(connections, CollectionService:GetInstanceAddedSignal(LIGHT_TAG):Connect(registerLight))
-	table.insert(
-		connections,
-		CollectionService:GetInstanceRemovedSignal(LIGHT_TAG):Connect(function(instance)
-			if instance:IsA("Light") then
-				lightStates[instance] = nil
-			end
-		end)
-	)
+	lifetime:Add(CollectionService:GetInstanceAddedSignal(LIGHT_TAG):Connect(registerLight))
+	lifetime:Add(CollectionService:GetInstanceRemovedSignal(LIGHT_TAG):Connect(function(instance)
+		if instance:IsA("Light") then
+			restoreLight(instance)
+		end
+	end))
 
-	table.insert(connections, CollectionService:GetInstanceAddedSignal(BANNER_TAG):Connect(registerBanner))
-	table.insert(
-		connections,
-		CollectionService:GetInstanceRemovedSignal(BANNER_TAG):Connect(function(instance)
-			if instance:IsA("Model") then
-				bannerStates[instance] = nil
-			end
-		end)
-	)
+	lifetime:Add(CollectionService:GetInstanceAddedSignal(BANNER_TAG):Connect(registerBanner))
+	lifetime:Add(CollectionService:GetInstanceRemovedSignal(BANNER_TAG):Connect(function(instance)
+		if instance:IsA("Model") then
+			restoreBanner(instance)
+		end
+	end))
 
-	table.insert(
-		connections,
-		RunService.RenderStepped:Connect(function(deltaTime)
-			accumulator += deltaTime
-			if accumulator < UPDATE_INTERVAL then
-				return
-			end
-			accumulator %= UPDATE_INTERVAL
+	lifetime:Add(RunService.RenderStepped:Connect(function(deltaTime)
+		accumulator += deltaTime
+		if accumulator < UPDATE_INTERVAL then
+			return
+		end
+		accumulator %= UPDATE_INTERVAL
 
-			local now = workspace:GetServerTimeNow()
+		local now = workspace:GetServerTimeNow()
 
-			for light, state in pairs(lightStates) do
-				if not light.Parent then
-					lightStates[light] = nil
-				else
-					local wave = 0.58 * math.sin(now * state.speed + state.phase)
-						+ 0.29 * math.sin(now * state.speed * 0.47 + state.phase * 1.7)
-						+ 0.13 * math.sin(now * state.speed * 0.23 + state.phase * 2.3)
-					light.Brightness = math.max(0, state.baseBrightness + state.amplitude * wave)
-				end
+		for light, state in pairs(lightStates) do
+			if not light.Parent then
+				lightStates[light] = nil
+			else
+				local wave = 0.58 * math.sin(now * state.speed + state.phase)
+					+ 0.29 * math.sin(now * state.speed * 0.47 + state.phase * 1.7)
+					+ 0.13 * math.sin(now * state.speed * 0.23 + state.phase * 2.3)
+				light.Brightness = math.max(0, state.baseBrightness + state.amplitude * wave)
+				state.lastBrightness = light.Brightness
 			end
+		end
 
-			for model, state in pairs(bannerStates) do
-				if not model.Parent then
-					bannerStates[model] = nil
-				else
-					local forwardDegrees = state.swayDegrees * math.sin(now * state.speed + state.phase)
-					local sideDegrees = state.swayDegrees
-						* 0.28
-						* math.sin(now * state.speed * 0.61 + state.phase * 1.4)
-					model:PivotTo(state.basePivot * CFrame.Angles(math.rad(forwardDegrees), 0, math.rad(sideDegrees)))
-				end
+		for model, state in pairs(bannerStates) do
+			if not model.Parent then
+				bannerStates[model] = nil
+			else
+				local forwardDegrees = state.swayDegrees * math.sin(now * state.speed + state.phase)
+				local sideDegrees = state.swayDegrees
+					* 0.28
+					* math.sin(now * state.speed * 0.61 + state.phase * 1.4)
+				model:PivotTo(
+					state.basePivot
+						* CFrame.Angles(math.rad(forwardDegrees), 0, math.rad(sideDegrees))
+				)
+				state.lastPivot = model:GetPivot()
 			end
-		end)
-	)
+		end
+	end))
 end
 
 function Motion.Stop()
-	for _, connection in connections do
-		connection:Disconnect()
-	end
-	table.clear(connections)
+	isRunning = false
+	lifetime:Clean()
 end
 
 return Motion

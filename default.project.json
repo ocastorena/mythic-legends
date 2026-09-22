@@ -119,6 +119,9 @@
       "Infrastructure": {
         "$path": "src/ServerScriptService/Infrastructure"
       },
+      "Domain": {
+        "$path": "src/ServerScriptService/Domain"
+      },
       "Packages": {
         "$path": "src/ServerScriptService/Packages"
       },
@@ -182,6 +185,9 @@
         },
         "State": {
           "$path": "src/StarterPlayer/StarterPlayerScripts/State"
+        },
+        "Types": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/Types.lua"
         },
         "Character": {
           "$path": "src/StarterPlayer/StarterPlayerScripts/Character"

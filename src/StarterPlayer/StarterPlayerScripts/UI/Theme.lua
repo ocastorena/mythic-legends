@@ -1,19 +1,10 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Theme
--- The Mythic Legends design system, in one place.
---
--- Ported from the "Mythic Legends — Design System" doc. Sections below match its numbered
--- sections, so a token that changes there changes in exactly one place here.
---
--- Two conventions carry the web design over to Roblox:
---
---   * CSS `rgba(r,g,b,a)` fills become a Color3 plus a BackgroundTransparency of `1 - a`.
---     Each surface is exported as a {color, transparency} pair; `Theme.paint` applies
---     one to an instance so callers never juggle the two halves.
---   * The doc sizes panel text in `em` against a per-device root (12.5px phone / 14px
---     tablet / 15px desktop). `Theme.root` reads that root off the viewport and
---     `Theme.text` turns an em multiple into a TextSize, so one panel scales across
---     all three devices exactly as the doc describes.
+-- Shared presentation tokens and responsive helpers; see docs/UI_GUIDELINES.md.
+-- Surface tokens pair color with transparency. Typography uses em multiples of a device root.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local FreezeUtil = require(ReplicatedStorage.Shared.FreezeUtil)
 local Theme = {}
 
 export type Surface = { color: Color3, transparency: number }
@@ -31,7 +22,7 @@ end
 -- 01 · Color
 --------------------------------------------------------------------------------
 
-Theme.Surface = {
+Theme.surface = {
 	-- The centered card every menu is built on.
 	panel = surface("141416", 0.92),
 	-- Dim the world behind an open panel.
@@ -58,7 +49,7 @@ Theme.Surface = {
 	badge = surface("141416", 0.75),
 }
 
-Theme.Accent = {
+Theme.accent = {
 	gold = hex("ffd75e"), -- primary
 	cyan = hex("8ad8e8"), -- craft
 	green = hex("00d857"), -- confirm
@@ -67,7 +58,7 @@ Theme.Accent = {
 
 -- Stable semantic colors for menu tab icons. Labels and selection rails stay neutral so
 -- color supplements the icon silhouette without becoming the only active-state signal.
-Theme.TabIcon = {
+Theme.tabIcon = {
 	mythlings = hex("ffd75e"),
 	equipment = hex("68b5ff"),
 	consumables = hex("54d88b"),
@@ -77,14 +68,14 @@ Theme.TabIcon = {
 }
 
 -- Ink laid on top of an accent fill.
-Theme.Ink = {
+Theme.ink = {
 	onGold = hex("141416"),
 	onCyan = hex("141416"),
 	onGreen = hex("0b2b16"),
 	onRed = hex("ffffff"),
 }
 
-Theme.Text = {
+Theme.textColors = {
 	-- Panel titles and item names.
 	strong = hex("ffffff"),
 	-- Body copy outside a panel header.
@@ -99,7 +90,7 @@ Theme.Text = {
 	dimTransparency = 0.6,
 }
 
-Theme.Rarity = {
+Theme.rarity = {
 	Fabled = hex("e9eef5"), -- common · soft white
 	Awakened = hex("35c4d8"), -- rare · pulsing teal
 	Ancient = hex("9b45f0"), -- epic · mystic purple
@@ -107,16 +98,9 @@ Theme.Rarity = {
 	Primordial = hex("ff3b4e"), -- mythical · prismatic shift
 }
 
--- The doc labels each tier with the generic rarity it stands for ("Fabled · Common · soft
--- white"), which is the bridge between the design's names and the ones this game uses.
--- Configurations/MythlingSpawns declares the ladder as Common · Rare · Epic · Legendary · Secret — five
--- tiers deep exactly like the design's, so they line up rank for rank. "Secret" is the
--- rarest (spawn weight 5 against Common's 100), so it takes the design's rarest tier and
--- gets the prismatic ring.
---
--- Unmapped values fall through to the tier of the same name, so metadata that adopts the
--- design's own vocabulary keeps working without a change here.
-Theme.RarityTier = {
+-- Retained prototype presentation names. Canonical launch labels are defined by the GDD;
+-- changing visible labels belongs to the separate launch-alignment work.
+Theme.rarityTier = {
 	Common = "Fabled",
 	Rare = "Awakened",
 	Epic = "Ancient",
@@ -126,15 +110,15 @@ Theme.RarityTier = {
 }
 
 --- The design tier for a metadata rarity, e.g. "Legendary" -> "Divine".
-function Theme.tier(rarity: string?): string
+function Theme.Tier(rarity: string?): string
 	if not rarity then
 		return "Fabled"
 	end
-	return Theme.RarityTier[rarity] or rarity
+	return Theme.rarityTier[rarity] or rarity
 end
 
--- Primordial's ring cycles rather than sitting still. RingUtil tweens through these.
-Theme.PrimordialCycle = {
+-- Panel/Grid and Panel/Details animate the top prototype tier through these colors.
+Theme.primordialCycle = {
 	hex("ffd75e"),
 	hex("ff8a5c"),
 	hex("ff5ca8"),
@@ -142,7 +126,7 @@ Theme.PrimordialCycle = {
 	hex("5cb8ff"),
 }
 
-Theme.Element = {
+Theme.element = {
 	Fire = hex("ff7a3c"),
 	Water = hex("4aa3ff"),
 	Earth = hex("8bce5a"),
@@ -153,32 +137,33 @@ Theme.Element = {
 
 --- Rarity ring colour, falling back to Fabled for anything unrecognised. Takes either a
 --- design tier ("Divine") or a metadata rarity ("Legendary").
-function Theme.rarityColor(rarity: string?): Color3
-	return Theme.Rarity[Theme.tier(rarity)] or Theme.Rarity.Fabled
+function Theme.RarityColor(rarity: string?): Color3
+	return Theme.rarity[Theme.Tier(rarity)] or Theme.rarity.Fabled
 end
 
 --- Only the top tier animates its ring.
-function Theme.isPrismatic(rarity: string?): boolean
-	return Theme.tier(rarity) == "Primordial"
+function Theme.IsPrismatic(rarity: string?): boolean
+	return Theme.Tier(rarity) == "Primordial"
 end
 
 --- Element tint, falling back to gold for anything unrecognised.
-function Theme.elementColor(element: string?): Color3
-	return (element and Theme.Element[element]) or Theme.Accent.gold
+function Theme.ElementColor(element: string?): Color3
+	local colors: { [string]: Color3 } = Theme.element
+	return if element then colors[element] or Theme.accent.gold else Theme.accent.gold
 end
 
 --------------------------------------------------------------------------------
 -- 02 · Typography
 --------------------------------------------------------------------------------
 
-Theme.Font = {
+Theme.font = {
 	bold = Font.fromName("Nunito", Enum.FontWeight.Bold), -- 700
 	extraBold = Font.fromName("Nunito", Enum.FontWeight.ExtraBold), -- 800
 	heavy = Font.fromName("Nunito", Enum.FontWeight.Heavy), -- 900
 }
 
--- em multiples off the device root, straight from the doc's type table.
-Theme.Em = {
+-- Typography multiples relative to the configured device root.
+Theme.em = {
 	panelTitle = 1.2, -- 18px desktop · 800
 	panelTitleLarge = 1.4, -- 21px desktop · 800
 	statValue = 1.4667, -- 22px desktop · 900
@@ -192,13 +177,13 @@ Theme.Em = {
 }
 
 -- Em-stamped text inside application menus gets one shared accessibility scale. HUD text
--- uses Theme.text directly and deliberately remains at the platform-sized baseline.
-Theme.MenuTextScale = 1.3
+-- uses Theme.textColors directly and deliberately remains at the platform-sized baseline.
+Theme.menuTextScale = 1.3
 
---- The per-device root the doc sizes everything against: 12.5px phone, 14px tablet,
+--- Responsive typography uses a 12.5px phone root, 14px tablet root,
 --- 15px desktop. Phones are detected by height the way the design canvas does, so a
 --- landscape phone gets phone type rather than tablet type.
-function Theme.root(viewport: Vector2): number
+function Theme.Root(viewport: Vector2): number
 	if viewport.Y < 500 then
 		return 12.5
 	elseif viewport.X < 1300 then
@@ -208,7 +193,7 @@ function Theme.root(viewport: Vector2): number
 end
 
 --- An em multiple as a pixel TextSize.
-function Theme.text(em: number, root: number): number
+function Theme.Text(em: number, root: number): number
 	return math.round(em * root * 10) / 10
 end
 
@@ -216,7 +201,7 @@ end
 -- 03 · Metrics
 --------------------------------------------------------------------------------
 
-Theme.Radius = {
+Theme.radius = {
 	-- Roblox's in-experience menu container uses a 10px outer corner radius.
 	card = 10,
 	hero = 14,
@@ -232,7 +217,7 @@ Theme.Radius = {
 	hotbarSlot = 12,
 }
 
-Theme.Metric = {
+Theme.metric = {
 	-- Header row: identity left · tabs center · actions right.
 	headerPadTop = 8,
 	headerPadRight = 16,
@@ -300,7 +285,7 @@ Theme.Metric = {
 -- read CoreGui -- only Studio can. Deriving the button size from the inset instead would
 -- be wrong on a notched phone, where the inset grows to clear the notch but Roblox's bar
 -- stays 48 and simply sits lower. Anchoring to the bottom of the inset handles that.
-Theme.Platform = {
+Theme.platform = {
 	topbarRowHeight = 48,
 	topbarButtonSize = 44,
 	-- Roblox's menu icon is 24px at rest and grows to 30px while its menu is open.
@@ -312,7 +297,7 @@ Theme.Platform = {
 	-- Physical gap between a platform control and a display edge.
 	topbarEdgePadding = 12,
 	-- Keep the menu low while retaining enough safe-canvas clearance for its corners.
-	menuBottomCornerClearance = Theme.Radius.card - 8,
+	menuBottomCornerClearance = Theme.radius.card - 8,
 	topbarButtonFill = hex("121215"),
 	topbarButtonTransparency = 0.08,
 	-- Roblox Foundation's light state-layer values for top-bar controls.
@@ -342,8 +327,8 @@ export type Topbar = {
 ---
 --- Guarded because GuiService is only meaningful on a client; a server-side require of
 --- this module still needs to load.
-function Theme.topbar(_viewport: Vector2): Topbar
-	local rowHeight = Theme.Platform.topbarRowHeight
+function Theme.Topbar(_viewport: Vector2): Topbar
+	local rowHeight = Theme.platform.topbarRowHeight
 
 	local okInset, guiInset = pcall(function()
 		return game:GetService("GuiService"):GetGuiInset()
@@ -354,7 +339,7 @@ function Theme.topbar(_viewport: Vector2): Topbar
 	return {
 		rowTop = rowTop,
 		rowHeight = rowHeight,
-		buttonSize = Theme.Platform.topbarButtonSize,
+		buttonSize = Theme.platform.topbarButtonSize,
 	}
 end
 
@@ -363,13 +348,13 @@ local PANEL_MARGIN = 8
 -- On a phone the card only keeps a margin at the top, clear of Roblox's bar.
 local PANEL_TOP_MARGIN = 4
 -- Keep the rounded bottom edge inside the safe canvas instead of clipping it below the screen.
-local PANEL_PHONE_BOTTOM_MARGIN = Theme.Platform.menuBottomCornerClearance
--- The doc's fixed card height, kept as-is for tablet and desktop.
+local PANEL_PHONE_BOTTOM_MARGIN = Theme.platform.menuBottomCornerClearance
+-- Fixed card height for tablet and desktop.
 local PANEL_HEIGHT = 470
 
 --- Height of the area a panel actually has to live in: the viewport minus Roblox's top
 --- bar, since panels sit in a ScreenGui that respects the GUI inset.
-function Theme.usableHeight(viewport: Vector2): number
+function Theme.UsableHeight(viewport: Vector2): number
 	local ok, inset = pcall(function()
 		return game:GetService("GuiService"):GetGuiInset()
 	end)
@@ -377,19 +362,19 @@ function Theme.usableHeight(viewport: Vector2): number
 	return math.max(viewport.Y - insetY, 120)
 end
 
---- Panel card size for a viewport: phones fill the screen, everything else gets the doc's
+--- Panel card size for a viewport: phones fill the safe canvas; larger devices use a
 --- fixed-height card.
 ---
 --- Phones use Roblox's CoreUISafeInsets canvas. The card fills that safe canvas with a small
 --- top and bottom margin, keeping controls clear of the top bar, notch, and home region.
-function Theme.panelSize(viewport: Vector2): UDim2
-	local usable = Theme.usableHeight(viewport)
+function Theme.PanelSize(viewport: Vector2): UDim2
+	local usable = Theme.UsableHeight(viewport)
 
-	if Theme.isPhone(viewport) then
+	if Theme.IsPhone(viewport) then
 		return UDim2.new(1, 0, 1, -(PANEL_TOP_MARGIN + PANEL_PHONE_BOTTOM_MARGIN))
 	end
 
-	-- Never taller than the usable area: the doc's fixed height overflows on short-but-not-
+	-- Never taller than the usable area: the fixed height overflows on short-but-not-
 	-- phone screens (a 548px window has only 490px once Roblox's bar is out), and the card
 	-- clips its own footer when that happens.
 	local height = math.min(PANEL_HEIGHT, usable - PANEL_MARGIN * 2)
@@ -401,18 +386,18 @@ end
 --- Phones bottom-anchor it so it runs flush to the physical bottom edge and spend their one
 -- margin at the top, where Roblox's bar is. Larger screens centre between the bottom of
 -- Roblox's top HUD and the top of the hotbar rather than against the whole remaining canvas.
-function Theme.panelPlacement(viewport: Vector2): (Vector2, UDim2)
+function Theme.PanelPlacement(viewport: Vector2): (Vector2, UDim2)
 	-- The ScreenGui already uses CoreUISafeInsets, so placement is relative to the safe canvas.
-	if Theme.isPhone(viewport) then
+	if Theme.IsPhone(viewport) then
 		return Vector2.new(0, 1), UDim2.new(0, 0, 1, -PANEL_PHONE_BOTTOM_MARGIN)
 	end
 
-	local hotbarHeight = Theme.Metric.hotbarSlot + Theme.Platform.topbarEdgePadding
+	local hotbarHeight = Theme.metric.hotbarSlot + Theme.platform.topbarEdgePadding
 	return Vector2.new(0.5, 0.5), UDim2.new(0.5, 0, 0.5, -hotbarHeight / 2)
 end
 
 --- Keeps application panels inside Roblox's current top-bar and device-safe canvas.
-function Theme.useSafeCanvas(screenGui: ScreenGui)
+function Theme.UseSafeCanvas(screenGui: ScreenGui)
 	screenGui.IgnoreGuiInset = false
 	screenGui.ClipToDeviceSafeArea = true
 	screenGui.SafeAreaCompatibility = Enum.SafeAreaCompatibility.None
@@ -422,19 +407,19 @@ function Theme.useSafeCanvas(screenGui: ScreenGui)
 end
 
 --- True when panels should take the whole screen rather than float as a card.
-function Theme.isPhone(viewport: Vector2): boolean
+function Theme.IsPhone(viewport: Vector2): boolean
 	return viewport.Y < 500
 end
 
 --- Width of the details column, and the cap on its 16:9 hero frame.
-function Theme.detailWidth(viewport: Vector2): number
+function Theme.DetailWidth(viewport: Vector2): number
 	if viewport.Y < 500 then
 		return 264
 	end
 	return viewport.X >= 1300 and 400 or 300
 end
 
-function Theme.artMaxHeight(viewport: Vector2): number
+function Theme.ArtMaxHeight(viewport: Vector2): number
 	if viewport.Y < 500 then
 		return 134
 	end
@@ -455,7 +440,7 @@ end
 -- clickable whenever a menu is open.
 -- The hotbar and Stamina meter sit below the scrim: they are world chrome, so an open panel
 -- dims them and blocks any input while leaving them visible as persistent combat context.
-Theme.Layer = {
+Theme.layer = {
 	hotbar = 0,
 	stamina = 0,
 	scrim = 1,
@@ -469,14 +454,14 @@ Theme.Layer = {
 --------------------------------------------------------------------------------
 
 --- Applies a surface token's colour and transparency together.
-function Theme.paint(instance: GuiObject, token: Surface)
+function Theme.Paint(instance: GuiObject, token: Surface)
 	instance.BackgroundColor3 = token.color
 	instance.BackgroundTransparency = token.transparency
 end
 
---- Rounds a corner. Radius is in pixels, matching the doc. Reuses an existing UICorner so
+--- Rounds a corner in pixels. Reuses an existing UICorner so
 --- restyling an authored instance twice cannot leave two of them behind.
-function Theme.corner(parent: Instance, radius: number): UICorner
+function Theme.Corner(parent: Instance, radius: number): UICorner
 	local corner = parent:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, radius)
 	corner.Parent = parent
@@ -484,16 +469,16 @@ function Theme.corner(parent: Instance, radius: number): UICorner
 end
 
 --- A pill's radius is "fully round", which in Roblox is half the height.
-function Theme.pill(parent: Instance): UICorner
+function Theme.Pill(parent: Instance): UICorner
 	local corner = parent:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(1, 0)
 	corner.Parent = parent
 	return corner
 end
 
---- The inset ring the doc uses for rarity and selection. Border-mode stroke keeps it
+--- Rarity and selection ring. Border-mode stroke keeps it
 --- inside the cell like `inset 0 0 0 Npx` does.
-function Theme.ring(parent: GuiObject, color: Color3, thickness: number): UIStroke
+function Theme.Ring(parent: GuiObject, color: Color3, thickness: number): UIStroke
 	local stroke = parent:FindFirstChildOfClass("UIStroke") or Instance.new("UIStroke")
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
@@ -504,7 +489,13 @@ function Theme.ring(parent: GuiObject, color: Color3, thickness: number): UIStro
 end
 
 --- Uniform padding in pixels.
-function Theme.padding(parent: Instance, top: number, right: number, bottom: number, left: number): UIPadding
+function Theme.Padding(
+	parent: Instance,
+	top: number,
+	right: number,
+	bottom: number,
+	left: number
+): UIPadding
 	local pad = Instance.new("UIPadding")
 	pad.PaddingTop = UDim.new(0, top)
 	pad.PaddingRight = UDim.new(0, right)
@@ -514,4 +505,4 @@ function Theme.padding(parent: Instance, top: number, right: number, bottom: num
 	return pad
 end
 
-return Theme
+return FreezeUtil.DeepFreeze(Theme)

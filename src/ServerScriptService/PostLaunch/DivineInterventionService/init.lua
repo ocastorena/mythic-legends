@@ -1,27 +1,30 @@
+--!strict
 -- ServerScriptService/PostLaunch/DivineInterventionService
 --
 -- Owns the server-authoritative lifecycle for Divine Intervention events. The first event
 -- is a safe visual test: Blockstorm makes non-colliding blocks fall through the Arena
 -- without changing combat, rewards, or player state.
 
-local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local TextChatService = game:GetService("TextChatService")
 local TweenService = game:GetService("TweenService")
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
 local log = LogUtil.For("DivineInterventionService")
+
+local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
+local lifecycle = ServiceLifecycle.new("DivineInterventionService")
 
 local DivineInterventionService = {}
 
-local context
+local serviceContext: ServerTypes.Context
 local arena: BasePart
 local effectsFolder: Folder
 local activeEventId: string? = nil
 local eventGeneration = 0
-local commandConnection: RBXScriptConnection?
 
 -- A short, low-density presentation test: at most 96 temporary, non-colliding parts.
 local BLOCKSTORM = {
@@ -43,17 +46,21 @@ local function getOrCreateEffectsFolder(runtime: Instance): Folder
 	local folder = Instance.new("Folder")
 	folder.Name = "EventEffects"
 	folder.Parent = runtime
+	lifecycle.trove:Add(folder)
 	return folder
 end
 
 local function spawnBlock(random: Random)
+	local lifetime = lifecycle.trove:Extend()
 	local halfX = arena.Size.X * 0.45
 	local halfZ = arena.Size.Z * 0.45
 	local x = random:NextNumber(-halfX, halfX)
 	local z = random:NextNumber(-halfZ, halfZ)
 	local size = random:NextInteger(2, 5)
 	local startPosition = arena.CFrame:PointToWorldSpace(Vector3.new(x, BLOCKSTORM.spawnHeight, z))
-	local endPosition = arena.CFrame:PointToWorldSpace(Vector3.new(x, arena.Size.Y / 2 + BLOCKSTORM.landingOffset, z))
+	local endPosition = arena.CFrame:PointToWorldSpace(
+		Vector3.new(x, arena.Size.Y / 2 + BLOCKSTORM.landingOffset, z)
+	)
 
 	local block = Instance.new("Part")
 	block.Name = "BlockstormDrop"
@@ -68,12 +75,18 @@ local function spawnBlock(random: Random)
 	block.Size = Vector3.new(size, size, size)
 	block.Position = startPosition
 	block.Parent = effectsFolder
+	lifetime:Add(block)
 
-	local tween = TweenService:Create(block, TweenInfo.new(BLOCKSTORM.fallSeconds, Enum.EasingStyle.Linear), {
-		Position = endPosition,
-	})
+	local tween =
+		TweenService:Create(block, TweenInfo.new(BLOCKSTORM.fallSeconds, Enum.EasingStyle.Linear), {
+			Position = endPosition,
+		})
+	lifetime:Add(tween)
 	tween:Play()
-	Debris:AddItem(block, BLOCKSTORM.fallSeconds + 0.25)
+	lifetime:Add(task.delay(BLOCKSTORM.fallSeconds + 0.25, function()
+		lifetime:Pop(coroutine.running())
+		lifecycle.trove:Remove(lifetime)
+	end))
 end
 
 local function startBlockstorm()
@@ -87,8 +100,12 @@ local function startBlockstorm()
 	local random = Random.new()
 	local endAt = os.clock() + BLOCKSTORM.durationSeconds
 
-	task.spawn(function()
-		while activeEventId == BLOCKSTORM.id and eventGeneration == generation and os.clock() < endAt do
+	lifecycle.trove:Add(task.defer(function()
+		while
+			activeEventId == BLOCKSTORM.id
+			and eventGeneration == generation
+			and os.clock() < endAt
+		do
 			spawnBlock(random)
 			task.wait(1 / BLOCKSTORM.dropsPerSecond)
 		end
@@ -96,7 +113,8 @@ local function startBlockstorm()
 		if eventGeneration == generation then
 			activeEventId = nil
 		end
-	end)
+		lifecycle.trove:Pop(coroutine.running())
+	end))
 
 	return true, string.format("%s has begun.", BLOCKSTORM.displayName)
 end
@@ -121,34 +139,31 @@ local function handleCommand(originTextSource: TextSource, unfilteredText: strin
 	end
 end
 
-function DivineInterventionService.Init(serviceContext)
-	context = serviceContext
-	arena = context.Instances.Arena
-	effectsFolder = getOrCreateEffectsFolder(context.Instances.Runtime)
+function DivineInterventionService.Init(context: ServerTypes.Context)
+	serviceContext = context
+	arena = serviceContext.Instances.Arena
 end
 
 function DivineInterventionService.Start()
+	if not lifecycle:Start() then
+		return
+	end
+	effectsFolder = getOrCreateEffectsFolder(serviceContext.Instances.Runtime)
 	local command = TextChatService:FindFirstChild("AdminCommand")
 	if not command or not command:IsA("TextChatCommand") then
 		log.warn("AdminCommand is missing from TextChatService")
 		return
 	end
 
-	commandConnection = command.Triggered:Connect(handleCommand)
+	lifecycle.trove:Connect(command.Triggered, handleCommand)
 end
 
 function DivineInterventionService.Stop()
-	if commandConnection then
-		commandConnection:Disconnect()
-		commandConnection = nil
+	if not lifecycle:Stop() then
+		return
 	end
 	eventGeneration += 1
 	activeEventId = nil
-	if effectsFolder then
-		for _, child in effectsFolder:GetChildren() do
-			child:Destroy()
-		end
-	end
 end
 
 return DivineInterventionService

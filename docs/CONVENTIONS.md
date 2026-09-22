@@ -7,9 +7,20 @@ gameplay, [UI Guidelines](UI_GUIDELINES.md) own player-facing presentation, and 
 [README](../README.md) owns setup and verification commands. Write each rule in its owning document
 and link to it elsewhere.
 
-These rules are project requirements unless explicitly marked **proposed**. Proposed policies await
-a project-owner decision. Existing source may require cleanup to meet these requirements; documenting
-a convention does not claim that all code or tooling already conforms to it.
+These rules are the project's agreed conventions. Existing source may require cleanup to meet these
+requirements; documenting a convention does not claim that all code or tooling already conforms to it.
+
+## Relationship to Roblox guidance
+
+Follow Roblox's documented [script locations](https://create.roblox.com/docs/scripting/locations),
+[Luau type checking](https://create.roblox.com/docs/luau/type-checking), and
+[resource cleanup guidance](https://create.roblox.com/docs/performance-optimization/improve).
+The [Roblox style guide](https://roblox.github.io/lua-style-guide/) informs formatting and readability.
+
+Project-specific choices include PascalCase public methods, Rojo source naming, service/controller
+organization, strict checking throughout first-party code, and the use of Trove and Fusion. These
+are deliberate conventions, not requirements imposed by Studio. In particular, this project's public
+method casing differs from the Roblox style guide's general camelCase function recommendation.
 
 ## Project structure
 
@@ -20,7 +31,7 @@ mapping changes. Directory organization must preserve the server/client trust bo
 ```text
 mythic-legends/
   docs/
-    Conventions.md                # project structure and coding conventions
+    CONVENTIONS.md                # project structure and coding conventions
     TECHNICAL_DESIGN.md            # implementation contracts and alignment notes
     GDD.md                        # approved gameplay and progression
     UI_GUIDELINES.md              # player-facing UI rules
@@ -39,6 +50,9 @@ mythic-legends/
           init.lua                # public API and lifecycle entry point
           <PrivateModule>.lua
       Infrastructure/             # cross-service technical support
+      Domain/                     # explicitly shared server-domain contracts and pure logic
+        Types.lua                 # server service protocols and injected context
+        Production/ProductionLedger.lua
       Packages/                   # server-only vendored dependencies
       PostLaunch/                 # inactive, explicitly deferred modules
     ServerStorage/
@@ -47,6 +61,7 @@ mythic-legends/
     StarterPlayer/
       StarterPlayerScripts/
         MainClient.client.lua
+        Types.lua                 # client controller and view-prop contracts
         Controllers/
           <Domain>Controller.lua
           <Domain>Controller/     # alternative when private children are needed
@@ -72,6 +87,8 @@ mythic-legends/
   Packages/                       # generated shared Wally dependencies
   art/                            # authoring conventions and versioned source assets
   .vscode/                        # shared editor settings
+  .github/workflows/verify.yml     # static checks on pushes and pull requests
+  tools/Typecheck.ps1              # pinned Roblox-aware strict analysis
   AGENTS.md                       # agent guidance and required reading
   README.md                       # setup and verification commands
   default.project.json            # canonical Rojo mapping
@@ -80,13 +97,17 @@ mythic-legends/
   wally.lock
   selene.toml
   .styluaignore
+  .stylua.toml
+  .editorconfig
+  .gitattributes
+  .luaurc
   .gitignore
 ```
 
 Placeholders describe permitted patterns, not files to create. A domain uses either the single-file
 or folder form at a given instance path. Do not add empty feature folders or launch placeholders
-for deferred systems. Formatting configuration and CI files are described below as follow-up work;
-the tree above does not claim they already exist.
+for deferred systems. Generated dependencies, API definitions, and verification outputs are ignored;
+follow the README to regenerate them.
 
 `MainServer` owns server startup and shutdown. `MainClient` owns bootstrapped client features.
 `LoadingScreen.client.lua` is the intentional early-loading exception. Keep service helpers private
@@ -116,6 +137,7 @@ ServerScriptService
   MainServer          -- only server bootstrap
   Services            -- authoritative domain services
   Infrastructure      -- logging, rate limits, remotes, and server utilities
+  Domain              -- explicitly shared server-domain contracts and pure accounting
   Packages            -- server-only external libraries such as ProfileStore
   PostLaunch          -- inactive post-launch modules; never launch dependencies
 ServerStorage
@@ -131,6 +153,7 @@ StarterPlayer
     MainClient        -- only client bootstrap
     Controllers       -- input, UI behavior, animation, audio, and VFX controllers
     State             -- private replicated client state
+    Types             -- client controller and view-prop contracts
     Character         -- shared client character helpers
     UI                -- application, screens, components, overlays, adapters, and theme
 ```
@@ -159,12 +182,20 @@ unknown authored descendants Rojo preserves. Tests remain server-only and do not
   shared application state, or a long-lived feature object. Name constructed objects, runtime
   subsystems, state stores, and event channels for what they are: `RateLimiter`, `BaseRuntime`,
   `CardList`, `ModalState`, and `ToastBus`.
-- Use **PascalCase** for public module methods: `DataService.Load`, `Release`, `GetState`, and
-  `UIController.Init`. Established constructor `.new` and tagged logger `.warn`/`.error` methods are
-  exceptions; preserve external library APIs as supplied.
-- Use **PascalCase** for local references to Roblox services and required module tables: `Players`,
-  `ReplicatedStorage`, and `LogUtil`.
-- Use **camelCase** for local functions, parameters, mutable module state, and ordinary runtime
+- Use **PascalCase** for public methods and exported factories: `DataService.Load`,
+  `CardList:Replace`, `UIController.Init`, and the callable `HudButton` module. A local function
+  returned as the module's named public factory also uses PascalCase to match its filename.
+  Established constructor `.new` and tagged logger `.warn`/`.error` methods are exceptions;
+  preserve external library APIs as supplied.
+- Use **PascalCase** for named UI instance handles exposed by a component, such as `panel.Header`
+  or `panel.CloseButton`. Use **camelCase** for ordinary data records, props, callback fields, and
+  other data values, such as `displayName`, `title`, `onSelected`, and `rootScale`. Being returned
+  from a public function does not make every table field an API method or an instance handle.
+  An instance-valued prop still uses camelCase (`props.parent`); a public API operation uses
+  PascalCase (`handle.Destroy`), while a callback prop uses camelCase (`props.onSelected`).
+- Use **PascalCase** for local references to Roblox services and required module tables or callable
+  module exports: `Players`, `ReplicatedStorage`, `LogUtil`, and `HudButton`.
+- Use **camelCase** for private local functions, parameters, mutable module state, and ordinary runtime
   values: `loadProfile`, `activeProfiles`, `playerData`, and `stateRevision`. An injected dependency
   assigned to a module reference still uses PascalCase, such as `DataService`.
 - Use **UPPER_SNAKE_CASE** for immutable module constants: `STORE_NAME`, `PROFILE_KEY_PREFIX`, and
@@ -182,11 +213,14 @@ unknown authored descendants Rojo preserves. Tests remain server-only and do not
 - Use **camelCase** for serialized field and remote-payload keys. Stable metadata IDs use lowercase
   `snake_case`; they are identifiers, not display names.
 - Keep module-private state `local` without an underscore prefix: use `profiles` and `localCache`,
-  not `_profiles` or `_localCache`. An underscore prefix may identify an intentionally unused
-  parameter, such as `_context`.
-- A named module export matches its filename, and log/assert tags use that name:
-  `RateLimiter.lua` returns `RateLimiter` and uses `[RateLimiter]`. A folder entry point uses its
-  folder name. Data-only configuration literals and type-only modules need no artificial wrapper
+  not `_profiles` or `_localCache`. Private fields on a constructed object may use **_camelCase**,
+  such as `self._cards` and `self._config`; these are distinct from module-local variables.
+  An underscore prefix may also identify an intentionally unused parameter, such as `_context`.
+- A named module export matches its filename: `RateLimiter.lua` returns `RateLimiter`. A folder
+  entry point uses its folder name. Log/assert tags use that module name, optionally qualified by
+  its owning domain for a private child: `[RateLimiter]` or `[InventoryService.Mythlings]`.
+  The final tag segment must match the emitting module; do not retain a former owner's tag after
+  extraction. Data-only configuration literals and type-only modules need no artificial wrapper
   solely to create a named return value.
 - Prefer descriptive names over service abbreviations or generic names such as `Manager`, `Helper`,
   or `Utils` when the module's actual responsibility has a precise name.
@@ -263,8 +297,13 @@ adding the directive. Vendored/generated dependencies retain their upstream chec
 - Keep `any` and unchecked casts localized to unavoidable dynamic/library boundaries, with an
   explanation when the limitation is not obvious. Do not suppress a whole file merely to hide a
   known mismatch. Remove unused declarations or wire them into the intended consumers.
-- A successful Selene lint or Rojo build is not proof of Luau type-checking success. Report which
-  validation was actually performed.
+- Verified strict compliance requires strict analysis of the stated first-party scope with no
+  unresolved type errors, using Studio Script Analysis or a pinned Roblox-aware checker configured
+  with the project's instance mapping, Roblox API types, and dependencies. Merely adding
+  `--!strict`, passing Selene, or building with Rojo does not satisfy this requirement.
+- Follow the [README verification procedure](../README.md#verification). Report the checker/version,
+  analyzed scope, unresolved diagnostics, and exclusions. Mark unavailable or incomplete checks as
+  unverified rather than passing; an existing baseline error remains a finding.
 
 ## Lifecycle and resource ownership
 
@@ -283,15 +322,17 @@ adding the directive. Vendored/generated dependencies retain their upstream chec
   feature or a replacement view. Use cancellation or generation checks as appropriate, combining
   them when needed. Restore only temporary state the feature still owns.
 
-Use Trove for service/controller runtime resources, Fusion scopes for
-declarative UI resources, and owning-GUI destruction for focused imperative component factories.
+Use Trove for service/controller runtime resources, Fusion scopes for declarative UI resources, and
+owning-GUI destruction for focused imperative component factories.
 An imperative component may instead return a `Destroy` callback registered with the caller's scope.
 Each resource has one cleanup owner; avoid parallel ad hoc lists for the same lifetime.
 
-**Proposed restart contract:** repeated `Start()` while running and repeated `Stop()` after stopping
-are harmless. After `Init`, ordinary runtime services/controllers support `Start → Stop → Start`
-without duplicate listeners or stale work. Terminal infrastructure such as ended persistence
-sessions must document its exception; reopening persistence is not implied by a runtime restart.
+Repeated `Start()` while running and repeated `Stop()` after stopping are harmless. Every service
+and controller must clean up safely when stopped. Support `Start → Stop → Start` only when the module
+is explicitly designed and documented to restart; such modules must rebuild their runtime resources
+without duplicate listeners or stale work. Document terminal lifetimes such as ended persistence
+sessions or shutdown paths. A terminal module must reject an attempted restart clearly rather than
+silently reusing invalid state.
 
 ## Configuration and constants
 
@@ -303,22 +344,26 @@ sessions must document its exception; reopening persistence is not implied by a 
 - Derived values come from their owning definitions and current mutable state. Do not save copies
   of static metadata merely to simplify a caller.
 
-**Proposed field casing:** use camelCase for configuration record fields and grouping properties;
-PascalCase remains for the module reference. Dictionary keys retain their defined identity: stable
-catalogue IDs remain lowercase snake_case, while enum values such as `Common`, `Rare`, and `Epic`
+Use camelCase for configuration record fields and grouping properties; PascalCase remains for the
+module reference. Dictionary keys retain their defined identity: stable catalogue IDs remain
+lowercase snake_case, while enum values such as `Common`, `Rare`, and `Epic`
 retain their canonical spelling. Existing PascalCase record/grouping properties are a migration
 task, not a reason to break consumers in a documentation-only change.
 
-**Proposed immutability enforcement:** freeze plain configuration tables recursively once during
-module construction. A shallow `table.freeze` does not protect nested records. Keep mutable working
-copies separate; do not freeze player saves or runtime state. Preserve third-party API behavior.
+Freeze plain configuration tables recursively once during module construction, following Roblox's
+[table-freezing guidance](https://create.roblox.com/docs/luau/tables#freeze-tables). A shallow
+`table.freeze` does not protect nested records. The recursive helper must safely handle already-frozen
+tables and shared references without missing their nested values or revisiting cycles indefinitely.
+Keep mutable working copies separate; do not freeze player saves or runtime state. Preserve
+third-party API behavior. Freezing prevents accidental mutation; it does not replace server validation.
 
 ## Formatting and tooling
 
-**Proposed formatting baseline:** UTF-8 without a BOM, LF line endings, a final newline, tabs with a
-display width of four, a target width of 120 columns, and double-quoted strings unless escaping is
-clearer with the alternative. StyLua decides wrapping and whitespace; do not hand-align code in
-ways that fight the formatter.
+Use UTF-8 without a BOM, LF line endings, a final newline, tabs with a display width of four, a target
+width of 100 columns, and double-quoted strings unless escaping is clearer with the alternative.
+The tab width, code width, and quote preference follow the
+[Roblox style guide](https://roblox.github.io/lua-style-guide/#general-whitespace). StyLua decides
+wrapping and whitespace; do not hand-align code in ways that fight the formatter.
 
 - Use the tool versions pinned in `aftman.toml`. Editor formatting and command-line verification
   use the same StyLua release and repository configuration; avoid a floating `latest` editor pin.
@@ -326,10 +371,14 @@ ways that fight the formatter.
   `.gitattributes` where applicable. A written convention alone does not configure editors or Git.
 - Keep mechanical formatting/line-ending changes separate from behavior changes so diffs remain
   reviewable. Avoid formatting unrelated files during a small feature or bug fix.
-- Run the relevant [README checks](../README.md#getting-started), and automate those same checks in
+- Run the relevant [README checks](../README.md#verification), and automate those same checks in
   CI. Keep the command list and setup instructions in the README rather than copying them here.
-- Formatter configuration, editor alignment, line-ending enforcement, CI, and type-checking
-  automation are follow-up implementation work until those files/workflows are actually present.
+- A formatting compliance check must use the agreed 100-column baseline. Repository formatter
+  configuration and the README command both specify that width; a passing run with
+  different settings is not evidence of compliance. Distinguish line-ending differences from other
+  formatting findings without silently ignoring either.
+- Repository formatter/editor/Git settings and CI implement these rules. The pinned type-checking
+  command, dependency generation, API snapshot, and analyzed scope are documented in the README.
 
 ## Logging conventions
 
@@ -339,6 +388,9 @@ ways that fight the formatter.
   `log.warn` for recoverable anomalies and `log.error` for serious failures that were safely
   contained. Both log without throwing. Use `error()` or `assert()` only when continuing would leave
   the runtime invalid.
+- A private child may use `LogUtil.For("Owner.Module")`, such as
+  `LogUtil.For("InventoryService.Mythlings")`. Apply the same tag convention to assertions and
+  client warnings; the final segment names the module that emits the diagnostic.
 - Client code uses `warn` only when a required operation fails, such as controller startup or state
   synchronization.
 - Invalid and rate-limited remote requests are rejected silently. Never let exploit traffic flood
@@ -366,11 +418,36 @@ ways that fight the formatter.
 - Generated files, built places, and vendor sources are not routine cleanup targets. Preserve
   unrelated worktree changes. State the checks run and any remaining runtime-validation limits.
 
+## Consistency scan scope and findings
+
+Scan first-party runtime source, configurations, templates, tests, inactive `PostLaunch` source,
+project/tooling definitions, and their documentation references. Include both server and client
+code. Review deferred code for conventions without activating it or expanding its functionality.
+
+Exclude vendored/generated dependencies, built places, and generated sourcemaps from first-party
+style requirements. Record those exclusions explicitly. Preserve framework filename/API exceptions,
+authored asset contracts, and inactive saved fields that the design requires retaining. An apparent
+unused reference is not sufficient evidence to remove compatible player data or authored integrations.
+
+Classify findings separately so a consistency review does not turn every preference into a violation:
+
+| Classification | Required evidence |
+| --- | --- |
+| Convention violation | The applicable rule, concrete file/location, and the specific mismatch. Account for documented exceptions. |
+| Maintainability recommendation | The responsibility, duplication, dependency, or ownership problem and the benefit of a proposed change. File length or personal taste alone is insufficient. |
+| Gameplay or implementation gap | The owning GDD, Technical Design, or UI contract and the current behavior. Report it separately from mechanical cleanup. |
+| Studio validation required | The behavior static inspection cannot establish and the Studio scenario needed to verify it. Do not report an unperformed check as a confirmed defect or success. |
+
+A confirmed finding may also require a Studio regression check after its fix; identify that validation
+separately. Report missing tooling or incomplete analysis as verification gaps. Summarize scope and
+checks actually completed, including unresolved baseline failures, before claiming repository-wide
+consistency. A scan report does not itself authorize gameplay changes or data migrations.
+
 ## Deliberate exceptions and adoption
 
 - Existing tooling names such as `src`, `tests`, `init.lua`, `jest.config.lua`, `__tests__`, and
   `*.spec.lua` are exceptions to PascalCase filenames/folders. Documentation filenames retain their
-  established links, including `Conventions.md`.
+  established links, including `CONVENTIONS.md`.
 - Preserve vendored/generated package filenames, extensions, APIs, and formatting. For example,
   `ProfileStore.luau` does not require renaming to match first-party `.lua` files.
 - Existing saved field names, remote contracts, and metadata IDs remain compatible until deliberately

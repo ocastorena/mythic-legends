@@ -1,15 +1,17 @@
 --!strict
 -- ServerStorage/Tests/__tests__/ProductionLedger.spec
 
+local FreezeUtil = require(game:GetService("ReplicatedStorage").Shared.FreezeUtil)
 local HttpService = game:GetService("HttpService")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
-local ProductionLedger = require(game:GetService("ServerScriptService").Services.ProductionService.ProductionLedger)
+local ProductionLedger =
+	require(game:GetService("ServerScriptService").Domain.Production.ProductionLedger)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect
 local it = JestGlobals.it
 
-local function emptyState(at: number)
+local function emptyState(at: number): ProductionLedger.State
 	return {
 		lastAccruedAt = at,
 		materials = {},
@@ -17,36 +19,52 @@ local function emptyState(at: number)
 end
 
 describe("ProductionLedger.Accrue", function()
-	it("retains fractions across repeated collections instead of rounding away earned work", function()
-		local state = emptyState(100)
-		local collected = 0
-		for step = 1, 20 do
-			state = ProductionLedger.Accrue(state, 100 + step * 15, "crystal", 0.5, 100)
-			local nextState, output = ProductionLedger.Collect(state)
-			state = nextState
-			collected += output.crystal or 0
+	it("rejects nonpositive work inputs and grants only whole capacity", function()
+		local initial = emptyState(100)
+		local negativeRate = ProductionLedger.Accrue(initial, 220, "crystal", -1, 10)
+		local negativeCapacity = ProductionLedger.Accrue(initial, 220, "crystal", 1, -1)
+		local fractionalCapacity = ProductionLedger.Accrue(initial, 220, "crystal", 2, 1.8)
+		expect(negativeRate.materials).toEqual({})
+		expect(negativeCapacity.materials).toEqual({})
+		expect(fractionalCapacity.materials.crystal.stored).toBe(1)
+		expect(fractionalCapacity.materials.crystal.progress).toBe(0)
+	end)
+	it(
+		"retains fractions across repeated collections instead of rounding away earned work",
+		function()
+			local state = emptyState(100)
+			local collected = 0
+			for step = 1, 20 do
+				state = ProductionLedger.Accrue(state, 100 + step * 15, "crystal", 0.5, 100)
+				local nextState, output = ProductionLedger.Collect(state)
+				state = nextState
+				collected += output.crystal or 0
+			end
+
+			local once = ProductionLedger.Accrue(emptyState(100), 400, "crystal", 0.5, 100)
+			local onceCollected, onceOutput = ProductionLedger.Collect(once)
+			expect(collected).toBe(2)
+			expect(collected).toBe(onceOutput.crystal)
+			expect(state.materials.crystal.progress).toBeCloseTo(0.5)
+			expect(state).toEqual(onceCollected)
 		end
+	)
 
-		local once = ProductionLedger.Accrue(emptyState(100), 400, "crystal", 0.5, 100)
-		local onceCollected, onceOutput = ProductionLedger.Collect(once)
-		expect(collected).toBe(2)
-		expect(collected).toBe(onceOutput.crystal)
-		expect(state.materials.crystal.progress).toBeCloseTo(0.5)
-		expect(state).toEqual(onceCollected)
-	end)
+	it(
+		"pauses empty and zero-rate intervals without losing progress or catching up later",
+		function()
+			local working = ProductionLedger.Accrue(emptyState(100), 130, "crystal", 1, 10)
+			local empty = ProductionLedger.Accrue(working, 730, nil, 1, 10)
+			local stopped = ProductionLedger.Accrue(empty, 1_030, "crystal", 0, 10)
+			expect(empty.materials).toEqual(working.materials)
+			expect(stopped.materials).toEqual(working.materials)
+			expect(stopped.lastAccruedAt).toBe(1_030)
 
-	it("pauses empty and zero-rate intervals without losing progress or catching up later", function()
-		local working = ProductionLedger.Accrue(emptyState(100), 130, "crystal", 1, 10)
-		local empty = ProductionLedger.Accrue(working, 730, nil, 1, 10)
-		local stopped = ProductionLedger.Accrue(empty, 1_030, "crystal", 0, 10)
-		expect(empty.materials).toEqual(working.materials)
-		expect(stopped.materials).toEqual(working.materials)
-		expect(stopped.lastAccruedAt).toBe(1_030)
-
-		local resumed = ProductionLedger.Accrue(stopped, 1_060, "crystal", 1, 10)
-		expect(resumed.materials.crystal.stored).toBe(1)
-		expect(resumed.materials.crystal.progress).toBeCloseTo(0)
-	end)
+			local resumed = ProductionLedger.Accrue(stopped, 1_060, "crystal", 1, 10)
+			expect(resumed.materials.crystal.stored).toBe(1)
+			expect(resumed.materials.crystal.progress).toBeCloseTo(0)
+		end
+	)
 
 	it("applies changed worker rates only to later work", function()
 		local slow = ProductionLedger.Accrue(emptyState(100), 130, "crystal", 1, 10)
@@ -58,19 +76,22 @@ describe("ProductionLedger.Accrue", function()
 		expect(slower.materials.crystal.progress).toBeCloseTo(0.5)
 	end)
 
-	it("keeps earned output and fractions with their original Material when workers change", function()
-		local crystal = ProductionLedger.Accrue(emptyState(100), 130, "crystal", 1, 10)
-		local shadow = ProductionLedger.Accrue(crystal, 220, "shadow_dust", 1, 10)
-		expect(shadow.materials.crystal).toEqual(crystal.materials.crystal)
-		expect(shadow.materials.shadow_dust.stored).toBe(1)
-		expect(shadow.materials.shadow_dust.progress).toBeCloseTo(0.5)
+	it(
+		"keeps earned output and fractions with their original Material when workers change",
+		function()
+			local crystal = ProductionLedger.Accrue(emptyState(100), 130, "crystal", 1, 10)
+			local shadow = ProductionLedger.Accrue(crystal, 220, "shadow_dust", 1, 10)
+			expect(shadow.materials.crystal).toEqual(crystal.materials.crystal)
+			expect(shadow.materials.shadow_dust.stored).toBe(1)
+			expect(shadow.materials.shadow_dust.progress).toBeCloseTo(0.5)
 
-		local returned = ProductionLedger.Accrue(shadow, 250, "crystal", 1, 10)
-		local collected, output = ProductionLedger.Collect(returned)
-		expect(output).toEqual({ crystal = 1, shadow_dust = 1 })
-		expect(collected.materials.crystal.progress).toBeCloseTo(0)
-		expect(collected.materials.shadow_dust.progress).toBeCloseTo(0.5)
-	end)
+			local returned = ProductionLedger.Accrue(shadow, 250, "crystal", 1, 10)
+			local collected, output = ProductionLedger.Collect(returned)
+			expect(output).toEqual({ crystal = 1, shadow_dust = 1 })
+			expect(collected.materials.crystal.progress).toBeCloseTo(0)
+			expect(collected.materials.shadow_dust.progress).toBeCloseTo(0.5)
+		end
+	)
 
 	it("keeps unfinished work on its original stand when a worker moves", function()
 		local original = ProductionLedger.Accrue(emptyState(100), 130, "crystal", 1, 10)
@@ -84,7 +105,7 @@ describe("ProductionLedger.Accrue", function()
 	end)
 
 	it("uses shared storage across Material buckets and discards new overflow", function()
-		local prior = {
+		local prior: ProductionLedger.State = {
 			lastAccruedAt = 100,
 			materials = {
 				crystal = { stored = 2, progress = 0.25 },
@@ -105,28 +126,31 @@ describe("ProductionLedger.Accrue", function()
 		expect(resumed.materials.shadow_dust.progress).toBeCloseTo(0.25)
 	end)
 
-	it("preserves existing whole and fractional output when a replacement worker lowers capacity", function()
-		local prior = {
-			lastAccruedAt = 100,
-			materials = {
-				crystal = { stored = 7, progress = 0.75 },
-				shadow_dust = { stored = 2, progress = 0.5 },
-			},
-		}
-		local smaller = ProductionLedger.Accrue(prior, 700, "crystal", 2, 3)
-		expect(smaller.materials).toEqual(prior.materials)
-		expect(smaller.lastAccruedAt).toBe(700)
+	it(
+		"preserves existing whole and fractional output when a replacement worker lowers capacity",
+		function()
+			local prior: ProductionLedger.State = {
+				lastAccruedAt = 100,
+				materials = {
+					crystal = { stored = 7, progress = 0.75 },
+					shadow_dust = { stored = 2, progress = 0.5 },
+				},
+			}
+			local smaller = ProductionLedger.Accrue(prior, 700, "crystal", 2, 3)
+			expect(smaller.materials).toEqual(prior.materials)
+			expect(smaller.lastAccruedAt).toBe(700)
 
-		local collected, output = ProductionLedger.Collect(smaller)
-		expect(output).toEqual({ crystal = 7, shadow_dust = 2 })
-		local resumed = ProductionLedger.Accrue(collected, 715, "crystal", 1, 3)
-		expect(resumed.materials.crystal.stored).toBe(1)
-		expect(resumed.materials.crystal.progress).toBeCloseTo(0)
-		expect(resumed.materials.shadow_dust.progress).toBeCloseTo(0.5)
-	end)
+			local collected, output = ProductionLedger.Collect(smaller)
+			expect(output).toEqual({ crystal = 7, shadow_dust = 2 })
+			local resumed = ProductionLedger.Accrue(collected, 715, "crystal", 1, 3)
+			expect(resumed.materials.crystal.stored).toBe(1)
+			expect(resumed.materials.crystal.progress).toBeCloseTo(0)
+			expect(resumed.materials.shadow_dust.progress).toBeCloseTo(0.5)
+		end
+	)
 
 	it("does not move a future cursor backwards or replay elapsed production", function()
-		local prior = {
+		local prior: ProductionLedger.State = {
 			lastAccruedAt = 200,
 			materials = { crystal = { stored = 1, progress = 0.5 } },
 		}
@@ -140,21 +164,27 @@ describe("ProductionLedger.Accrue", function()
 		expect(ProductionLedger.Accrue(later, 230, "crystal", 1, 10)).toEqual(later)
 	end)
 
-	it("preserves unfinished work through serialization and reconnect without replaying it", function()
-		local online = ProductionLedger.Accrue(emptyState(100), 190, "crystal", 0.5, 100)
-		local saved = HttpService:JSONDecode(HttpService:JSONEncode(online))
-		local rejoined = ProductionLedger.Accrue(saved, 400, "crystal", 0.5, 100)
-		local continuous = ProductionLedger.Accrue(emptyState(100), 400, "crystal", 0.5, 100)
-		expect(rejoined).toEqual(continuous)
-		expect(ProductionLedger.Accrue(rejoined, 400, "crystal", 0.5, 100)).toEqual(rejoined)
-	end)
+	it(
+		"preserves unfinished work through serialization and reconnect without replaying it",
+		function()
+			local online = ProductionLedger.Accrue(emptyState(100), 190, "crystal", 0.5, 100)
+			local saved = HttpService:JSONDecode(HttpService:JSONEncode(online))
+			local rejoined = ProductionLedger.Accrue(saved, 400, "crystal", 0.5, 100)
+			local continuous = ProductionLedger.Accrue(emptyState(100), 400, "crystal", 0.5, 100)
+			expect(rejoined).toEqual(continuous)
+			expect(ProductionLedger.Accrue(rejoined, 400, "crystal", 0.5, 100)).toEqual(rejoined)
+		end
+	)
 
 	it("returns independent tables without mutating the previous settlement", function()
-		local bucket = table.freeze({ stored = 1, progress = 0.5 })
-		local prior = table.freeze({
+		local bucket = { stored = 1, progress = 0.5 }
+		FreezeUtil.DeepFreeze(bucket)
+		local prior: ProductionLedger.State = {
 			lastAccruedAt = 100,
-			materials = table.freeze({ crystal = bucket }),
-		})
+			materials = { crystal = bucket },
+		}
+		FreezeUtil.DeepFreeze(prior.materials)
+		FreezeUtil.DeepFreeze(prior)
 		local result = ProductionLedger.Accrue(prior, 130, "crystal", 1, 10)
 		expect(result).never.toBe(prior)
 		expect(result.materials).never.toBe(prior.materials)
@@ -167,28 +197,36 @@ describe("ProductionLedger.Accrue", function()
 end)
 
 describe("ProductionLedger.Collect", function()
-	it("collects whole stored output once while preserving fractions, cursor, and input tables", function()
-		local prior = table.freeze({
-			lastAccruedAt = 250,
-			materials = table.freeze({
-				crystal = table.freeze({ stored = 3, progress = 0.75 }),
-				shadow_dust = table.freeze({ stored = 2, progress = 0.5 }),
-			}),
-		})
-		local collected, output = ProductionLedger.Collect(prior)
-		expect(output).toEqual({ crystal = 3, shadow_dust = 2 })
-		expect(collected.lastAccruedAt).toBe(250)
-		expect(collected.materials.crystal).toEqual({ stored = 0, progress = 0.75 })
-		expect(collected.materials.shadow_dust).toEqual({ stored = 0, progress = 0.5 })
-		expect(prior.materials.crystal.stored).toBe(3)
-		expect(prior.materials.shadow_dust.stored).toBe(2)
-		expect(collected).never.toBe(prior)
-		expect(collected.materials).never.toBe(prior.materials)
-		expect(collected.materials.crystal).never.toBe(prior.materials.crystal)
+	it(
+		"collects whole stored output once while preserving fractions, cursor, and input tables",
+		function()
+			local prior: ProductionLedger.State = {
+				lastAccruedAt = 250,
+				materials = {
+					crystal = { stored = 3, progress = 0.75 },
+					shadow_dust = { stored = 2, progress = 0.5 },
+				},
+			}
+			for _, bucket in prior.materials do
+				FreezeUtil.DeepFreeze(bucket)
+			end
+			FreezeUtil.DeepFreeze(prior.materials)
+			FreezeUtil.DeepFreeze(prior)
+			local collected, output = ProductionLedger.Collect(prior)
+			expect(output).toEqual({ crystal = 3, shadow_dust = 2 })
+			expect(collected.lastAccruedAt).toBe(250)
+			expect(collected.materials.crystal).toEqual({ stored = 0, progress = 0.75 })
+			expect(collected.materials.shadow_dust).toEqual({ stored = 0, progress = 0.5 })
+			expect(prior.materials.crystal.stored).toBe(3)
+			expect(prior.materials.shadow_dust.stored).toBe(2)
+			expect(collected).never.toBe(prior)
+			expect(collected.materials).never.toBe(prior.materials)
+			expect(collected.materials.crystal).never.toBe(prior.materials.crystal)
 
-		local collectedAgain, repeatedOutput = ProductionLedger.Collect(collected)
-		expect(repeatedOutput.crystal or 0).toBe(0)
-		expect(repeatedOutput.shadow_dust or 0).toBe(0)
-		expect(collectedAgain).toEqual(collected)
-	end)
+			local collectedAgain, repeatedOutput = ProductionLedger.Collect(collected)
+			expect(repeatedOutput.crystal or 0).toBe(0)
+			expect(repeatedOutput.shadow_dust or 0).toBe(0)
+			expect(collectedAgain).toEqual(collected)
+		end
+	)
 end)

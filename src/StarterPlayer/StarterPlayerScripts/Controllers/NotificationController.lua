@@ -1,10 +1,13 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/NotificationController
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
-local ToastBus = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("State"):WaitForChild("ToastBus"))
+local Types = require(script.Parent.Parent.Types)
+local Trove = require(ReplicatedStorage.Packages.Trove)
+local ToastBus =
+	require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("State"):WaitForChild("ToastBus"))
 
 local NotificationController = {}
 
@@ -14,9 +17,11 @@ type ClaimPayload = {
 }
 
 local VOWELS: { [string]: boolean } = { a = true, e = true, i = true, o = true, u = true }
+table.freeze(VOWELS)
 
-local initialized = false
-local connection: RBXScriptConnection?
+local isInitialized = false
+local lifetime = Trove.new()
+local isRunning = false
 local spawnEvent: RemoteEvent
 
 local function withArticle(displayName: string): string
@@ -34,20 +39,23 @@ local function resolveName(payload: ClaimPayload): string
 end
 
 function NotificationController.Init(_context: Types.ClientContext)
-	if initialized then
+	if isInitialized then
 		return
 	end
-	initialized = true
-	spawnEvent = ReplicatedStorage:WaitForChild("Network"):WaitForChild("World"):WaitForChild("Spawned") :: RemoteEvent
+	isInitialized = true
+	spawnEvent = ReplicatedStorage:WaitForChild("Network")
+		:WaitForChild("World")
+		:WaitForChild("Spawned") :: RemoteEvent
 end
 
 function NotificationController.Start()
-	assert(initialized, "[NotificationController] Init must run before Start")
-	if connection then
+	assert(isInitialized, "[NotificationController] Init must run before Start")
+	if isRunning then
 		return
 	end
 
-	connection = spawnEvent.OnClientEvent:Connect(function(eventName: unknown, rawPayload: unknown)
+	isRunning = true
+	lifetime:Connect(spawnEvent.OnClientEvent, function(eventName: unknown, rawPayload: unknown)
 		if eventName ~= "Claimed" or type(rawPayload) ~= "table" then
 			return
 		end
@@ -60,10 +68,8 @@ function NotificationController.Start()
 end
 
 function NotificationController.Stop()
-	if connection then
-		connection:Disconnect()
-		connection = nil
-	end
+	isRunning = false
+	lifetime:Clean()
 end
 
 return NotificationController

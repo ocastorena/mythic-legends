@@ -1,3 +1,4 @@
+--!strict
 -- ServerScriptService/Services/InventoryService
 -- Owns the player's collectible inventory. Focused modules manage each inventory domain;
 -- this service owns their shared session state and exposes the feature-level API.
@@ -6,62 +7,62 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local PlayerUtil = require(Infrastructure:WaitForChild("PlayerUtil"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local PlayerUtil = require(infrastructure:WaitForChild("PlayerUtil"))
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
 local Mythlings = require(script.Mythlings)
 local Materials = require(script.Materials)
-local Consumables = require(script.Consumables)
 local InventoryRemotes = require(script.InventoryRemotes)
 
+local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
+local lifecycle = ServiceLifecycle.new("InventoryService")
+
 local InventoryService = {}
-local DataService: any
+local DataService: ServerTypes.DataApi
 
 -- userId -> { mythlings = table, materials = table, consumables = table }
-local sessionsByUserId: { [number]: any } = {}
-local connections: { RBXScriptConnection } = {}
+local sessionsByUserId: ServerTypes.InventorySessions = {}
 
-function InventoryService.Init(context)
-	DataService = context.Services.DataService
-	Mythlings.Init(context, sessionsByUserId)
-	Materials.Init(context, sessionsByUserId)
-	Consumables.Init(context, sessionsByUserId)
-	InventoryRemotes.Init(context, Mythlings)
-end
-
-function InventoryService.Stop()
-	InventoryRemotes.Stop()
-	for _, connection in connections do
-		connection:Disconnect()
-	end
-	table.clear(connections)
-	table.clear(sessionsByUserId)
+function InventoryService.Init(serviceContext: ServerTypes.Context)
+	DataService = serviceContext.Services.DataService
+	Mythlings.Init(serviceContext, sessionsByUserId)
+	Materials.Init(serviceContext, sessionsByUserId)
+	InventoryRemotes.Init(serviceContext)
 end
 
 function InventoryService.Start()
-	table.insert(
-		connections,
-		PlayerUtil.OnPlayer(function(player: Player)
-			sessionsByUserId[player.UserId] = {}
-			Mythlings.LoadPlayer(player)
-			Materials.LoadPlayer(player)
-			Consumables.LoadPlayer(player)
-		end)
-	)
-
-	table.insert(
-		connections,
-		Players.PlayerRemoving:Connect(function(player: Player)
-			sessionsByUserId[player.UserId] = nil
-		end)
-	)
-
+	if not lifecycle:Start() then
+		return
+	end
+	PlayerUtil.OnPlayer(function(player: Player, isCurrent: () -> boolean)
+		if not DataService.Load(player) or not isCurrent() then
+			return
+		end
+		sessionsByUserId[player.UserId] = {}
+		Mythlings.LoadPlayer(player)
+		Materials.LoadPlayer(player)
+	end, lifecycle.trove)
+	lifecycle.trove:Connect(Players.PlayerRemoving, function(player: Player)
+		sessionsByUserId[player.UserId] = nil
+	end)
 	InventoryRemotes.Start()
 end
 
+function InventoryService.Stop()
+	if not lifecycle:Stop() then
+		return
+	end
+	InventoryRemotes.Stop()
+	table.clear(sessionsByUserId)
+end
+
 -- Mythling inventory API used by claiming, base placement, and production.
-function InventoryService.SaveWonMythling(player: Player, params: { typeId: string, variantId: string }): string?
+function InventoryService.SaveWonMythling(
+	player: Player,
+	params: { typeId: string, variantId: string }
+): string?
 	return Mythlings.SaveWon(player, params)
 end
 

@@ -1,9 +1,10 @@
 --!strict
+-- ServerScriptService/Domain/Production/ProductionLedger
 -- Earned work stays at its producing stand, separated by Material ID. This bridges the
 -- prototype's single-worker stands until the full Shrine/batch/XP system is implemented.
 
-export type MaterialWork = { stored: number, progress: number }
-export type State = { lastAccruedAt: number, materials: { [string]: MaterialWork } }
+local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+export type State = Types.StandProduction
 
 local ProductionLedger = {}
 
@@ -39,7 +40,8 @@ function ProductionLedger.Accrue(
 		return result
 	end
 
-	local work = result.materials[materialId] or { stored = 0, progress = 0 }
+	local work: { stored: number, progress: number } = result.materials[materialId]
+		or { stored = 0, progress = 0 }
 	local earned = work.progress + rate * elapsed / 60
 	-- Snap only machine-scale arithmetic error so splitting an interval does not
 	-- delay a completed item (for example ten increments of 0.1).

@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Components/Panel/EmptyState
 
 local Theme = require(script.Parent.Parent.Parent.Theme)
@@ -5,8 +6,8 @@ local Primitives = require(script.Parent.Primitives)
 
 local EmptyState = {}
 
-local Metric = Theme.Metric
-local Em = Theme.Em
+local metric = Theme.metric
+local em = Theme.em
 
 export type Config = {
 	parent: Instance,
@@ -34,27 +35,27 @@ function EmptyState.Create(config: Config): View
 	local content = Primitives.NewFrame("Content", root)
 	content.AnchorPoint = Vector2.new(0.5, 0.5)
 	content.Position = UDim2.fromScale(0.5, 0.5)
-	content.Size = UDim2.new(1, -32, 0, Metric.emptyStateHeight)
+	content.Size = UDim2.new(1, -32, 0, metric.emptyStateHeight)
 	content.ZIndex = 11
 	local sizeConstraint = Instance.new("UISizeConstraint")
-	sizeConstraint.MaxSize = Vector2.new(Metric.emptyStateMaxWidth, Metric.emptyStateHeight)
+	sizeConstraint.MaxSize = Vector2.new(metric.emptyStateMaxWidth, metric.emptyStateHeight)
 	sizeConstraint.Parent = content
-	local layout = Primitives.NewList(content, Enum.FillDirection.Vertical, Metric.emptyStateGap)
+	local layout = Primitives.NewList(content, Enum.FillDirection.Vertical, metric.emptyStateGap)
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.VerticalAlignment = Enum.VerticalAlignment.Center
 
 	local iconDisc = Primitives.NewFrame("IconDisc", content)
-	iconDisc.Size = UDim2.fromOffset(Metric.emptyStateIconDiscSize, Metric.emptyStateIconDiscSize)
+	iconDisc.Size = UDim2.fromOffset(metric.emptyStateIconDiscSize, metric.emptyStateIconDiscSize)
 	iconDisc.BackgroundTransparency = 0.88
 	iconDisc.LayoutOrder = 1
 	iconDisc.ZIndex = 11
-	Theme.pill(iconDisc)
+	Theme.Pill(iconDisc)
 
 	local icon = Instance.new("ImageLabel")
 	icon.Name = "Icon"
 	icon.AnchorPoint = Vector2.new(0.5, 0.5)
 	icon.Position = UDim2.fromScale(0.5, 0.5)
-	icon.Size = UDim2.fromOffset(Metric.emptyStateIconSize, Metric.emptyStateIconSize)
+	icon.Size = UDim2.fromOffset(metric.emptyStateIconSize, metric.emptyStateIconSize)
 	icon.BackgroundTransparency = 1
 	icon.BorderSizePixel = 0
 	icon.ScaleType = Enum.ScaleType.Fit
@@ -63,23 +64,23 @@ function EmptyState.Create(config: Config): View
 
 	local title = Primitives.NewLabel("Title", content)
 	title.Size = UDim2.new(1, 0, 0, 28)
-	title.FontFace = Theme.Font.extraBold
+	title.FontFace = Theme.font.extraBold
 	title.TextXAlignment = Enum.TextXAlignment.Center
 	title.LayoutOrder = 2
 	title.ZIndex = 11
-	Primitives.SetText(title, Em.itemName, config.root)
+	Primitives.SetText(title, em.itemName, config.root)
 
 	local body = Primitives.NewLabel("Body", content)
 	body.Size = UDim2.new(1, 0, 0, 44)
-	body.FontFace = Theme.Font.bold
-	body.TextColor3 = Theme.Text.muted
-	body.TextTransparency = Theme.Text.mutedTransparency
+	body.FontFace = Theme.font.bold
+	body.TextColor3 = Theme.textColors.muted
+	body.TextTransparency = Theme.textColors.mutedTransparency
 	body.TextWrapped = true
 	body.TextXAlignment = Enum.TextXAlignment.Center
 	body.TextYAlignment = Enum.TextYAlignment.Top
 	body.LayoutOrder = 3
 	body.ZIndex = 11
-	Primitives.SetText(body, Em.body, config.root)
+	Primitives.SetText(body, em.body, config.root)
 
 	return {
 		Root = root,

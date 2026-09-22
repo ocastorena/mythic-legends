@@ -1,52 +1,43 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/InventoryController
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Types = require(script.Parent.Parent.Types)
 local EquipmentMeta = require(ReplicatedStorage.Shared.Configurations.Equipment)
+local Trove = require(ReplicatedStorage.Packages.Trove)
 
 local InventoryController = {}
 
-local connections: { RBXScriptConnection } = {}
-local characterConnections: { RBXScriptConnection } = {}
+local lifetime = Trove.new()
+local characterLifetime = lifetime:Extend()
+local hasStopped = false
+local generation = 0
 local equipmentChanged: BindableEvent
-local initialized = false
-local running = false
+local isInitialized = false
+local isRunning = false
 local equipmentAssets: Folder
 local getCombatLoadout: RemoteFunction
 local equipCombatItem: RemoteFunction
 local deleteMythling: RemoteFunction
 
-local function disconnectAll(list: { RBXScriptConnection })
-	for _, connection in list do
-		connection:Disconnect()
-	end
-	table.clear(list)
-end
-
 local function bindCharacter(character: Model)
-	disconnectAll(characterConnections)
-	table.insert(
-		characterConnections,
-		character:GetAttributeChangedSignal("RightEquipped"):Connect(function()
-			equipmentChanged:Fire()
-		end)
-	)
-	table.insert(
-		characterConnections,
-		character:GetAttributeChangedSignal("LeftEquipped"):Connect(function()
-			equipmentChanged:Fire()
-		end)
-	)
+	characterLifetime:Clean()
+	characterLifetime:Add(character:GetAttributeChangedSignal("RightEquipped"):Connect(function()
+		equipmentChanged:Fire()
+	end))
+	characterLifetime:Add(character:GetAttributeChangedSignal("LeftEquipped"):Connect(function()
+		equipmentChanged:Fire()
+	end))
 	equipmentChanged:Fire()
 end
 
 function InventoryController.Init(_context: Types.ClientContext)
-	if initialized then
+	if isInitialized then
 		return
 	end
-	initialized = true
+	isInitialized = true
 	equipmentChanged = Instance.new("BindableEvent")
 	InventoryController.OnEquipmentChanged = equipmentChanged.Event
 
@@ -54,58 +45,81 @@ function InventoryController.Init(_context: Types.ClientContext)
 	local combatNetwork = network:WaitForChild("Combat")
 	getCombatLoadout = combatNetwork:WaitForChild("GetLoadout") :: RemoteFunction
 	equipCombatItem = combatNetwork:WaitForChild("Equip") :: RemoteFunction
-	deleteMythling = network:WaitForChild("Inventory"):WaitForChild("DeleteMythling") :: RemoteFunction
+	deleteMythling =
+		network:WaitForChild("Inventory"):WaitForChild("DeleteMythling") :: RemoteFunction
 	equipmentAssets = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Equipment") :: Folder
 end
 
 function InventoryController.Start()
-	assert(initialized, "[InventoryController] Init must run before Start")
-	if running then
+	assert(isInitialized, "[InventoryController] Init must run before Start")
+	assert(not hasStopped, "[InventoryController] Stop ends this controller's signal lifetime")
+	if isRunning then
 		return
 	end
-	running = true
+	isRunning = true
 
-	table.insert(connections, Players.LocalPlayer.CharacterAdded:Connect(bindCharacter))
+	lifetime:Connect(Players.LocalPlayer.CharacterAdded, bindCharacter)
+	lifetime:Connect(Players.LocalPlayer.CharacterRemoving, function()
+		characterLifetime:Clean()
+	end)
 	if Players.LocalPlayer.Character then
 		bindCharacter(Players.LocalPlayer.Character)
 	end
 end
 
 function InventoryController.RequestEquipmentSnapshot(): Types.InventoryEquipmentMap
-	assert(initialized, "[InventoryController] Init must run before RequestEquipmentSnapshot")
+	assert(isInitialized, "[InventoryController] Init must run before RequestEquipmentSnapshot")
 	local equipment: Types.InventoryEquipmentMap = {}
-	local success, response = pcall(getCombatLoadout.InvokeServer, getCombatLoadout)
+	local requestGeneration = generation
+	local success, rawResponse = pcall(getCombatLoadout.InvokeServer, getCombatLoadout)
+	if hasStopped or requestGeneration ~= generation then
+		return equipment
+	end
 	if not success then
 		warn("[InventoryController] Combat Loadout request failed")
 		return equipment
 	end
-	if type(response) ~= "table" or response.ok ~= true or type(response.snapshot) ~= "table" then
+	local response: unknown = rawResponse
+	if type(response) ~= "table" then
+		return equipment
+	end
+	local record = response :: { [string]: unknown }
+	if record.ok ~= true or type(record.snapshot) ~= "table" then
 		return equipment
 	end
 
-	local snapshot = response.snapshot
-	for _, owned in snapshot.equipment or {} do
+	local snapshot = record.snapshot :: { [string]: unknown }
+	if type(snapshot.equipment) ~= "table" then
+		return equipment
+	end
+	for _, rawOwned in snapshot.equipment :: { [unknown]: unknown } do
+		if type(rawOwned) ~= "table" then
+			continue
+		end
+		local owned = rawOwned :: { [string]: unknown }
 		local definitionId = owned.definitionId
-		local profile = type(definitionId) == "string" and EquipmentMeta.Profiles[definitionId]
+		local instanceId = owned.instanceId
+		if type(definitionId) ~= "string" or type(instanceId) ~= "string" then
+			continue
+		end
+		local profile = EquipmentMeta.profiles[definitionId]
 		if profile then
-			local entry = equipment[definitionId]
-			if not entry then
-				entry = {
+			local entry: Types.InventoryEquipmentEntry = equipment[definitionId]
+				or {
 					quantity = 0,
 					equipped = false,
 					textureId = "",
-					instanceId = owned.instanceId,
+					instanceId = instanceId,
 					previewModel = equipmentAssets:FindFirstChild(profile.modelName),
 				}
-				equipment[definitionId] = entry
-			end
+			equipment[definitionId] = entry
 			entry.quantity += 1
 			if
 				owned.instanceId == snapshot.primaryWeaponInstanceId
 				or owned.instanceId == snapshot.shieldInstanceId
 			then
 				entry.equipped = true
-				entry.instanceId = owned.instanceId
+				entry.instanceId = instanceId
 			end
 		end
 	end
@@ -113,11 +127,15 @@ function InventoryController.RequestEquipmentSnapshot(): Types.InventoryEquipmen
 end
 
 function InventoryController.Equip(instanceId: string): boolean
-	assert(initialized, "[InventoryController] Init must run before Equip")
+	assert(isInitialized, "[InventoryController] Init must run before Equip")
 	if instanceId == "" then
 		return false
 	end
+	local requestGeneration = generation
 	local success, response = pcall(equipCombatItem.InvokeServer, equipCombatItem, instanceId)
+	if hasStopped or requestGeneration ~= generation then
+		return false
+	end
 	if not success then
 		warn("[InventoryController] Equip request failed")
 		return false
@@ -130,11 +148,15 @@ function InventoryController.Equip(instanceId: string): boolean
 end
 
 function InventoryController.DeleteMythling(mythlingId: string): boolean
-	assert(initialized, "[InventoryController] Init must run before DeleteMythling")
+	assert(isInitialized, "[InventoryController] Init must run before DeleteMythling")
 	if mythlingId == "" then
 		return false
 	end
+	local requestGeneration = generation
 	local success, response = pcall(deleteMythling.InvokeServer, deleteMythling, mythlingId)
+	if hasStopped or requestGeneration ~= generation then
+		return false
+	end
 	if not success then
 		warn("[InventoryController] Delete Mythling request failed")
 		return false
@@ -142,13 +164,109 @@ function InventoryController.DeleteMythling(mythlingId: string): boolean
 	return type(response) == "table" and response.ok == true
 end
 
+function InventoryController.BindEquipmentView(
+	props: Types.InventoryEquipmentViewProps
+): Types.InventoryEquipmentSession
+	assert(isInitialized and not hasStopped, "[InventoryController] A live controller is required")
+	local sessionLifetime = lifetime:Extend()
+	local requests = sessionLifetime:Extend()
+	local isDestroyed = false
+	local isOpen = false
+	local isQueued = false
+	local isRequesting = false
+	local needsRefresh = false
+	local sessionGeneration = 0
+	local session: Types.InventoryEquipmentSession
+	local function close()
+		isOpen = false
+		sessionGeneration += 1
+		requests:Clean()
+		isQueued = false
+		isRequesting = false
+		needsRefresh = false
+	end
+	local function refresh()
+		if isDestroyed or not isOpen or not props.isVisible() then
+			return
+		end
+		if isRequesting then
+			needsRefresh = true
+			return
+		end
+		if isQueued then
+			return
+		end
+		isQueued = true
+		requests:Add(task.defer(function()
+			isQueued = false
+			if isDestroyed or not props.isVisible() then
+				return
+			end
+			isRequesting = true
+			local currentGeneration = sessionGeneration
+			local snapshot = InventoryController.RequestEquipmentSnapshot()
+			if isDestroyed or currentGeneration ~= sessionGeneration then
+				return
+			end
+			isRequesting = false
+			if props.isVisible() then
+				props.onSnapshot(snapshot)
+			end
+			if needsRefresh then
+				needsRefresh = false
+				refresh()
+			end
+			requests:Pop(coroutine.running())
+		end))
+	end
+	session = {
+		Refresh = function()
+			isOpen = true
+			refresh()
+		end,
+		Close = close,
+		Equip = function(instanceId: string)
+			if isDestroyed or not isOpen or not props.isVisible() then
+				return
+			end
+			local currentGeneration = sessionGeneration
+			requests:Add(task.defer(function()
+				InventoryController.Equip(instanceId)
+				if not isDestroyed and currentGeneration == sessionGeneration then
+					refresh()
+				end
+				requests:Pop(coroutine.running())
+			end))
+		end,
+		Destroy = function()
+			if isDestroyed then
+				return
+			end
+			isDestroyed = true
+			close()
+			lifetime:Remove(sessionLifetime)
+		end,
+	}
+	sessionLifetime:Add(function()
+		isDestroyed = true
+		sessionGeneration += 1
+	end)
+	sessionLifetime:Connect(equipmentChanged.Event, refresh)
+	return session
+end
+
+-- Stop is terminal because consumers retain the one public signal created by Init.
 function InventoryController.Stop()
-	if not running then
+	if hasStopped then
 		return
 	end
-	running = false
-	disconnectAll(connections)
-	disconnectAll(characterConnections)
+	hasStopped = true
+	isRunning = false
+	generation += 1
+	lifetime:Destroy()
+	if isInitialized then
+		equipmentChanged:Destroy()
+	end
 end
 
 return InventoryController

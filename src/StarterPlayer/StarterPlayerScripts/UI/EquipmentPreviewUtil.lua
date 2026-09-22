@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/EquipmentPreviewUtil
 -- Renders a Tool or Equipment Model's visible parts directly in UI, avoiding separate
 -- thumbnail assets that can drift from the authored equipment.

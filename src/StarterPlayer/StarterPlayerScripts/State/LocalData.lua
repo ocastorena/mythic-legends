@@ -1,21 +1,22 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/State/LocalData
 
-export type StatePacket = {
-	revision: number,
-	values: { [string]: any },
-	removed: { string }?,
-	full: boolean?,
-}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SharedTypes = require(ReplicatedStorage.Shared.Types)
+export type StatePacket = SharedTypes.StatePacket
 
 local LocalData = {}
 
 local cache: { [string]: any } = {}
 local revision = 0
 local changedBindable = Instance.new("BindableEvent")
+local isDestroyed = false
 
 LocalData.OnStateChanged = changedBindable.Event
 script:SetAttribute("Revision", revision)
 
+-- Replicated sections are heterogeneous serialized data. Keep that dynamic boundary
+-- here; feature controllers expose concrete records to their views.
 local function cloneAndFreeze(value: any): any
 	if type(value) ~= "table" then
 		return value
@@ -48,20 +49,27 @@ local function valuesEqual(left: any, right: any): boolean
 end
 
 function LocalData.IngestPayload(payload: StatePacket): (boolean, string?)
-	if type(payload) ~= "table" or type(payload.revision) ~= "number" or type(payload.values) ~= "table" then
+	if isDestroyed then
+		return false, "Destroyed"
+	end
+	if
+		type(payload) ~= "table"
+		or type(payload.revision) ~= "number"
+		or type(payload.values) ~= "table"
+	then
 		return false, "InvalidPayload"
 	end
 
 	local isFull = payload.full == true
 	if not isFull then
 		if payload.revision <= revision then
-			return true
+			return true, nil
 		end
 		if payload.revision ~= revision + 1 then
 			return false, "RevisionGap"
 		end
 	elseif payload.revision < revision then
-		return true
+		return true, nil
 	end
 
 	if isFull then
@@ -96,7 +104,7 @@ function LocalData.IngestPayload(payload: StatePacket): (boolean, string?)
 
 	revision = payload.revision
 	script:SetAttribute("Revision", revision)
-	return true
+	return true, nil
 end
 
 function LocalData.Peek(key: string): any?
@@ -108,6 +116,10 @@ function LocalData.GetRevision(): number
 end
 
 function LocalData.Destroy()
+	if isDestroyed then
+		return
+	end
+	isDestroyed = true
 	table.clear(cache)
 	revision = 0
 	script:SetAttribute("Revision", revision)

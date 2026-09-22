@@ -2,7 +2,7 @@
 -- ServerStorage/Tests/__tests__/CombatMath.spec
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
-local CombatMath = require(game:GetService("ReplicatedStorage").Shared.CombatMath)
+local CombatMath = require(game:GetService("ServerScriptService").Services.CombatService.CombatMath)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

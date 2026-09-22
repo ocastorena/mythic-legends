@@ -12,12 +12,18 @@ describe("PlayerDataTemplate", function()
 	it("starts the v3 schema with Gold and no legacy Runies field", function()
 		expect(PlayerDataTemplate.version).toBe(3)
 		expect(PlayerDataTemplate.currency.gold).toBe(0)
-		expect(PlayerDataTemplate.currency.runies).toBeNil()
+		for key in pairs(PlayerDataTemplate.currency) do
+			expect(key).never.toBe("runies")
+		end
 	end)
 
 	it("keeps starter equipment references internally consistent", function()
 		local loadout = PlayerDataTemplate.combatLoadout
-		expect(PlayerDataTemplate.equipment[loadout.primaryWeaponInstanceId]).never.toBeNil()
-		expect(PlayerDataTemplate.equipment[loadout.shieldInstanceId]).never.toBeNil()
+		local ownedIds: { string } = {}
+		for instanceId in pairs(PlayerDataTemplate.equipment) do
+			table.insert(ownedIds, instanceId)
+		end
+		expect(ownedIds).toContain(loadout.primaryWeaponInstanceId)
+		expect(ownedIds).toContain(loadout.shieldInstanceId)
 	end)
 end)

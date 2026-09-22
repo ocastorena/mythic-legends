@@ -1,27 +1,37 @@
+--!strict
 -- ServerScriptService/Services/InventoryService/InventoryRemotes
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
+local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local RateLimiter = require(infrastructure:WaitForChild("RateLimiter"))
+
+local ServerTypes = require(ServerScriptService.Domain.Types)
+local Mythlings = require(script.Parent.Mythlings)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
+local lifecycle = ServiceLifecycle.new("InventoryRemotes")
 
 local InventoryRemotes = {}
 
-local Mythlings: any
-local BaseService: any
+local BaseService: ServerTypes.BaseApi
 local deleteMythling: RemoteFunction
 local deleteLimiter = RateLimiter.new(3, 0.5)
-local removingConnection: RBXScriptConnection?
 
-function InventoryRemotes.Init(context, mythlings)
-	Mythlings = mythlings
-	BaseService = context.Services.BaseService
-	deleteMythling = context.Remotes.Inventory.DeleteMythling
+function InventoryRemotes.Init(serviceContext: ServerTypes.Context)
+	BaseService = serviceContext.Services.BaseService
+	deleteMythling = serviceContext.Remotes.Inventory.DeleteMythling
 end
 
 function InventoryRemotes.Start()
-	deleteMythling.OnServerInvoke = function(player: Player, mythlingId: unknown)
+	if not lifecycle:Start() then
+		return
+	end
+	deleteMythling.OnServerInvoke = function(
+		player: Player,
+		mythlingId: unknown
+	): { ok: boolean, code: string? }
 		if not deleteLimiter:Allow(player) then
 			return { ok = false, code = "RateLimited" }
 		end
@@ -41,17 +51,16 @@ function InventoryRemotes.Start()
 		return { ok = true }
 	end
 
-	removingConnection = Players.PlayerRemoving:Connect(function(player)
+	lifecycle.trove:Connect(Players.PlayerRemoving, function(player: Player)
 		deleteLimiter:Forget(player)
 	end)
 end
 
 function InventoryRemotes.Stop()
-	deleteMythling.OnServerInvoke = nil
-	if removingConnection then
-		removingConnection:Disconnect()
-		removingConnection = nil
+	if not lifecycle:Stop() then
+		return
 	end
+	RemoteUtil.ClearServerHandler(deleteMythling)
 	deleteLimiter:Clear()
 end
 

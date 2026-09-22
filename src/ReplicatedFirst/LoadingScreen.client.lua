@@ -1,3 +1,4 @@
+--!strict
 -- ReplicatedFirst/LoadingScreen
 -- Keeps startup visually simple while required world and UI assets load.
 
@@ -5,8 +6,19 @@ local ContentProvider = game:GetService("ContentProvider")
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedFirst = game:GetService("ReplicatedFirst")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
+local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
+
+type Controls = {
+	controlsEnabled: boolean?,
+	Enable: (Controls, boolean?) -> (),
+	Disable: (Controls) -> (),
+}
+type PlayerModuleApi = { GetControls: (PlayerModuleApi) -> Controls }
+-- Roblox injects PlayerModule at runtime; it is intentionally absent from the Rojo map.
+local requirePlayerModule = require :: (ModuleScript) -> PlayerModuleApi
 
 local LOAD_TIMEOUT_SECONDS = 30
 local MIN_DISPLAY_SECONDS = 1.5
@@ -19,19 +31,42 @@ local CAMERA_LOCK_ACTION = "LoadingScreenCameraLock"
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 local displayedAt = os.clock()
-local dismissed = false
-local movementLocked = true
-local movementControls: any? = nil
+local isDismissed = false
+local isAlive = true
+local isMovementLocked = true
+local movementControls: Controls? = nil
+local wereControlsEnabled: boolean? = nil
 local lockedCamera: Camera? = nil
-local savedCameraSubject: Instance? = nil
-local cameraChangedConnection: RBXScriptConnection? = nil
+local savedCameraType: Enum.CameraType? = nil
+local wasTopbarEnabled: boolean? = nil
+local lifetime = Trove.new()
+local loadingTasks = lifetime:Extend()
+local progressMotion = lifetime:Extend()
+
+local function deferLoading(callback: () -> ())
+	local thread = task.defer(function()
+		callback()
+		loadingTasks:Pop(coroutine.running())
+	end)
+	loadingTasks:Add(thread)
+end
 
 local function sinkMovement(): Enum.ContextActionResult
 	return Enum.ContextActionResult.Sink
 end
 
 -- Sink cross-platform character actions immediately, before PlayerModule finishes loading.
-ContextActionService:BindActionAtPriority(
+-- PlayerActions is supported by this engine API but omitted from the generated signature.
+local bindPlayerActions = ContextActionService.BindActionAtPriority :: (
+	ContextActionService,
+	string,
+	(string, Enum.UserInputState, InputObject) -> Enum.ContextActionResult,
+	boolean,
+	number,
+	...Enum.PlayerActions
+) -> ()
+bindPlayerActions(
+	ContextActionService,
 	MOVEMENT_LOCK_ACTION,
 	sinkMovement,
 	false,
@@ -57,33 +92,49 @@ ContextActionService:BindActionAtPriority(
 	Enum.KeyCode.O
 )
 
+local function restoreCamera()
+	if
+		lockedCamera
+		and savedCameraType
+		and lockedCamera.CameraType == Enum.CameraType.Scriptable
+	then
+		lockedCamera.CameraType = savedCameraType
+	end
+	lockedCamera = nil
+	savedCameraType = nil
+end
+
 local function lockCurrentCamera()
 	local camera = workspace.CurrentCamera
-	if not camera then
+	if camera == lockedCamera then
 		return
 	end
-	if camera ~= lockedCamera then
+	restoreCamera()
+	if camera then
 		lockedCamera = camera
-		savedCameraSubject = camera.CameraSubject
+		savedCameraType = camera.CameraType
+		camera.CameraType = Enum.CameraType.Scriptable
 	end
-	camera.CameraType = Enum.CameraType.Scriptable
 end
 
 lockCurrentCamera()
-cameraChangedConnection = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(lockCurrentCamera)
+lifetime:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), lockCurrentCamera)
 
 -- Disabling the standard controls also hides mobile locomotion input from the character.
-task.spawn(function()
+deferLoading(function()
 	local success, controls = pcall(function()
 		local playerScripts = localPlayer:WaitForChild("PlayerScripts")
-		local playerModule = require(playerScripts:WaitForChild("PlayerModule"))
-		return playerModule:GetControls()
+		local module = playerScripts:WaitForChild("PlayerModule")
+		assert(module:IsA("ModuleScript"), "[LoadingScreen] Expected Roblox PlayerModule")
+		local PlayerModule = requirePlayerModule(module)
+		return PlayerModule:GetControls()
 	end)
-	if not success or not controls then
+	if not success or not controls or not isAlive or isDismissed then
 		return
 	end
 	movementControls = controls
-	if movementLocked then
+	wereControlsEnabled = controls.controlsEnabled
+	if isMovementLocked and wereControlsEnabled ~= nil then
 		pcall(function()
 			controls:Disable()
 		end)
@@ -91,39 +142,46 @@ task.spawn(function()
 end)
 
 local function releaseMovement()
-	if not movementLocked then
+	if not isMovementLocked then
 		return
 	end
-	movementLocked = false
+	isMovementLocked = false
 	ContextActionService:UnbindAction(MOVEMENT_LOCK_ACTION)
-	if movementControls then
+	local controls = movementControls
+	if controls and wereControlsEnabled ~= nil and controls.controlsEnabled == false then
 		pcall(function()
-			movementControls:Enable()
+			controls:Enable(wereControlsEnabled)
 		end)
 	end
 end
 
 local function releaseCamera()
 	ContextActionService:UnbindAction(CAMERA_LOCK_ACTION)
-	if cameraChangedConnection then
-		cameraChangedConnection:Disconnect()
-		cameraChangedConnection = nil
-	end
-	local camera = workspace.CurrentCamera
-	if not camera then
+	restoreCamera()
+end
+
+local function cleanup()
+	if not isAlive then
 		return
 	end
-	camera.CameraType = Enum.CameraType.Custom
-	local character = localPlayer.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		camera.CameraSubject = humanoid
-	elseif savedCameraSubject and savedCameraSubject.Parent then
-		camera.CameraSubject = savedCameraSubject
+	isAlive = false
+	isDismissed = true
+	-- Dismiss can run on an owned loading/timeout thread; never cancel the cleanup itself.
+	loadingTasks:Pop(coroutine.running())
+	lifetime:Pop(coroutine.running())
+	lifetime:Destroy()
+	releaseMovement()
+	releaseCamera()
+	if wasTopbarEnabled ~= nil then
+		pcall(function()
+			if StarterGui:GetCore("TopbarEnabled") == false then
+				StarterGui:SetCore("TopbarEnabled", wasTopbarEnabled)
+			end
+		end)
 	end
-	lockedCamera = nil
-	savedCameraSubject = nil
 end
+
+lifetime:Connect(script.Destroying, cleanup)
 
 --------------------------------------------------------------------------------
 -- Minimal presentation
@@ -188,16 +246,24 @@ fillCorner.CornerRadius = UDim.new(1, 0)
 fillCorner.Parent = progressFill
 
 screenGui.Parent = playerGui
+lifetime:Add(screenGui)
 ReplicatedFirst:RemoveDefaultLoadingScreen()
 
 -- CoreGui can register just after ReplicatedFirst runs. Repeat the request briefly so the
 -- platform chrome cannot appear over the otherwise minimal loading screen.
-task.spawn(function()
+deferLoading(function()
 	for _ = 1, 10 do
-		if dismissed then
+		if isDismissed then
 			return
 		end
 		pcall(function()
+			if wasTopbarEnabled == nil then
+				local current: unknown = StarterGui:GetCore("TopbarEnabled")
+				if type(current) ~= "boolean" then
+					return
+				end
+				wasTopbarEnabled = current
+			end
 			StarterGui:SetCore("TopbarEnabled", false)
 		end)
 		task.wait(0.1)
@@ -207,12 +273,18 @@ end)
 local displayedProgress = 0
 
 local function setProgress(nextProgress: number)
+	if not isAlive or isDismissed then
+		return
+	end
 	displayedProgress = math.max(displayedProgress, math.clamp(nextProgress, 0, 1))
-	TweenService:Create(
+	progressMotion:Clean()
+	local tween = TweenService:Create(
 		progressFill,
 		TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 		{ Size = UDim2.fromScale(displayedProgress, 1) }
-	):Play()
+	)
+	progressMotion:Add(tween)
+	tween:Play()
 end
 
 --------------------------------------------------------------------------------
@@ -247,7 +319,15 @@ local function criticalWorldReady(): boolean
 				end
 			end
 		end
-		if not (island and island:IsA("Model") and grass and grass:IsA("BasePart") and hasVisualGeometry) then
+		if
+			not (
+				island
+				and island:IsA("Model")
+				and grass
+				and grass:IsA("BasePart")
+				and hasVisualGeometry
+			)
+		then
 			return false
 		end
 	end
@@ -256,7 +336,7 @@ end
 
 local function waitForCriticalWorld(maxWaitSeconds: number)
 	local deadline = os.clock() + maxWaitSeconds
-	while not dismissed and not criticalWorldReady() and os.clock() < deadline do
+	while not isDismissed and not criticalWorldReady() and os.clock() < deadline do
 		task.wait(0.1)
 	end
 end
@@ -283,7 +363,7 @@ local function streamCoreWorld()
 
 	local remaining = #positions
 	for _, position in ipairs(positions) do
-		task.spawn(function()
+		deferLoading(function()
 			pcall(function()
 				localPlayer:RequestStreamAroundAsync(position, STREAM_TIMEOUT_SECONDS)
 			end)
@@ -292,7 +372,7 @@ local function streamCoreWorld()
 	end
 
 	local deadline = os.clock() + STREAM_TIMEOUT_SECONDS
-	while not dismissed and remaining > 0 and os.clock() < deadline do
+	while not isDismissed and remaining > 0 and os.clock() < deadline do
 		task.wait(0.1)
 	end
 end
@@ -306,7 +386,7 @@ local function waitForRuntimeBase(maxWaitSeconds: number)
 
 	local baseName = tostring(localPlayer.UserId)
 	local deadline = os.clock() + maxWaitSeconds
-	while not dismissed and not bases:FindFirstChild(baseName) and os.clock() < deadline do
+	while not isDismissed and not bases:FindFirstChild(baseName) and os.clock() < deadline do
 		task.wait(0.1)
 	end
 end
@@ -334,7 +414,11 @@ local function isPreloadable(instance: Instance): boolean
 		or instance:IsA("CharacterMesh")
 end
 
-local function appendPreloadables(target: { Instance }, seen: { [Instance]: boolean }, root: Instance?)
+local function appendPreloadables(
+	target: { Instance },
+	seen: { [Instance]: boolean },
+	root: Instance?
+)
 	if not root then
 		return
 	end
@@ -402,7 +486,7 @@ local function waitForAssetPopulation(maxWaitSeconds: number)
 	local deadline = os.clock() + maxWaitSeconds
 	local lastCount = -1
 	local stableSince = os.clock()
-	while not dismissed and os.clock() < deadline do
+	while not isDismissed and os.clock() < deadline do
 		local currentCount = countPresentPreloadables()
 		if currentCount ~= lastCount then
 			lastCount = currentCount
@@ -443,7 +527,7 @@ local function preloadAssets(assets: { Instance }, startProgress: number)
 		return
 	end
 	for startIndex = 1, #assets, PRELOAD_BATCH_SIZE do
-		if dismissed then
+		if isDismissed then
 			return
 		end
 		local batch = {}
@@ -464,15 +548,22 @@ end
 --------------------------------------------------------------------------------
 
 local function dismiss()
-	if dismissed then
+	if isDismissed or not isAlive then
 		return
 	end
-	dismissed = true
 	setProgress(1)
+	isDismissed = true
+	loadingTasks:Pop(coroutine.running())
+	loadingTasks:Clean()
+	-- Adopt a loading thread that is now finishing the fade instead of preloading.
+	lifetime:Add(coroutine.running())
 
 	local remaining = MIN_DISPLAY_SECONDS - (os.clock() - displayedAt)
 	if remaining > 0 then
 		task.wait(remaining)
+	end
+	if not isAlive then
+		return
 	end
 
 	local fadeInfo = TweenInfo.new(FADE_SECONDS, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -481,13 +572,19 @@ local function dismiss()
 		local goals: { [string]: number } = {
 			BackgroundTransparency = 1,
 		}
-		if guiObject:IsA("TextLabel") or guiObject:IsA("TextButton") or guiObject:IsA("TextBox") then
+		if
+			guiObject:IsA("TextLabel")
+			or guiObject:IsA("TextButton")
+			or guiObject:IsA("TextBox")
+		then
 			goals.TextTransparency = 1
 			goals.TextStrokeTransparency = 1
 		elseif guiObject:IsA("ImageLabel") or guiObject:IsA("ImageButton") then
 			goals.ImageTransparency = 1
 		end
-		table.insert(fadeTweens, TweenService:Create(guiObject, fadeInfo, goals))
+		local tween = TweenService:Create(guiObject, fadeInfo, goals)
+		lifetime:Add(tween)
+		table.insert(fadeTweens, tween)
 	end
 
 	-- Fade every rendered property explicitly so CanvasGroup child rendering cannot
@@ -503,21 +600,16 @@ local function dismiss()
 	end
 	fadeTweens[1].Completed:Wait()
 
-	pcall(function()
-		StarterGui:SetCore("TopbarEnabled", true)
-	end)
-	screenGui:Destroy()
-	releaseMovement()
-	releaseCamera()
+	cleanup()
 end
 
-task.delay(LOAD_TIMEOUT_SECONDS, dismiss)
+loadingTasks:Add(task.delay(LOAD_TIMEOUT_SECONDS, dismiss))
 
-task.spawn(function()
+deferLoading(function()
 	if not game:IsLoaded() then
 		game.Loaded:Wait()
 	end
-	if dismissed then
+	if isDismissed then
 		return
 	end
 

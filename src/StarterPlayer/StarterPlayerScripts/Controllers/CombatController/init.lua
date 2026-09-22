@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/CombatController
 
 local Input = require(script.Input)
@@ -6,9 +7,9 @@ local Stamina = require(script.Stamina)
 local VFX = require(script.VFX)
 
 local CombatController = {}
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local isRunning = false
+local generation = 0
+local Types = require(script.Parent.Parent.Types)
 
 function CombatController.BindView(view: Types.CombatActionView): () -> ()
 	return Input.BindView(view)
@@ -26,13 +27,27 @@ function CombatController.Init(context: Types.ClientContext)
 end
 
 function CombatController.Start()
+	if isRunning then
+		return
+	end
+	isRunning = true
+	generation += 1
+	local currentGeneration = generation
 	PresentationBus.Start()
 	VFX.Start()
+	if not isRunning or generation ~= currentGeneration then
+		return
+	end
 	Input.Start()
+	if not isRunning or generation ~= currentGeneration then
+		return
+	end
 	Stamina.Start()
 end
 
 function CombatController.Stop()
+	isRunning = false
+	generation += 1
 	Stamina.Stop()
 	Input.Stop()
 	VFX.Stop()

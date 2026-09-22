@@ -3,7 +3,7 @@
 This document is the canonical implementation contract for architecture, networking, persistence,
 transactions, and source ownership. The [GDD](GDD.md) owns gameplay rules, progression, launch
 scope, pacing targets, and gameplay acceptance criteria. [UI guidelines](UI_GUIDELINES.md) own menu
-behavior and presentation. [Conventions](Conventions.md) owns project structure and coding practices;
+behavior and presentation. [Conventions](CONVENTIONS.md) owns project structure and coding practices;
 the [README](../README.md) owns setup and verification commands. Runtime tuning lives in
 [shared configuration](../src/ReplicatedStorage/Shared/Configurations).
 
@@ -42,8 +42,9 @@ descendants are preserved only at explicitly mixed-ownership containers.
   it must never be written at runtime.
 - **DataService** owns one ProfileStore session per Roblox user ID using the current store namespace
   `MythicLegends_PlayerData_v2`. It reconciles defaults, associates the user ID, handles session
-  termination, and ends the session when the player leaves. Explicit schema migrations are a target
-  requirement; reconciliation alone is not a migration. Studio uses an isolated, ephemeral mock
+  termination, and ends the session when the player leaves. Forward-only migrations run before
+  reconciliation, including the prototype v2-to-v3 stand-ledger migration. Future target-schema
+  changes still require explicit migrations; reconciliation alone is not a migration. Studio uses an isolated, ephemeral mock
   store by default.
 - **Combat is the stated exception.** Its client-reported, server-validated relay and immediate
   local presentation remain exactly as defined in [client-reported sword
@@ -52,8 +53,15 @@ descendants are preserved only at explicitly mixed-ownership containers.
 
 ## Project structure and coding conventions
 
-[Conventions](Conventions.md) owns the [repository layout](Conventions.md#project-structure),
-[Roblox Explorer hierarchy](Conventions.md#roblox-explorer-hierarchy), naming, file organization,
+`ServerScriptService.Domain.Production.ProductionLedger` is the shared server-domain accounting
+contract used by production accrual and data migrations. Its placement makes this dependency
+explicit without exposing a service's private implementation or replicating it to clients.
+`Domain.Types` owns server service protocols; `StarterPlayerScripts.Types` owns client controller
+and view-prop contracts. Shared saved-state, payload, and configuration types remain in
+`ReplicatedStorage.Shared.Types`. Combat geometry helpers are private children of CombatService.
+
+[Conventions](CONVENTIONS.md) owns the [repository layout](CONVENTIONS.md#project-structure),
+[Roblox Explorer hierarchy](CONVENTIONS.md#roblox-explorer-hierarchy), naming, file organization,
 typing, lifecycle cleanup, formatting, and logging rules. `default.project.json` is the executable
 source of the Rojo mapping. This document retains runtime responsibilities, network and persistence
 contracts, UI ownership, and the [Studio/Rojo boundary](#roblox-studio-and-rojo-ownership).
@@ -1288,6 +1296,20 @@ scope and mounts one `UI/App` root after client state/network initialization.
   the adapter subscribes to `OnStateChanged` and exposes only the reactive value needed by a screen
   or component.
 
+Inventory equipment requests and Stand interactions use controller-owned view sessions. A session
+owns pending requests and refreshes, and invalidates their results when the screen closes, changes
+selection, or is destroyed. Screens supply presentation callbacks and register session cleanup with
+their Fusion scope. View-binding records are input props; their camelCase instance fields are not
+public component handles.
+
+`MenuState`, `ModalState`, and `ToastBus` share `UI/State/SubscriptionList`: callbacks run synchronously,
+errors are isolated, each registration has an idempotent unsubscribe, and duplicate registrations are
+independent. State subscriptions deliver an initial snapshot; event-only Toast subscriptions do not
+replay. Listeners removed during dispatch are skipped, and listeners added during dispatch begin with
+the next publication. Native `RBXScriptSignal` APIs retain Roblox connection semantics; callers own
+their connections. `MainClient` stops controllers and the application scope before terminally
+destroying the session-owned `LocalData` cache and its signal.
+
 ### Reusable components
 
 - Put declarative visual components under `StarterPlayerScripts.UI.Components`. Reserve
@@ -1393,7 +1415,7 @@ These facts are verified from repository manifests, lockfiles, source headers, a
 
 | Dependency | Repository record | Ownership |
 | --- | --- | --- |
-| Rojo 7.7.0, Wally 0.3.2, Selene 0.31.0, StyLua 2.5.2 | [aftman.toml](../aftman.toml) | Development toolchain |
+| Rojo 7.7.0, Wally 0.3.2, Selene 0.31.0, StyLua 2.5.2, luau-lsp 1.70.0, wally-package-types 1.6.2 | [aftman.toml](../aftman.toml) | Development toolchain |
 | Fusion 0.3.0 and Trove 1.8.0 | [wally.toml](../wally.toml), [wally.lock](../wally.lock) | Generated shared `Packages/` |
 | Jest and JestGlobals 3.20.0 | [test manifest](../tests/wally.toml), [test lockfile](../tests/wally.lock) | Server-only test packages |
 | ProfileStore | [vendored source](../src/ServerScriptService/Packages/ProfileStore.luau) | Server-only package; its header credits MAD STUDIO / loleris |
@@ -1410,9 +1432,9 @@ remove each item when the implementation is aligned; these notes do not authoriz
 
 | Area | Current source | Target contract / required alignment |
 | --- | --- | --- |
-| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) is version 2 with `consumables`, `base.stands`, and Equipment `definitionId` records. It does not yet include the complete target Shrine/job/finish schema. | Introduce target fields with forward-only migrations. Keep `definitionId` for base Equipment references, add optional `finishId` for Stage 1 element variants, and preserve existing player data when retiring prototype-facing features. |
-| Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) currently reconciles defaults and exposes direct sections, `MarkDirty`, and `SaveNow`. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Implement per-profile atomic mutations, bounded request resolution, and explicit migrations. Publishing state or returning `SaveNow == true` does not prove durable persistence. Keep store/key namespaces stable during schema upgrades. |
-| Mythling production | [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) uses Mythling `typeId`, per-Mythling rate/capacity, and `lastCollectionAt`. | Migrate to deterministic Shrine-owned storage and accrual with target Mythling form IDs, levels, and assignment boundaries; Luck/Traits remain inactive. Do not present the target schema as already implemented. |
+| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) is version 3 with legacy `consumables`, `base.stands`, and Equipment `definitionId` records. Forward-only migration preserves earned legacy work in stand-owned production ledgers. The complete target Shrine/job/finish schema is still pending. | Introduce remaining target fields with forward-only migrations. Keep `definitionId` for base Equipment references, add optional `finishId` for Stage 1 element variants, and preserve existing player data when retiring prototype-facing features. |
+| Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) reconciles defaults, runs explicit forward-only migrations, and exposes typed `GetData`/`GetLoadedData`, `MarkDirty`, and `SaveNow`. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Implement the remaining per-profile atomic mutations and bounded request resolution. Publishing state or returning `SaveNow == true` does not prove durable persistence. Keep store/key namespaces stable during schema upgrades. |
+| Mythling production | [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) uses the [shared server production ledger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua), preserving stored output and unfinished work by stand and Material ID. The v3 migration removes the consumed legacy `lastCollectionAt` cursor. Prototype rates are explicitly named `materialsPerMinute`. | Complete the target Shrine/form/level/batch/XP model and storage configuration. Existing stand-owned accounting is partial implementation, not the full target schema; Luck/Traits remain inactive. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) currently regenerates on refresh without excluding guarded time and uses partial-cost block spending with delayed depletion cleanup. | Apply [Stamina and guard accounting](#stamina-and-guard-accounting), full-cost eligibility, immediate protection removal, and action exclusion in both directions. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) serially spawns without initial fill, counts non-despawned claimed presentations, and despawns at the timer deadline regardless of occupancy. [MythlingSpawns](../src/ReplicatedStorage/Shared/Configurations/MythlingSpawns.lua) still contains the obsolete `Secret` rarity; its `Legendary` label is valid but refers to deferred content. | Maintain the 12-contest target in quiet and full servers, prefill before capture opens, replace each ended contest within three seconds independently of model cleanup, implement the overtime lifecycle, and align rarity IDs with the GDD's Common/Rare/Epic/Legendary/Mythical order while limiting new launch spawns to Common/Rare/Epic. A configured active cap of 12 alone does not satisfy the population contract. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) currently stores one active meter per player and resets it when switching contests. | Maintain independent per-player/per-contest meters; a previous contest's progress decays when the player moves to another ring. |

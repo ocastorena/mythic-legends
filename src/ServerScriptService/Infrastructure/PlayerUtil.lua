@@ -1,7 +1,10 @@
+--!strict
 -- ServerScriptService/Infrastructure/PlayerUtil
 -- Helpers for the join/leave lifecycle.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Trove = require(ReplicatedStorage.Packages.Trove)
 
 local PlayerUtil = {}
 
@@ -10,21 +13,35 @@ local PlayerUtil = {}
 -- Connect before taking the snapshot so a player cannot join between GetPlayers() and
 -- PlayerAdded:Connect(). The seen set collapses the overlap when the new player is also
 -- present in the snapshot.
-function PlayerUtil.OnPlayer(onAdded: (Player) -> ()): RBXScriptConnection
+function PlayerUtil.OnPlayer(onAdded: (Player, () -> boolean) -> (), owner: Trove.Trove)
+	local lifetime = owner:Extend()
+	local isObserving = true
 	local seen: { [Player]: boolean } = {}
+	lifetime:Add(function()
+		isObserving = false
+		table.clear(seen)
+	end)
 	local function dispatch(player: Player)
-		if seen[player] then
+		if not isObserving or player.Parent ~= Players or seen[player] then
 			return
 		end
 		seen[player] = true
-		onAdded(player)
+		onAdded(player, function()
+			return isObserving and seen[player] == true and player.Parent == Players
+		end)
 	end
 
-	local connection = Players.PlayerAdded:Connect(dispatch)
+	lifetime:Connect(Players.PlayerAdded, dispatch)
+	lifetime:Connect(Players.PlayerRemoving, function(player: Player)
+		seen[player] = nil
+	end)
 	for _, player in ipairs(Players:GetPlayers()) do
-		task.spawn(dispatch, player)
+		lifetime:Add(task.defer(function()
+			-- Started profile requests unwind cooperatively so their session can be released.
+			lifetime:Pop(coroutine.running())
+			dispatch(player)
+		end))
 	end
-	return connection
 end
 
 -- Server-authoritative character position. Returns nil while the character is loading,

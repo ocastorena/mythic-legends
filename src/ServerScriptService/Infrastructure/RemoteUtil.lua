@@ -1,60 +1,69 @@
+--!strict
 -- ServerScriptService/Infrastructure/RemoteUtil
--- Rojo owns the network instances. This module validates and resolves that contract.
+-- Rojo owns the network instances. Resolve and validate the canonical shared contract.
 
+local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
 local RemoteUtil = {}
+export type Network = Types.Network
 
-local CONTRACT = {
-	State = { Update = "RemoteEvent", Request = "RemoteFunction" },
-	Inventory = { DeleteMythling = "RemoteFunction" },
-	Production = { GetStatus = "RemoteFunction", Collect = "RemoteFunction" },
-	Base = { PlaceMythling = "RemoteFunction", RemoveMythling = "RemoteFunction" },
-	Combat = {
-		StartAttack = "RemoteEvent",
-		ReportHit = "RemoteEvent",
-		SetShieldGuard = "RemoteEvent",
-		Reaction = "RemoteEvent",
-		Impact = "RemoteEvent",
-		GetLoadout = "RemoteFunction",
-		Equip = "RemoteFunction",
-	},
-	World = { Spawned = "RemoteEvent", ClaimState = "RemoteEvent" },
-}
+local function folder(parent: Instance, name: string): Folder
+	local value = parent:WaitForChild(name)
+	assert(value:IsA("Folder"), `[RemoteUtil] {parent.Name}.{name} must be a Folder`)
+	return value
+end
 
-export type Network = {
-	State: { Update: RemoteEvent, Request: RemoteFunction },
-	Inventory: { DeleteMythling: RemoteFunction },
-	Production: { GetStatus: RemoteFunction, Collect: RemoteFunction },
-	Base: { PlaceMythling: RemoteFunction, RemoveMythling: RemoteFunction },
-	Combat: {
-		StartAttack: RemoteEvent,
-		ReportHit: RemoteEvent,
-		SetShieldGuard: RemoteEvent,
-		Reaction: RemoteEvent,
-		Impact: RemoteEvent,
-		GetLoadout: RemoteFunction,
-		Equip: RemoteFunction,
-	},
-	World: { Spawned: RemoteEvent, ClaimState: RemoteEvent },
-}
+local function event(parent: Folder, name: string): RemoteEvent
+	local value = parent:WaitForChild(name)
+	assert(value:IsA("RemoteEvent"), `[RemoteUtil] {parent.Name}.{name} must be a RemoteEvent`)
+	return value
+end
+
+local function request(parent: Folder, name: string): RemoteFunction
+	local value = parent:WaitForChild(name)
+	assert(
+		value:IsA("RemoteFunction"),
+		`[RemoteUtil] {parent.Name}.{name} must be a RemoteFunction`
+	)
+	return value
+end
 
 function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
-	local root = replicatedStorage:WaitForChild("Network")
-	local resolved = {}
-	for domainName, definitions in pairs(CONTRACT) do
-		local domain = root:WaitForChild(domainName)
-		assert(domain:IsA("Folder"), `[RemoteUtil] Network.{domainName} must be a Folder`)
-		local domainRemotes = {}
-		for remoteName, expectedClass in pairs(definitions) do
-			local remote = domain:WaitForChild(remoteName)
-			assert(
-				remote.ClassName == expectedClass,
-				`[RemoteUtil] Network.{domainName}.{remoteName} must be a {expectedClass}`
-			)
-			domainRemotes[remoteName] = remote
-		end
-		resolved[domainName] = domainRemotes
-	end
-	return resolved :: any
+	local root = folder(replicatedStorage, "Network")
+	local state = folder(root, "State")
+	local inventory = folder(root, "Inventory")
+	local production = folder(root, "Production")
+	local base = folder(root, "Base")
+	local combat = folder(root, "Combat")
+	local world = folder(root, "World")
+	return {
+		State = { Update = event(state, "Update"), Request = request(state, "Request") },
+		Inventory = { DeleteMythling = request(inventory, "DeleteMythling") },
+		Production = {
+			GetStatus = request(production, "GetStatus"),
+			Collect = request(production, "Collect"),
+		},
+		Base = {
+			PlaceMythling = request(base, "PlaceMythling"),
+			RemoveMythling = request(base, "RemoveMythling"),
+		},
+		Combat = {
+			StartAttack = event(combat, "StartAttack"),
+			ReportHit = event(combat, "ReportHit"),
+			SetShieldGuard = event(combat, "SetShieldGuard"),
+			Reaction = event(combat, "Reaction"),
+			Impact = event(combat, "Impact"),
+			GetLoadout = request(combat, "GetLoadout"),
+			Equip = request(combat, "Equip"),
+		},
+		World = { Spawned = event(world, "Spawned"), ClaimState = event(world, "ClaimState") },
+	}
+end
+
+-- Roblox permits removing this callback; the published API definition omits its nil setter.
+-- Isolate that engine-definition mismatch instead of weakening each service's remote type.
+function RemoteUtil.ClearServerHandler(remote: RemoteFunction)
+	local writable = (remote :: unknown) :: { OnServerInvoke: unknown }
+	writable.OnServerInvoke = nil
 end
 
 return RemoteUtil

@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/MythlingThumbnailUtil
 -- Renders authoring-generated thumbnail images without replicating gameplay models.
 
@@ -6,6 +7,16 @@ local MythlingThumbnailUtil = {}
 local GENERATED_IMAGE_NAME = "MythlingThumbnail"
 
 type ImageGui = ImageLabel | ImageButton
+
+local function setImage(image: ImageGui, thumbnail: string)
+	if image:IsA("ImageLabel") then
+		image.ScaleType = Enum.ScaleType.Fit
+		image.Image = thumbnail
+		return
+	end
+	image.ScaleType = Enum.ScaleType.Fit
+	image.Image = thumbnail
+end
 
 local function directImage(container: GuiObject): ImageGui?
 	if container:IsA("ImageLabel") or container:IsA("ImageButton") then
@@ -37,7 +48,7 @@ end
 function MythlingThumbnailUtil.Clear(container: GuiObject)
 	local image = directImage(container)
 	if image then
-		image.Image = ""
+		setImage(image, "")
 	end
 
 	local generated = container:FindFirstChild(GENERATED_IMAGE_NAME)
@@ -53,8 +64,7 @@ function MythlingThumbnailUtil.Render(container: GuiObject, thumbnail: string?):
 	end
 
 	local image = directImage(container) or generatedImage(container)
-	image.ScaleType = Enum.ScaleType.Fit
-	image.Image = thumbnail
+	setImage(image, thumbnail)
 	return true
 end
 

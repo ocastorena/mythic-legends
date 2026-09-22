@@ -1,29 +1,36 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Components/HudButton
+
+local Fusion = require(game:GetService("ReplicatedStorage").Packages.Fusion)
 
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
+local FusionUtil = require(script.Parent.Parent.State.FusionUtil)
 local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
-local clickSound = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Audio"):WaitForChild("ButtonClick")
+local clickSound = ReplicatedStorage:WaitForChild("Assets")
+	:WaitForChild("Audio")
+	:WaitForChild("ButtonClick") :: Sound
 
 export type Props = {
 	name: string,
 	icon: string,
 	iconColor: Color3,
-	isOpen: any,
+	isOpen: Fusion.UsedAs<boolean>,
 	layoutOrder: number,
-	buttonSize: any,
+	buttonSize: Fusion.UsedAs<number>,
 	onActivated: () -> (),
 }
 
-local function HudButton(scope: any, props: Props): ImageButton
+local function HudButton(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ImageButton
 	local hovered = scope:Value(false)
 	local pressed = scope:Value(false)
 	local activePressInput: InputObject? = nil
 
 	local function isPrimaryPress(input: InputObject): boolean
-		return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+		return input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
 	end
 
 	local function finishPress(input: InputObject)
@@ -35,24 +42,31 @@ local function HudButton(scope: any, props: Props): ImageButton
 	end
 
 	table.insert(scope, UserInputService.InputEnded:Connect(finishPress))
-	local targetIconSize = scope:Computed(function(use)
-		local displayScale = use(props.buttonSize) / Theme.Platform.topbarButtonSize
-		local openScale = if use(props.isOpen) then Theme.Platform.topbarIconOpenScale else 1
-		return Theme.Platform.topbarIconSize * displayScale * openScale
+	local targetIconSize = scope:Computed(function(use: Fusion.Use)
+		local buttonSize: number = FusionUtil.UseNumber(use, props.buttonSize)
+		local displayScale = buttonSize / Theme.platform.topbarButtonSize
+		local openScale = if FusionUtil.UseBoolean(use, props.isOpen)
+			then Theme.platform.topbarIconOpenScale
+			else 1
+		return Theme.platform.topbarIconSize * displayScale * openScale
 	end)
-	local animatedIconSize =
-		scope:Spring(targetIconSize, Theme.Platform.topbarIconSpringSpeed, Theme.Platform.topbarIconSpringDamping)
+	local animatedIconSize = FusionUtil.SpringNumber(
+		scope,
+		targetIconSize,
+		Theme.platform.topbarIconSpringSpeed,
+		Theme.platform.topbarIconSpringDamping
+	)
 	local button: ImageButton
 	button = scope:New("ImageButton")({
 		Name = props.name,
-		Size = scope:Computed(function(use)
-			local size = use(props.buttonSize)
+		Size = scope:Computed(function(use: Fusion.Use)
+			local size = FusionUtil.UseNumber(use, props.buttonSize)
 			return UDim2.fromOffset(size, size)
 		end),
 		AutoButtonColor = false,
 		BorderSizePixel = 0,
-		BackgroundColor3 = Theme.Platform.topbarButtonFill,
-		BackgroundTransparency = Theme.Platform.topbarButtonTransparency,
+		BackgroundColor3 = Theme.platform.topbarButtonFill,
+		BackgroundTransparency = Theme.platform.topbarButtonTransparency,
 		Image = "",
 		LayoutOrder = props.layoutOrder,
 		[scope.OnEvent("InputBegan")] = function(input)
@@ -82,12 +96,12 @@ local function HudButton(scope: any, props: Props): ImageButton
 			scope:New("Frame")({
 				Name = "StateLayer",
 				Size = UDim2.fromScale(1, 1),
-				BackgroundColor3 = Theme.Platform.topbarButtonStateLayerFill,
-				BackgroundTransparency = scope:Computed(function(use)
-					if use(pressed) then
-						return Theme.Platform.topbarButtonPressedStateTransparency
-					elseif use(hovered) then
-						return Theme.Platform.topbarButtonHoverStateTransparency
+				BackgroundColor3 = Theme.platform.topbarButtonStateLayerFill,
+				BackgroundTransparency = scope:Computed(function(use: Fusion.Use)
+					if FusionUtil.UseBoolean(use, pressed) then
+						return Theme.platform.topbarButtonPressedStateTransparency
+					elseif FusionUtil.UseBoolean(use, hovered) then
+						return Theme.platform.topbarButtonHoverStateTransparency
 					end
 					return 1
 				end),
@@ -103,8 +117,8 @@ local function HudButton(scope: any, props: Props): ImageButton
 				Name = "Icon",
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromScale(0.5, 0.5),
-				Size = scope:Computed(function(use)
-					local size = use(animatedIconSize)
+				Size = scope:Computed(function(use: Fusion.Use)
+					local size = FusionUtil.UseNumber(use, animatedIconSize)
 					return UDim2.fromOffset(size, size)
 				end),
 				BackgroundTransparency = 1,

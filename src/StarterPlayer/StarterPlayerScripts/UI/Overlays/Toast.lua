@@ -1,4 +1,7 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Overlays/Toast
+
+local Fusion = require(game:GetService("ReplicatedStorage").Packages.Fusion)
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -10,21 +13,30 @@ local POP_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirectio
 local FADE_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local HOLD_SECONDS = 4
 
-local function Toast(scope: any): ScreenGui
+local function Toast(scope: Fusion.Scope<typeof(Fusion)>): ScreenGui
 	local frame: Frame
 	local label: TextLabel
 	local scale: UIScale
 	local generation = 0
+	local holdTask: thread? = nil
 	local activeTweens: { Tween } = {}
 
 	local function cancelTweens()
+		if holdTask and holdTask ~= coroutine.running() then
+			task.cancel(holdTask)
+			holdTask = nil
+		end
 		for _, tween in activeTweens do
 			tween:Cancel()
 		end
 		table.clear(activeTweens)
 	end
 
-	local function playTween(instance: Instance, tweenInfo: TweenInfo, goals: { [string]: any }): Tween
+	local function playTween(
+		instance: Instance,
+		tweenInfo: TweenInfo,
+		goals: { [string]: number }
+	): Tween
 		local tween = TweenService:Create(instance, tweenInfo, goals)
 		table.insert(activeTweens, tween)
 		tween:Play()
@@ -44,7 +56,7 @@ local function Toast(scope: any): ScreenGui
 		playTween(frame, POP_TWEEN, { BackgroundTransparency = 0.2 })
 		playTween(label, POP_TWEEN, { TextTransparency = 0 })
 
-		task.delay(HOLD_SECONDS, function()
+		holdTask = task.delay(HOLD_SECONDS, function()
 			if generation ~= currentGeneration then
 				return
 			end
@@ -55,19 +67,20 @@ local function Toast(scope: any): ScreenGui
 			if generation == currentGeneration then
 				frame.Visible = false
 				table.clear(activeTweens)
+				holdTask = nil
 			end
 		end)
 	end
 
-	scale = scope:New("UIScale")({ Scale = 0.7 })
+	scale = scope:New("UIScale")({ Scale = 0.7 }) :: UIScale
 	label = scope:New("TextLabel")({
 		Name = "MessageLabel",
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		FontFace = Theme.Font.extraBold,
+		FontFace = Theme.font.extraBold,
 		Text = "",
-		TextColor3 = Theme.Text.body,
+		TextColor3 = Theme.textColors.body,
 		TextScaled = true,
 		TextTransparency = 1,
 		TextWrapped = true,
@@ -93,13 +106,13 @@ local function Toast(scope: any): ScreenGui
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, 12),
 		Size = UDim2.new(0.4, 0, 0, 44),
-		BackgroundColor3 = Theme.Surface.modal.color,
+		BackgroundColor3 = Theme.surface.modal.color,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Visible = false,
 		ZIndex = 1,
 		[scope.Children] = {
-			scale,
+			scale :: Instance,
 			label,
 			scope:New("UICorner")({ CornerRadius = UDim.new(1, 0) }),
 			scope:New("UISizeConstraint")({
@@ -119,7 +132,7 @@ local function Toast(scope: any): ScreenGui
 	return scope:New("ScreenGui")({
 		Name = "ToastGui",
 		Enabled = true,
-		DisplayOrder = Theme.Layer.toast,
+		DisplayOrder = Theme.layer.toast,
 		ResetOnSpawn = false,
 		IgnoreGuiInset = false,
 		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,

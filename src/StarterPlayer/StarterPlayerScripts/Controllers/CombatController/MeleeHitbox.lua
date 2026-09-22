@@ -39,7 +39,12 @@ end
 local function hasLineOfSight(attackerCharacter: Model, targetCharacter: Model): boolean
 	local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
 	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-	if not attackerRoot or not attackerRoot:IsA("BasePart") or not targetRoot or not targetRoot:IsA("BasePart") then
+	if
+		not attackerRoot
+		or not attackerRoot:IsA("BasePart")
+		or not targetRoot
+		or not targetRoot:IsA("BasePart")
+	then
 		return false
 	end
 
@@ -67,11 +72,14 @@ function MeleeHitbox.FindClosestTarget(request: SweepRequest): Player?
 
 	for sampleIndex = 1, samples do
 		local sample = request.previousCFrame:Lerp(request.hitbox.CFrame, sampleIndex / samples)
-		for _, part in Workspace:GetPartBoundsInBox(sample, request.hitbox.Size + request.padding, params) do
+		for _, part in
+			Workspace:GetPartBoundsInBox(sample, request.hitbox.Size + request.padding, params)
+		do
 			local target = getPlayerFromPart(part)
 			local targetCharacter = target and target.Character
 			local humanoid = targetCharacter and targetCharacter:FindFirstChildOfClass("Humanoid")
-			local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+			local targetRoot = targetCharacter
+				and targetCharacter:FindFirstChild("HumanoidRootPart")
 			if
 				target
 				and target ~= request.attacker
@@ -81,7 +89,10 @@ function MeleeHitbox.FindClosestTarget(request: SweepRequest): Player?
 				and targetCharacter:GetAttribute("CombatReady") == true
 				and targetRoot
 				and targetRoot:IsA("BasePart")
-				and (not request.requireLineOfSight or hasLineOfSight(request.character, targetCharacter))
+				and (
+					not request.requireLineOfSight
+					or hasLineOfSight(request.character, targetCharacter)
+				)
 			then
 				local contact = (part.Position - sample.Position).Magnitude
 				local rootDistance = if attackerRoot and attackerRoot:IsA("BasePart")

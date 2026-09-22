@@ -1,3 +1,4 @@
+--!strict
 -- ServerScriptService/Services/CombatService
 -- Server-owned R15 loadouts, Arena state, Stamina, guard validation, and hit authorization.
 
@@ -5,28 +6,35 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 local TweenService = game:GetService("TweenService")
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
-local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local RateLimiter = require(infrastructure:WaitForChild("RateLimiter"))
+local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
 local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
 local log = LogUtil.For("CombatService")
-type TroveInstance = typeof(Trove.new())
+type TroveInstance = Trove.Trove
 
-local Equipment: any
-local ArenaBounds: any
-local CombatMath: any
-local DataService: any
-local EquipmentAssets: Folder
-local StartAttack: RemoteEvent
-local ReportHit: RemoteEvent
-local SetShieldGuard: RemoteEvent
-local CombatReaction: RemoteEvent
-local CombatImpact: RemoteEvent
-local GetLoadoutRemote: RemoteFunction
-local EquipRemote: RemoteFunction
-local Arena: BasePart
+local Types = require(ReplicatedStorage.Shared.Types)
+local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
+local EquipmentPresentation = require(script.EquipmentPresentation)
+local ArenaBounds = require(script.ArenaBounds)
+local CombatMath = require(script.CombatMath)
+local lifecycle = ServiceLifecycle.new("CombatService")
+local presentation: { Clear: (Model) -> (), Rebuild: (Model) -> () }
+local Equipment: Types.EquipmentConfiguration
+local DataService: ServerTypes.DataApi
+local equipmentAssets: Folder
+local startAttack: RemoteEvent
+local reportHit: RemoteEvent
+local setShieldGuardRemote: RemoteEvent
+local combatReaction: RemoteEvent
+local combatImpact: RemoteEvent
+local getLoadoutRemote: RemoteFunction
+local equipRemote: RemoteFunction
+local arena: BasePart
 
 local CombatService = {}
 
@@ -71,6 +79,7 @@ type CombatRuntime = {
 type PlayerLifecycle = {
 	trove: TroveInstance,
 	characterTrove: TroveInstance,
+	characterGeneration: number,
 }
 
 local runtimes: { [Player]: CombatRuntime } = {}
@@ -78,23 +87,24 @@ local playerLifecycles: { [Player]: PlayerLifecycle } = {}
 local nextLoadoutRequestAt: { [Player]: number } = {}
 local nextHitId = 0
 local serviceTrove: TroveInstance?
+local shieldTweens: { [Model]: Tween } = {}
 local loadoutLimiter = RateLimiter.new(12, 4)
 local guardLimiter = RateLimiter.new(16, 8)
 local startAttackLimiter = RateLimiter.new(8, 4)
 local reportHitLimiter = RateLimiter.new(12, 6)
 
-local function getNumber(value: any, fallback: number, minimum: number, maximum: number): number
+local function getNumber(value: unknown, fallback: number, minimum: number, maximum: number): number
 	if type(value) ~= "number" or value ~= value then
 		return fallback
 	end
 	return math.clamp(value, minimum, maximum)
 end
 
-local function getProfile(definitionId: unknown): any?
+local function getProfile(definitionId: unknown): Types.EquipmentProfile?
 	if type(definitionId) ~= "string" or #definitionId > 64 then
 		return nil
 	end
-	local profile = Equipment.Profiles[definitionId]
+	local profile = Equipment.profiles[definitionId]
 	return if type(profile) == "table" then profile else nil
 end
 
@@ -117,17 +127,24 @@ end
 
 local function isCharacterInArena(character: Model): boolean
 	local root = character:FindFirstChild("HumanoidRootPart")
-	local allowance = getNumber(Equipment.Combat.arenaHeightAllowanceStuds, DEFAULT_ARENA_HEIGHT_ALLOWANCE, 0, 100)
-	return root ~= nil and root:IsA("BasePart") and ArenaBounds.Contains(Arena, root.Position, allowance)
+	local allowance = getNumber(
+		Equipment.combat.arenaHeightAllowanceStuds,
+		DEFAULT_ARENA_HEIGHT_ALLOWANCE,
+		0,
+		100
+	)
+	return root ~= nil
+		and root:IsA("BasePart")
+		and ArenaBounds.Contains(arena, root.Position, allowance)
 end
 
 local function getRuntime(player: Player): CombatRuntime
-	local runtime = runtimes[player]
+	local runtime: CombatRuntime? = runtimes[player]
 	if runtime then
 		return runtime
 	end
-	runtime = {
-		stamina = getNumber(Equipment.Combat.staminaMaximum, 100, 1, 10_000),
+	local created: CombatRuntime = {
+		stamina = getNumber(Equipment.combat.staminaMaximum, 100, 1, 10_000),
 		lastStaminaUpdate = os.clock(),
 		immunityUntil = 0,
 		nextAttackAt = 0,
@@ -137,14 +154,14 @@ local function getRuntime(player: Player): CombatRuntime
 		authorizedSwing = nil,
 		movement = nil,
 	}
-	runtimes[player] = runtime
-	return runtime
+	runtimes[player] = created
+	return created
 end
 
 local function refreshRuntime(player: Player, now: number): CombatRuntime
 	local runtime = getRuntime(player)
-	local maximum = getNumber(Equipment.Combat.staminaMaximum, 100, 1, 10_000)
-	local regen = getNumber(Equipment.Combat.staminaRegenPerSecond, 18, 0, 1_000)
+	local maximum = getNumber(Equipment.combat.staminaMaximum, 100, 1, 10_000)
+	local regen = getNumber(Equipment.combat.staminaRegenPerSecond, 18, 0, 1_000)
 	local elapsed = math.max(0, now - runtime.lastStaminaUpdate)
 	runtime.lastStaminaUpdate = now
 	runtime.stamina = math.min(maximum, runtime.stamina + elapsed * regen)
@@ -189,6 +206,14 @@ local function restoreMovement(runtime: CombatRuntime)
 end
 
 local function clearShieldBubble(character: Model?)
+	if character then
+		local tween = shieldTweens[character]
+		if tween then
+			shieldTweens[character] = nil
+			tween:Cancel()
+			tween:Destroy()
+		end
+	end
 	local bubble = character and character:FindFirstChild(SHIELD_BUBBLE_NAME)
 	if bubble then
 		bubble:Destroy()
@@ -218,17 +243,35 @@ local function createShieldBubble(character: Model, root: BasePart)
 	weld.Part0 = root
 	weld.Part1 = bubble
 	weld.Parent = bubble
-	TweenService:Create(bubble, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = Vector3.one * SHIELD_BUBBLE_SIZE,
-		Transparency = 0.48,
-	}):Play()
+	local tween = TweenService:Create(
+		bubble,
+		TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{
+			Size = Vector3.one * SHIELD_BUBBLE_SIZE,
+			Transparency = 0.48,
+		}
+	)
+	shieldTweens[character] = tween
+	tween:Play()
 end
 
-local function getEquipmentAndLoadout(player: Player): (any, any)
-	return DataService.GetOrCreateSection(player, "equipment"), DataService.GetOrCreateSection(player, "combatLoadout")
+type EquipmentEntries = { [string]: { definitionId: string } }
+type Loadout = { primaryWeaponInstanceId: string?, shieldInstanceId: string? }
+type LoadoutSnapshot = {
+	equipment: { { instanceId: string, definitionId: string } },
+	primaryWeaponInstanceId: string?,
+	shieldInstanceId: string?,
+}
+type LoadoutResult = { ok: boolean, code: string?, snapshot: LoadoutSnapshot }
+local function getEquipmentAndLoadout(player: Player): (EquipmentEntries, Loadout)
+	return DataService.GetData(player).equipment, DataService.GetData(player).combatLoadout
 end
 
-local function getOwnedDefinition(equipment: any, instanceId: unknown, expectedKind: string): string?
+local function getOwnedDefinition(
+	equipment: EquipmentEntries,
+	instanceId: unknown,
+	expectedKind: string
+): string?
 	if type(instanceId) ~= "string" or instanceId == "" then
 		return nil
 	end
@@ -238,7 +281,7 @@ local function getOwnedDefinition(equipment: any, instanceId: unknown, expectedK
 	return if profile and profile.kind == expectedKind then definitionId else nil
 end
 
-local function findOwnedInstance(equipment: any, expectedKind: string): string?
+local function findOwnedInstance(equipment: EquipmentEntries, expectedKind: string): string?
 	local best: string? = nil
 	for instanceId, entry in equipment do
 		local definitionId = type(entry) == "table" and entry.definitionId or nil
@@ -274,19 +317,23 @@ local function resolveLoadout(player: Player): (string, string)
 		getOwnedDefinition(equipment, shieldInstanceId, "Shield") or ""
 end
 
-local function snapshotLoadout(player: Player): any
+local function snapshotLoadout(player: Player): LoadoutSnapshot
 	local equipment, loadout = getEquipmentAndLoadout(player)
-	local entries = {}
+	local entries: { { instanceId: string, definitionId: string } } = {}
 	for instanceId, entry in equipment do
 		local definitionId = type(entry) == "table" and entry.definitionId or nil
-		if type(instanceId) == "string" and getProfile(definitionId) then
+		if
+			type(instanceId) == "string"
+			and type(definitionId) == "string"
+			and getProfile(definitionId)
+		then
 			table.insert(entries, {
 				instanceId = instanceId,
 				definitionId = definitionId,
 			})
 		end
 	end
-	table.sort(entries, function(a, b)
+	table.sort(entries, function(a: { instanceId: string }, b: { instanceId: string })
 		return a.instanceId < b.instanceId
 	end)
 	return {
@@ -296,155 +343,12 @@ local function snapshotLoadout(player: Player): any
 	}
 end
 
-local function getEquipmentFolder(character: Model): Folder
-	local existing = character:FindFirstChild(EQUIPMENT_FOLDER_NAME)
-	if existing and existing:IsA("Folder") then
-		return existing
-	end
-	if existing then
-		existing:Destroy()
-	end
-	local folder = Instance.new("Folder")
-	folder.Name = EQUIPMENT_FOLDER_NAME
-	folder.Parent = character
-	return folder
-end
-
-local function clearEquipment(character: Model)
-	local folder = character:FindFirstChild(EQUIPMENT_FOLDER_NAME)
-	if folder then
-		folder:Destroy()
-	end
-	for _, motorName in { "RightHandMotor", "LeftHandMotor", "RightSheathMotor", "LeftSheathMotor" } do
-		local motor = character:FindFirstChild(motorName, true)
-		if motor and motor:IsA("Motor6D") then
-			motor:Destroy()
-		end
-	end
-end
-
-local function prepareEquipmentModel(model: Model): boolean
-	local primaryPart = model.PrimaryPart
-	if not primaryPart then
-		log.warn(`{model:GetFullName()} has no PrimaryPart`)
-		return false
-	end
-	for _, attachmentName in { "HandGripAttachment", "SheathAttachment" } do
-		local attachment = model:FindFirstChild(attachmentName, true)
-		if not attachment or not attachment:IsA("Attachment") then
-			log.warn(`{model:GetFullName()} needs {attachmentName}`)
-			return false
-		end
-	end
-	local hitbox = model:FindFirstChild("Hitbox", true)
-	if not hitbox or not hitbox:IsA("BasePart") then
-		log.warn(`{model:GetFullName()} needs a Hitbox BasePart`)
-		return false
-	end
-	-- Rebuild one predictable rigid assembly instead of stacking runtime welds on top of
-	-- authored preview welds each time the Equipment moves between hand and sheath.
-	for _, descendant in model:GetDescendants() do
-		if descendant:IsA("WeldConstraint") or descendant:IsA("Weld") then
-			descendant:Destroy()
-		end
-	end
-	for _, descendant in model:GetDescendants() do
-		if descendant:IsA("BasePart") then
-			descendant.Anchored = false
-			descendant.CanCollide = false
-			descendant.CanTouch = false
-			descendant.CanQuery = false
-			descendant.Massless = true
-			if descendant ~= primaryPart then
-				local weld = Instance.new("WeldConstraint")
-				weld.Name = "EquipmentAssemblyWeld"
-				weld.Part0 = primaryPart
-				weld.Part1 = descendant
-				weld.Parent = primaryPart
-			end
-		end
-	end
-	return true
-end
-
-local function cloneEquipment(character: Model, slot: string, definitionId: string): Model?
-	local profile = getProfile(definitionId)
-	local asset = profile and EquipmentAssets:FindFirstChild(profile.modelName)
-	if not asset or not asset:IsA("Model") then
-		log.warn(`Missing authored Equipment model for {definitionId}`)
-		return nil
-	end
-	local model = asset:Clone()
-	model.Name = `{slot}Equipment`
-	model:SetAttribute("EquipmentId", definitionId)
-	model:SetAttribute("EquipmentSlot", slot)
-	if not prepareEquipmentModel(model) then
-		model:Destroy()
-		return nil
-	end
-	model.Parent = getEquipmentFolder(character)
-	return model
-end
-
-local function authoredOffset(model: Model, attachmentName: string): CFrame?
-	local attachment = model:FindFirstChild(attachmentName, true)
-	local primaryPart = model.PrimaryPart
-	if attachment and attachment:IsA("Attachment") and primaryPart then
-		return primaryPart.CFrame:ToObjectSpace(attachment.WorldCFrame)
-	end
-	return nil
-end
-
-local function createMotor(name: string, parent: BasePart, part0: BasePart, part1: BasePart, offset: CFrame)
-	local motor = Instance.new("Motor6D")
-	motor.Name = name
-	motor.Part0 = part0
-	motor.Part1 = part1
-	motor.C1 = offset
-	motor.Parent = parent
-end
-
-local function attachSlot(character: Model, slot: string, definitionId: string, combatReady: boolean)
-	if definitionId == "" then
-		return
-	end
-	local model = cloneEquipment(character, slot, definitionId)
-	local primaryPart = model and model.PrimaryPart
-	if not model or not primaryPart then
-		return
-	end
-	if combatReady then
-		local hand = character:FindFirstChild(`{slot}Hand`)
-		local offset = authoredOffset(model, "HandGripAttachment")
-		if hand and hand:IsA("BasePart") and offset then
-			createMotor(`{slot}HandMotor`, hand, hand, primaryPart, offset)
-		else
-			model:Destroy()
-		end
-	else
-		local torso = character:FindFirstChild("UpperTorso")
-		local offset = authoredOffset(model, "SheathAttachment")
-		if torso and torso:IsA("BasePart") and offset then
-			createMotor(`{slot}SheathMotor`, torso, torso, primaryPart, offset)
-		else
-			model:Destroy()
-		end
-	end
-end
-
-local function rebuildAttachments(character: Model)
-	clearEquipment(character)
-	local combatReady = character:GetAttribute("CombatReady") == true
-	attachSlot(character, "Right", character:GetAttribute("RightEquipped") or "", combatReady)
-	attachSlot(character, "Left", character:GetAttribute("LeftEquipped") or "", combatReady)
-end
-
 local function applyResolvedLoadout(player: Player, character: Model)
 	local primaryId, shieldId = resolveLoadout(player)
 	character:SetAttribute("RightEquipped", primaryId)
 	character:SetAttribute("LeftEquipped", shieldId)
 	getRuntime(player).authorizedSwing = nil
-	rebuildAttachments(character)
+	presentation.Rebuild(character)
 end
 
 local function setShieldGuard(player: Player, enabled: boolean): boolean
@@ -470,7 +374,12 @@ local function setShieldGuard(player: Player, enabled: boolean): boolean
 	end
 	local profile = getProfile(character:GetAttribute("LeftEquipped"))
 	local shieldMotor = character:FindFirstChild("LeftHandMotor", true)
-	if not profile or profile.kind ~= "Shield" or not shieldMotor or not shieldMotor:IsA("Motor6D") then
+	if
+		not profile
+		or profile.kind ~= "Shield"
+		or not shieldMotor
+		or not shieldMotor:IsA("Motor6D")
+	then
 		return false
 	end
 	if runtime.movement then
@@ -516,10 +425,10 @@ local function updateArenaCombatState(player: Player)
 	local runtime = getRuntime(player)
 	runtime.authorizedSwing = nil
 	character:SetAttribute("CombatReady", shouldBeReady)
-	rebuildAttachments(character)
+	presentation.Rebuild(character)
 end
 
-local function getEquippedPrimary(character: Model): (string?, any?)
+local function getEquippedPrimary(character: Model): (string?, Types.EquipmentProfile?)
 	local definitionId = character:GetAttribute("RightEquipped")
 	local profile = getProfile(definitionId)
 	if type(definitionId) ~= "string" or not profile or profile.kind ~= "PrimaryWeapon" then
@@ -543,7 +452,12 @@ end
 local function hasLineOfSight(attackerCharacter: Model, targetCharacter: Model): boolean
 	local attackerRoot = attackerCharacter:FindFirstChild("HumanoidRootPart")
 	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
-	if not attackerRoot or not attackerRoot:IsA("BasePart") or not targetRoot or not targetRoot:IsA("BasePart") then
+	if
+		not attackerRoot
+		or not attackerRoot:IsA("BasePart")
+		or not targetRoot
+		or not targetRoot:IsA("BasePart")
+	then
 		return false
 	end
 	local origin = attackerRoot.Position + Vector3.yAxis * 1.5
@@ -556,8 +470,15 @@ local function hasLineOfSight(attackerCharacter: Model, targetCharacter: Model):
 	return result == nil or result.Instance:IsDescendantOf(targetCharacter)
 end
 
-local function handleMeleeSwing(player: Player, payload: any)
-	if type(payload) ~= "table" or not CombatMath.IsValidSequence(payload.sequence, MAX_SEQUENCE) then
+local function handleMeleeSwing(player: Player, input: unknown)
+	if type(input) ~= "table" then
+		return
+	end
+	local payload = input :: { [string]: unknown }
+	if
+		type(payload.sequence) ~= "number"
+		or not CombatMath.IsValidSequence(payload.sequence, MAX_SEQUENCE)
+	then
 		return
 	end
 	local character = getAliveR15Character(player)
@@ -606,11 +527,11 @@ local function sendImpact(
 	airTrailSeconds: number,
 	sequence: number,
 	blocked: boolean,
-	profile: any
+	profile: Types.EquipmentProfile
 )
 	nextHitId += 1
 	local hitId = nextHitId
-	CombatReaction:FireClient(target, {
+	combatReaction:FireClient(target, {
 		hitId = hitId,
 		launchVelocity = launchVelocity,
 		angularVelocity = angularVelocity,
@@ -620,7 +541,7 @@ local function sendImpact(
 		maximumReactionSeconds = maximumReactionSeconds,
 		landingRecoverySeconds = landingRecoverySeconds,
 	})
-	CombatImpact:FireAllClients({
+	combatImpact:FireAllClients({
 		hitId = hitId,
 		targetUserId = target.UserId,
 		attackerUserId = attacker.UserId,
@@ -631,9 +552,13 @@ local function sendImpact(
 	})
 end
 
-local function handleHitReport(player: Player, payload: any)
+local function handleHitReport(player: Player, input: unknown)
+	if type(input) ~= "table" then
+		return
+	end
+	local payload = input :: { [string]: unknown }
 	if
-		type(payload) ~= "table"
+		type(payload.sequence) ~= "number"
 		or not CombatMath.IsValidSequence(payload.sequence, MAX_SEQUENCE)
 		or type(payload.targetUserId) ~= "number"
 		or payload.targetUserId % 1 ~= 0
@@ -677,13 +602,17 @@ local function handleHitReport(player: Player, payload: any)
 		return
 	end
 	local maxDistance = math.clamp(
-		getNumber(profile.reachStuds, 5, 0, MAX_REACH) + getNumber(profile.serverToleranceStuds, 0, 0, MAX_REACH),
+		getNumber(profile.reachStuds, 5, 0, MAX_REACH)
+			+ getNumber(profile.serverToleranceStuds, 0, 0, MAX_REACH),
 		0,
 		MAX_REACH
 	)
 	if
 		(targetRoot.Position - attackerRoot.Position).Magnitude > maxDistance
-		or (profile.requireLineOfSight == true and not hasLineOfSight(attackerCharacter, targetCharacter))
+		or (
+			profile.requireLineOfSight == true
+			and not hasLineOfSight(attackerCharacter, targetCharacter)
+		)
 	then
 		return
 	end
@@ -694,7 +623,8 @@ local function handleHitReport(player: Player, payload: any)
 
 	local directionDelta = targetRoot.Position - attackerRoot.Position
 	local planar = Vector3.new(directionDelta.X, 0, directionDelta.Z)
-	local attackerFacing = Vector3.new(attackerRoot.CFrame.LookVector.X, 0, attackerRoot.CFrame.LookVector.Z)
+	local attackerFacing =
+		Vector3.new(attackerRoot.CFrame.LookVector.X, 0, attackerRoot.CFrame.LookVector.Z)
 	local direction = if planar.Magnitude > 0.001
 		then planar.Unit
 		elseif attackerFacing.Magnitude > 0.001 then attackerFacing.Unit
@@ -723,8 +653,11 @@ local function handleHitReport(player: Player, payload: any)
 		)
 	then
 		blocked = true
-		shieldDepleted = spendStaminaUpTo(target, getNumber(shieldProfile.impactStaminaCost, 30, 0, 1_000), now)
-			<= 0.001
+		shieldDepleted = spendStaminaUpTo(
+			target,
+			getNumber(shieldProfile.impactStaminaCost, 30, 0, 1_000),
+			now
+		) <= 0.001
 		reactionType = "ShieldSlide"
 		launchVelocity = direction * getNumber(shieldProfile.slideKnockback, 28, 0, 100)
 		controlSeconds = 0
@@ -741,7 +674,7 @@ local function handleHitReport(player: Player, payload: any)
 		landingRecoverySeconds = getNumber(profile.landingRecoverySeconds, 0.2, 0, 2)
 		airTrailSeconds = getNumber(profile.airTrailSeconds, 3.5, 0, 10)
 	end
-	local immunity = getNumber(Equipment.Combat.knockbackImmunitySeconds, 0.65, 0, 5)
+	local immunity = getNumber(Equipment.combat.knockbackImmunitySeconds, 0.65, 0, 5)
 	targetRuntime.immunityUntil = now + immunity
 	target:SetAttribute("KnockbackImmune", immunity > 0)
 	sendImpact(
@@ -766,7 +699,11 @@ local function handleHitReport(player: Player, payload: any)
 			return
 		end
 		trove:Add(task.delay(0.5, function()
-			if target.Character == targetCharacter and targetCharacter:GetAttribute("ShieldGuarding") == true then
+			trove:Pop(coroutine.running())
+			if
+				target.Character == targetCharacter
+				and targetCharacter:GetAttribute("ShieldGuarding") == true
+			then
 				setShieldGuard(target, false)
 			end
 		end))
@@ -774,13 +711,26 @@ local function handleHitReport(player: Player, payload: any)
 end
 
 local function cleanCharacterLifecycle(player: Player)
-	local lifecycle = playerLifecycles[player]
-	if lifecycle then
-		lifecycle.characterTrove:Clean()
+	local playerLifetime = playerLifecycles[player]
+	if playerLifetime then
+		playerLifetime.characterTrove:Clean()
 	end
 end
 
 local function onCharacterAdded(player: Player, character: Model)
+	local playerLifetime = playerLifecycles[player]
+	if not lifecycle:IsRunning() or not playerLifetime or player.Character ~= character then
+		return
+	end
+	playerLifetime.characterGeneration += 1
+	local generation = playerLifetime.characterGeneration
+	local function isCurrent(): boolean
+		return lifecycle:IsRunning()
+			and playerLifecycles[player] == playerLifetime
+			and playerLifetime.characterGeneration == generation
+			and player.Parent == Players
+			and player.Character == character
+	end
 	local priorRuntime = runtimes[player]
 	if priorRuntime then
 		restoreMovement(priorRuntime)
@@ -789,15 +739,17 @@ local function onCharacterAdded(player: Player, character: Model)
 	cleanCharacterLifecycle(player)
 	character:SetAttribute("CombatReady", false)
 	character:SetAttribute("ShieldGuarding", false)
+	playerLifetime.characterTrove:Add(function()
+		clearShieldBubble(character)
+		presentation.Clear(character)
+		character:SetAttribute("CombatReady", false)
+		character:SetAttribute("ShieldGuarding", false)
+	end)
 	local humanoid = character:WaitForChild("Humanoid", 10)
-	local lifecycle = playerLifecycles[player]
-	if
-		not lifecycle
-		or player.Parent ~= Players
-		or player.Character ~= character
-		or not humanoid
-		or not humanoid:IsA("Humanoid")
-	then
+	if not isCurrent() or not humanoid or not humanoid:IsA("Humanoid") then
+		return
+	end
+	if not DataService.Load(player) or not isCurrent() then
 		return
 	end
 	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
@@ -806,12 +758,12 @@ local function onCharacterAdded(player: Player, character: Model)
 	end
 	refreshRuntime(player, os.clock())
 	applyResolvedLoadout(player, character)
-	lifecycle.characterTrove:Connect(humanoid.Died, function()
+	playerLifetime.characterTrove:Connect(humanoid.Died, function()
 		setShieldGuard(player, false)
 		getRuntime(player).authorizedSwing = nil
-		clearEquipment(character)
+		presentation.Clear(character)
 	end)
-	lifecycle.characterTrove:Connect(character.AncestryChanged, function(_, parent)
+	playerLifetime.characterTrove:Connect(character.AncestryChanged, function(_, parent)
 		if not parent then
 			setShieldGuard(player, false)
 			getRuntime(player).authorizedSwing = nil
@@ -850,19 +802,26 @@ local function onPlayerAdded(player: Player)
 	if playerLifecycles[player] then
 		return
 	end
-	local trove = Trove.new()
-	local lifecycle: PlayerLifecycle = {
+	local trove = lifecycle.trove:Extend()
+	local playerLifetime: PlayerLifecycle = {
 		trove = trove,
 		characterTrove = trove:Extend(),
+		characterGeneration = 0,
 	}
-	playerLifecycles[player] = lifecycle
+	playerLifecycles[player] = playerLifetime
 	trove:Connect(player.CharacterAdded, function(character)
 		onCharacterAdded(player, character)
 	end)
 	if player.Character then
 		local character = player.Character
 		trove:Add(task.defer(function()
-			if playerLifecycles[player] == lifecycle and player.Parent == Players and player.Character == character then
+			-- Let profile loads unwind and release a late session instead of canceling that request.
+			trove:Pop(coroutine.running())
+			if
+				playerLifecycles[player] == playerLifetime
+				and player.Parent == Players
+				and player.Character == character
+			then
 				onCharacterAdded(player, character)
 			end
 		end))
@@ -870,16 +829,24 @@ local function onPlayerAdded(player: Player)
 end
 
 local function onPlayerRemoving(player: Player)
-	local lifecycle = playerLifecycles[player]
-	if lifecycle then
+	local playerLifetime = playerLifecycles[player]
+	if playerLifetime then
 		playerLifecycles[player] = nil
-		lifecycle.trove:Destroy()
+		lifecycle.trove:Remove(playerLifetime.trove)
 	end
 	nextLoadoutRequestAt[player] = nil
-	local runtime = runtimes[player]
+	local runtime: CombatRuntime? = runtimes[player]
 	if runtime then
 		restoreMovement(runtime)
 	end
+	local character = player.Character
+	if character then
+		clearShieldBubble(character)
+		presentation.Clear(character)
+		character:SetAttribute("ShieldGuarding", false)
+		character:SetAttribute("CombatReady", false)
+	end
+	player:SetAttribute("KnockbackImmune", false)
 	runtimes[player] = nil
 	loadoutLimiter:Forget(player)
 	guardLimiter:Forget(player)
@@ -887,25 +854,26 @@ local function onPlayerRemoving(player: Player)
 	reportHitLimiter:Forget(player)
 end
 
-function CombatService.Init(context: any)
-	Equipment = context.Configurations.Equipment
-	ArenaBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArenaBounds"))
-	CombatMath = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CombatMath"))
-	DataService = context.Services.DataService
-	EquipmentAssets = context.Instances.EquipmentAssets
-	StartAttack = context.Remotes.Combat.StartAttack
-	ReportHit = context.Remotes.Combat.ReportHit
-	SetShieldGuard = context.Remotes.Combat.SetShieldGuard
-	CombatReaction = context.Remotes.Combat.Reaction
-	CombatImpact = context.Remotes.Combat.Impact
-	GetLoadoutRemote = context.Remotes.Combat.GetLoadout
-	EquipRemote = context.Remotes.Combat.Equip
-	Arena = context.Instances.Arena
+function CombatService.Init(serviceContext: ServerTypes.Context)
+	Equipment = serviceContext.Configurations.Equipment
+	DataService = serviceContext.Services.DataService
+	equipmentAssets = serviceContext.Instances.EquipmentAssets
+	presentation = EquipmentPresentation.new(equipmentAssets, Equipment.profiles)
+	startAttack = serviceContext.Remotes.Combat.StartAttack
+	reportHit = serviceContext.Remotes.Combat.ReportHit
+	setShieldGuardRemote = serviceContext.Remotes.Combat.SetShieldGuard
+	combatReaction = serviceContext.Remotes.Combat.Reaction
+	combatImpact = serviceContext.Remotes.Combat.Impact
+	getLoadoutRemote = serviceContext.Remotes.Combat.GetLoadout
+	equipRemote = serviceContext.Remotes.Combat.Equip
+	arena = serviceContext.Instances.Arena
 end
 
 function CombatService.Start()
-	assert(serviceTrove == nil, "[CombatService] Start called while already running")
-	local trove = Trove.new()
+	if not lifecycle:Start() then
+		return
+	end
+	local trove = lifecycle.trove
 	serviceTrove = trove
 
 	for _, authoringName in { "R15WeaponPositioningRig", "WeaponPosePreview" } do
@@ -915,14 +883,28 @@ function CombatService.Start()
 		end
 	end
 
-	GetLoadoutRemote.OnServerInvoke = function(player: Player)
+	getLoadoutRemote.OnServerInvoke = function(player: Player): LoadoutResult?
+		if
+			not DataService.Load(player)
+			or not lifecycle:IsRunning()
+			or player.Parent ~= Players
+		then
+			return nil
+		end
 		if not loadoutLimiter:Allow(player) then
 			return { ok = false, code = "RateLimited", snapshot = snapshotLoadout(player) }
 		end
 		resolveLoadout(player)
 		return { ok = true, snapshot = snapshotLoadout(player) }
 	end
-	EquipRemote.OnServerInvoke = function(player: Player, instanceId: unknown)
+	equipRemote.OnServerInvoke = function(player: Player, instanceId: unknown): LoadoutResult?
+		if
+			not DataService.Load(player)
+			or not lifecycle:IsRunning()
+			or player.Parent ~= Players
+		then
+			return nil
+		end
 		if not loadoutLimiter:Allow(player) then
 			return { ok = false, code = "RateLimited", snapshot = snapshotLoadout(player) }
 		end
@@ -935,7 +917,7 @@ function CombatService.Start()
 		return { ok = ok, code = reason, snapshot = snapshotLoadout(player) }
 	end
 
-	trove:Connect(SetShieldGuard.OnServerEvent, function(player: Player, enabled: unknown)
+	trove:Connect(setShieldGuardRemote.OnServerEvent, function(player: Player, enabled: unknown)
 		if type(enabled) ~= "boolean" then
 			return
 		end
@@ -945,12 +927,12 @@ function CombatService.Start()
 			setShieldGuard(player, enabled)
 		end
 	end)
-	trove:Connect(StartAttack.OnServerEvent, function(player: Player, payload: unknown)
+	trove:Connect(startAttack.OnServerEvent, function(player: Player, payload: unknown)
 		if startAttackLimiter:Allow(player) then
 			handleMeleeSwing(player, payload)
 		end
 	end)
-	trove:Connect(ReportHit.OnServerEvent, function(player: Player, payload: unknown)
+	trove:Connect(reportHit.OnServerEvent, function(player: Player, payload: unknown)
 		if reportHitLimiter:Allow(player) then
 			handleHitReport(player, payload)
 		end
@@ -991,6 +973,7 @@ function CombatService.Start()
 	trove:Connect(Players.PlayerRemoving, onPlayerRemoving)
 	for _, player in Players:GetPlayers() do
 		trove:Add(task.defer(function()
+			trove:Pop(coroutine.running())
 			if player.Parent == Players then
 				onPlayerAdded(player)
 			end
@@ -999,8 +982,11 @@ function CombatService.Start()
 end
 
 function CombatService.Stop()
-	GetLoadoutRemote.OnServerInvoke = nil
-	EquipRemote.OnServerInvoke = nil
+	if not lifecycle:Stop() then
+		return
+	end
+	RemoteUtil.ClearServerHandler(getLoadoutRemote)
+	RemoteUtil.ClearServerHandler(equipRemote)
 	if serviceTrove then
 		serviceTrove:Destroy()
 		serviceTrove = nil

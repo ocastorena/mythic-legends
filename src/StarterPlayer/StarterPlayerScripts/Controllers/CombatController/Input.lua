@@ -1,11 +1,19 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/CombatController/Input
 
 local Input = {}
 local stopImpl: (() -> ())?
-local combatView: any
+local Types = require(script.Parent.Parent.Parent.Types)
+local SharedTypes = require(game:GetService("ReplicatedStorage").Shared.Types)
+local combatView: Types.CombatActionView?
+local isRunning = false
+local generation = 0
 
-function Input.BindView(newView: any): () -> ()
-	assert(combatView == nil or combatView == newView, "[CombatController] A combat action view is already bound")
+function Input.BindView(newView: Types.CombatActionView): () -> ()
+	assert(
+		combatView == nil or combatView == newView,
+		"[CombatController.Input] A combat action view is already bound"
+	)
 	combatView = newView
 	return function()
 		if combatView == newView then
@@ -17,6 +25,12 @@ end
 function Input.Init(_context: unknown) end
 
 function Input.Start()
+	if isRunning then
+		return
+	end
+	isRunning = true
+	generation += 1
+	local currentGeneration = generation
 	-- Local R15 input, animation, blade contact, and target-owned launch presentation.
 
 	local Players = game:GetService("Players")
@@ -24,25 +38,31 @@ function Input.Start()
 	local RunService = game:GetService("RunService")
 	local UserInputService = game:GetService("UserInputService")
 
-	local Equipment =
-		require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Configurations"):WaitForChild("Equipment"))
+	local Equipment = require(
+		ReplicatedStorage:WaitForChild("Shared")
+			:WaitForChild("Configurations")
+			:WaitForChild("Equipment")
+	)
 	local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
-	local EquipmentAssets = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Equipment")
-	local Client = script:FindFirstAncestor("Controllers").Parent
+	local equipmentAssets = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Equipment")
+	local client = script.Parent.Parent.Parent
 	local Knockback = require(script.Parent.Knockback)
 	local MeleeHitbox = require(script.Parent.MeleeHitbox)
 	local ShieldSlide = require(script.Parent.ShieldSlide)
 	local PresentationBus = require(script.Parent.PresentationBus)
-	local Ui = Client:WaitForChild("UI")
-	local ModalState = require(Ui:WaitForChild("State"):WaitForChild("ModalState"))
-	local EquipmentPreviewUtil = require(Ui:WaitForChild("EquipmentPreviewUtil"))
-	local CombatNetwork = ReplicatedStorage:WaitForChild("Network"):WaitForChild("Combat")
-	local StartAttack = CombatNetwork:WaitForChild("StartAttack") :: RemoteEvent
-	local ReportHit = CombatNetwork:WaitForChild("ReportHit") :: RemoteEvent
-	local SetShieldGuard = CombatNetwork:WaitForChild("SetShieldGuard") :: RemoteEvent
-	local CombatReaction = CombatNetwork:WaitForChild("Reaction") :: RemoteEvent
+	local ui = client:WaitForChild("UI")
+	local ModalState = require(ui:WaitForChild("State"):WaitForChild("ModalState"))
+	local EquipmentPreviewUtil = require(ui:WaitForChild("EquipmentPreviewUtil"))
+	local combatNetwork = ReplicatedStorage:WaitForChild("Network"):WaitForChild("Combat")
+	local startAttack = combatNetwork:WaitForChild("StartAttack") :: RemoteEvent
+	local reportHit = combatNetwork:WaitForChild("ReportHit") :: RemoteEvent
+	local setShieldGuard = combatNetwork:WaitForChild("SetShieldGuard") :: RemoteEvent
+	local combatReaction = combatNetwork:WaitForChild("Reaction") :: RemoteEvent
 	local localPlayer = Players.LocalPlayer
 	local lifecycleTrove = Trove.new()
+	if not isRunning or generation ~= currentGeneration then
+		return
+	end
 	local characterTrove = lifecycleTrove:Extend()
 	local activeAttackTrove = lifecycleTrove:Extend()
 	local activeGuardTrove = lifecycleTrove:Extend()
@@ -53,10 +73,7 @@ function Input.Start()
 	local MAX_OVERLAP_PARTS = 100
 	local HITBOX_PADDING = Vector3.new(0.1, 0.1, 0.1)
 
-	local TRANSITION_ANIMATIONS = {
-		Sheath = "",
-		Unsheath = "",
-	}
+	local TRANSITION_ANIMATIONS = table.freeze({ sheath = "", unsheath = "" })
 
 	local animationCache: { [string]: Animation } = {}
 	local lastAttackAt = 0
@@ -64,7 +81,7 @@ function Input.Start()
 	local activeTransitionTrack: AnimationTrack? = nil
 	local activeAttackTrack: AnimationTrack? = nil
 	local attackToken = 0
-	local guardRequested = false
+	local isGuardRequested = false
 	local guardToken = 0
 	local activeGuardRaiseTrack: AnimationTrack? = nil
 	local activeGuardHoldTrack: AnimationTrack? = nil
@@ -79,7 +96,9 @@ function Input.Start()
 		if not humanoid or humanoid.Health <= 0 or humanoid.RigType ~= Enum.HumanoidRigType.R15 then
 			return nil
 		end
-		return humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator", 2) :: Animator?
+		local animator = humanoid:FindFirstChildOfClass("Animator")
+			or humanoid:WaitForChild("Animator", 2)
+		return if animator and animator:IsA("Animator") then animator else nil
 	end
 
 	local function playAnimation(
@@ -91,21 +110,48 @@ function Input.Start()
 			return nil
 		end
 		local animator = getAnimator(character)
-		if not animator then
+		if
+			not animator
+			or not isRunning
+			or generation ~= currentGeneration
+			or localPlayer.Character ~= character
+		then
 			return nil
 		end
 		local animation = animationCache[animationId]
 		if not animation then
-			animation = Instance.new("Animation")
-			animation.AnimationId = animationId
-			animationCache[animationId] = animation
+			local created = Instance.new("Animation")
+			created.AnimationId = animationId
+			animationCache[animationId] = created
+			animation = created
+			lifecycleTrove:Add(created)
 		end
 		local success, track = pcall(animator.LoadAnimation, animator, animation)
 		if not success then
-			warn(`[Input] Could not load animation {animationId}: {track}`)
+			warn(`[CombatController.Input] Could not load animation {animationId}: {track}`)
 			return nil
 		end
 		track.Priority = priority or Enum.AnimationPriority.Action
+		local trackLifetime = lifecycleTrove:Extend()
+		trackLifetime:Add(track)
+		trackLifetime:Connect(track.Ended, function()
+			if activeTransitionTrack == track then
+				activeTransitionTrack = nil
+			end
+			if activeAttackTrack == track then
+				activeAttackTrack = nil
+			end
+			if activeGuardRaiseTrack == track then
+				activeGuardRaiseTrack = nil
+			end
+			if activeGuardHoldTrack == track then
+				activeGuardHoldTrack = nil
+			end
+			if activeGuardLowerTrack == track then
+				activeGuardLowerTrack = nil
+			end
+			lifecycleTrove:Remove(trackLifetime)
+		end)
 		track:Play(0.08)
 		return track
 	end
@@ -115,8 +161,8 @@ function Input.Start()
 		return if type(value) == "string" then value else ""
 	end
 
-	local function getProfile(character: Model, hand: string): any?
-		return Equipment.Profiles[getEquipped(character, hand)]
+	local function getProfile(character: Model, hand: string): SharedTypes.EquipmentProfile?
+		return Equipment.profiles[getEquipped(character, hand)]
 	end
 
 	local function getEquipmentModel(character: Model, hand: string): Model?
@@ -130,10 +176,10 @@ function Input.Start()
 		return if hitbox and hitbox:IsA("BasePart") then hitbox else nil
 	end
 
-	local function setWeaponTrail(weapon: Model?, enabled: boolean)
+	local function setWeaponTrail(weapon: Model?, isEnabled: boolean)
 		local trail = weapon and weapon:FindFirstChild("Trail", true)
 		if trail and trail:IsA("Trail") then
-			trail.Enabled = enabled
+			trail.Enabled = isEnabled
 		end
 	end
 
@@ -171,14 +217,14 @@ function Input.Start()
 		activeGuardLowerTrack = nil
 	end
 
-	local function getShieldProfile(character: Model): any?
+	local function getShieldProfile(character: Model): SharedTypes.EquipmentProfile?
 		local profile = getProfile(character, "Left")
 		return if profile and profile.kind == "Shield" then profile else nil
 	end
 
 	local function startGuardHold(character: Model, expectedToken: number)
 		if
-			not guardRequested
+			not isGuardRequested
 			or guardToken ~= expectedToken
 			or localPlayer.Character ~= character
 			or character:GetAttribute("CombatReady") ~= true
@@ -190,15 +236,20 @@ function Input.Start()
 			activeGuardRaiseTrack = nil
 		end
 		local profile = getShieldProfile(character)
-		local track = profile and playAnimation(character, profile.holdAnimationId, Enum.AnimationPriority.Action4)
+		local track = profile
+			and playAnimation(character, profile.holdAnimationId, Enum.AnimationPriority.Action4)
 		if track then
+			if not isGuardRequested or guardToken ~= expectedToken then
+				track:Stop(0)
+				return
+			end
 			track.Looped = true
 			activeGuardHoldTrack = track
 		end
 	end
 
 	local function beginGuard(character: Model)
-		if guardRequested or character:GetAttribute("CombatReady") ~= true then
+		if isGuardRequested or character:GetAttribute("CombatReady") ~= true then
 			return
 		end
 		local profile = getShieldProfile(character)
@@ -208,23 +259,30 @@ function Input.Start()
 
 		clearActiveAttack()
 		stopGuardTracks(0.04)
-		guardRequested = true
+		isGuardRequested = true
 		guardToken += 1
 		local expectedToken = guardToken
 
-		local transitioned = false
+		local hasTransitioned = false
 		local function transitionToHold()
-			if transitioned then
+			if hasTransitioned or not isRunning or generation ~= currentGeneration then
 				return
 			end
-			transitioned = true
+			hasTransitioned = true
 			disconnectGuardConnections()
 			-- Protection and the replicated bubble begin at the authored GuardRaised frame.
-			SetShieldGuard:FireServer(true)
+			setShieldGuard:FireServer(true)
 			startGuardHold(character, expectedToken)
 		end
 
-		local track = playAnimation(character, profile.raiseAnimationId, Enum.AnimationPriority.Action4)
+		local track =
+			playAnimation(character, profile.raiseAnimationId, Enum.AnimationPriority.Action4)
+		if not isGuardRequested or guardToken ~= expectedToken or not isRunning then
+			if track then
+				track:Stop(0)
+			end
+			return
+		end
 		activeGuardRaiseTrack = track
 		if not track then
 			transitionToHold()
@@ -235,31 +293,32 @@ function Input.Start()
 		activeGuardTrove:Connect(track.Stopped, transitionToHold)
 	end
 
-	local function endGuard(character: Model?, playLower: boolean)
-		if not guardRequested then
+	local function endGuard(character: Model?, shouldPlayLower: boolean)
+		if not isGuardRequested then
 			return
 		end
-		guardRequested = false
+		isGuardRequested = false
 		guardToken += 1
 		stopGuardTracks(0.08)
 
-		if not playLower or not character or localPlayer.Character ~= character then
-			SetShieldGuard:FireServer(false)
+		if not shouldPlayLower or not character or localPlayer.Character ~= character then
+			setShieldGuard:FireServer(false)
 			return
 		end
 		local profile = getShieldProfile(character)
-		local track = profile and playAnimation(character, profile.lowerAnimationId, Enum.AnimationPriority.Action4)
+		local track = profile
+			and playAnimation(character, profile.lowerAnimationId, Enum.AnimationPriority.Action4)
 		activeGuardLowerTrack = track
 		if track then
 			track.Looped = false
-			local lowered = false
+			local hasLowered = false
 			local function finishLower()
-				if lowered then
+				if hasLowered then
 					return
 				end
-				lowered = true
+				hasLowered = true
 				-- Keep protection active through the lowering motion, then remove the bubble.
-				SetShieldGuard:FireServer(false)
+				setShieldGuard:FireServer(false)
 				if activeGuardLowerTrack == track then
 					activeGuardLowerTrack = nil
 				end
@@ -267,12 +326,12 @@ function Input.Start()
 			activeGuardTrove:Connect(track:GetMarkerReachedSignal("GuardLowered"), finishLower)
 			activeGuardTrove:Connect(track.Stopped, finishLower)
 		else
-			SetShieldGuard:FireServer(false)
+			setShieldGuard:FireServer(false)
 		end
 	end
 
-	local function playCombatTransition(character: Model, becomingReady: boolean)
-		if not becomingReady then
+	local function playCombatTransition(character: Model, isBecomingReady: boolean)
+		if not isBecomingReady then
 			endGuard(character, true)
 		end
 		clearActiveAttack()
@@ -282,7 +341,7 @@ function Input.Start()
 		end
 		local track = playAnimation(
 			character,
-			if becomingReady then TRANSITION_ANIMATIONS.Unsheath else TRANSITION_ANIMATIONS.Sheath
+			if isBecomingReady then TRANSITION_ANIMATIONS.unsheath else TRANSITION_ANIMATIONS.sheath
 		)
 		if track then
 			track.Looped = false
@@ -310,7 +369,7 @@ function Input.Start()
 		if
 			character:GetAttribute("CombatReady") ~= true
 			or character:GetAttribute("ShieldGuarding") == true
-			or guardRequested
+			or isGuardRequested
 		then
 			return
 		end
@@ -325,7 +384,10 @@ function Input.Start()
 			return
 		end
 		local now = os.clock()
-		if now - lastAttackAt < (profile.cooldownSeconds or 0.72) then
+		if
+			now - lastAttackAt
+			< (profile.cooldownSeconds or Equipment.presentationDefaults.cooldownSeconds)
+		then
 			return
 		end
 		lastAttackAt = now
@@ -336,41 +398,56 @@ function Input.Start()
 		local currentToken = attackToken
 		nextSwingSequence += 1
 		local sequence = nextSwingSequence
-		local hitReported = false
-		local windowOpened = false
-		local windowClosed = false
-		local soundPlayed = false
+		local hasReportedHit = false
+		local hasOpenedWindow = false
+		local isWindowClosed = false
+		local hasPlayedSound = false
 
 		local function isCurrentAttack(): boolean
-			return attackToken == currentToken
+			return isRunning
+				and generation == currentGeneration
+				and attackToken == currentToken
 				and localPlayer.Character == character
 				and character:GetAttribute("CombatReady") == true
 		end
 
 		local function closeContactWindow()
-			windowClosed = true
+			isWindowClosed = true
 			setWeaponTrail(weapon, false)
 		end
 
 		local function playSwingSound()
-			if not soundPlayed and isCurrentAttack() then
-				soundPlayed = true
+			if not hasPlayedSound and isCurrentAttack() then
+				hasPlayedSound = true
 				playWeaponSound(weapon)
 			end
 		end
 
 		local function openContactWindow()
-			if windowOpened or windowClosed or not isCurrentAttack() then
+			if hasOpenedWindow or isWindowClosed or not isCurrentAttack() then
 				return
 			end
-			windowOpened = true
+			hasOpenedWindow = true
 			playSwingSound()
 			setWeaponTrail(weapon, true)
-			activeAttackTrove:Add(task.spawn(function()
+			activeAttackTrove:Add(task.defer(function()
 				local previousCFrame = hitbox.CFrame
-				local activeUntil = os.clock() + math.max(0.05, profile.contactWindowSeconds or 0.22)
-				while isCurrentAttack() and not windowClosed and not hitReported and os.clock() <= activeUntil do
+				local activeUntil = os.clock()
+					+ math.max(
+						0.05,
+						profile.contactWindowSeconds
+							or Equipment.presentationDefaults.contactWindowSeconds
+					)
+				while
+					isCurrentAttack()
+					and not isWindowClosed
+					and not hasReportedHit
+					and os.clock() <= activeUntil
+				do
 					RunService.RenderStepped:Wait()
+					if not isCurrentAttack() or isWindowClosed then
+						break
+					end
 					local target = MeleeHitbox.FindClosestTarget({
 						attacker = localPlayer,
 						character = character,
@@ -383,23 +460,38 @@ function Input.Start()
 					})
 					previousCFrame = hitbox.CFrame
 					if target and target.Character then
-						hitReported = true
+						hasReportedHit = true
 						local blockingShield = getPredictedBlockingShield(target)
 						if blockingShield then
-							PresentationBus.Fire("LocalShieldImpact", target.Character, blockingShield, sequence)
+							PresentationBus.Fire(
+								"LocalShieldImpact",
+								target.Character,
+								blockingShield,
+								sequence
+							)
 						else
-							PresentationBus.Fire("LocalImpact", target.Character, profile.impactSoundId, sequence)
+							PresentationBus.Fire(
+								"LocalImpact",
+								target.Character,
+								profile.impactSoundId,
+								sequence
+							)
 						end
-						if activeAttackTrack and (profile.hitStopSeconds or 0) > 0 then
-							local track = activeAttackTrack
+						local track = activeAttackTrack
+						if track and (profile.hitStopSeconds or 0) > 0 then
 							track:AdjustSpeed(0)
-							activeAttackTrove:Add(task.delay(math.clamp(profile.hitStopSeconds, 0, 0.08), function()
-								if activeAttackTrack == track and track.IsPlaying then
-									track:AdjustSpeed(1)
-								end
-							end))
+							activeAttackTrove:Add(
+								task.delay(
+									math.clamp(profile.hitStopSeconds or 0, 0, 0.08),
+									function()
+										if activeAttackTrack == track and track.IsPlaying then
+											track:AdjustSpeed(1)
+										end
+									end
+								)
+							)
 						end
-						ReportHit:FireServer({
+						reportHit:FireServer({
 							sequence = sequence,
 							targetUserId = target.UserId,
 						})
@@ -410,8 +502,14 @@ function Input.Start()
 		end
 
 		-- Activation is charged by the server immediately, including a swing that misses.
-		StartAttack:FireServer({ sequence = sequence })
+		startAttack:FireServer({ sequence = sequence })
 		local track = playAnimation(character, profile.animationId, Enum.AnimationPriority.Action)
+		if not isCurrentAttack() then
+			if track then
+				track:Stop(0)
+			end
+			return
+		end
 		activeAttackTrack = track
 		if track then
 			track.Looped = false
@@ -426,26 +524,48 @@ function Input.Start()
 			activeAttackTrove:Connect(track:GetMarkerReachedSignal("TrailEnd"), closeContactWindow)
 			activeAttackTrove:Connect(track.Stopped, closeContactWindow)
 		end
-		activeAttackTrove:Add(task.delay(profile.hitStartFallbackSeconds or 0.22, function()
-			if isCurrentAttack() then
-				openContactWindow()
-			end
-		end))
 		activeAttackTrove:Add(
-			task.delay((profile.hitStartFallbackSeconds or 0.22) + (profile.contactWindowSeconds or 0.22), function()
-				if isCurrentAttack() then
-					closeContactWindow()
+			task.delay(
+				profile.hitStartFallbackSeconds
+					or Equipment.presentationDefaults.hitStartFallbackSeconds,
+				function()
+					if isCurrentAttack() then
+						openContactWindow()
+					end
 				end
-			end)
+			)
+		)
+		activeAttackTrove:Add(
+			task.delay(
+				(
+					profile.hitStartFallbackSeconds
+					or Equipment.presentationDefaults.hitStartFallbackSeconds
+				)
+					+ (
+						profile.contactWindowSeconds
+						or Equipment.presentationDefaults.contactWindowSeconds
+					),
+				function()
+					if isCurrentAttack() then
+						closeContactWindow()
+					end
+				end
+			)
 		)
 	end
 
-	local function applyLaunch(payload: any)
-		if
-			type(payload) ~= "table"
-			or type(payload.hitId) ~= "number"
-			or typeof(payload.launchVelocity) ~= "Vector3"
-		then
+	local function numberOr(value: unknown, fallback: number): number
+		return if type(value) == "number" or type(value) == "string"
+			then tonumber(value) or fallback
+			else fallback
+	end
+
+	local function applyLaunch(rawPayload: unknown)
+		if type(rawPayload) ~= "table" then
+			return
+		end
+		local payload = rawPayload :: { [string]: unknown }
+		if type(payload.hitId) ~= "number" or typeof(payload.launchVelocity) ~= "Vector3" then
 			return
 		end
 		local character = getCharacter()
@@ -458,7 +578,10 @@ function Input.Start()
 				character,
 				payload.hitId,
 				payload.launchVelocity,
-				tonumber(payload.slideDurationSeconds) or 0.32
+				numberOr(
+					payload.slideDurationSeconds,
+					Equipment.presentationDefaults.slideDurationSeconds
+				)
 			)
 			return
 		end
@@ -470,17 +593,25 @@ function Input.Start()
 			character,
 			payload.hitId,
 			payload.launchVelocity,
-			if typeof(payload.angularVelocity) == "Vector3" then payload.angularVelocity else Vector3.zero,
-			tonumber(payload.controlSeconds) or 0.1,
-			tonumber(payload.maximumReactionSeconds) or 3.5,
-			tonumber(payload.landingRecoverySeconds) or 0.2,
+			if typeof(payload.angularVelocity) == "Vector3"
+				then payload.angularVelocity
+				else Vector3.zero,
+			numberOr(payload.controlSeconds, Equipment.presentationDefaults.launchControlSeconds),
+			numberOr(
+				payload.maximumReactionSeconds,
+				Equipment.presentationDefaults.maximumReactionSeconds
+			),
+			numberOr(
+				payload.landingRecoverySeconds,
+				Equipment.presentationDefaults.landingRecoverySeconds
+			),
 			function()
 				PresentationBus.Fire("Landed", character, nil, payload.hitId)
 			end
 		)
 	end
 
-	lifecycleTrove:Connect(CombatReaction.OnClientEvent, function(payload: any)
+	lifecycleTrove:Connect(combatReaction.OnClientEvent, function(payload: unknown)
 		applyLaunch(payload)
 	end)
 
@@ -489,7 +620,7 @@ function Input.Start()
 			return
 		end
 		local view = combatView
-		assert(view, "[CombatController] Combat action view must be bound before Start")
+		assert(view, "[CombatController.Input] Combat action view must be bound before Start")
 		local root = view.root :: Frame
 		local attackButton = view.attackButton :: ImageButton
 		local attackIcon = view.attackIcon :: Frame
@@ -499,26 +630,26 @@ function Input.Start()
 		local renderedLeftEquipment = ""
 		local function renderEquipment(icon: Frame, definitionId: string)
 			EquipmentPreviewUtil.Clear(icon)
-			local profile = Equipment.Profiles[definitionId]
-			local asset = profile and EquipmentAssets:FindFirstChild(profile.modelName)
+			local profile = Equipment.profiles[definitionId]
+			local asset = profile and equipmentAssets:FindFirstChild(profile.modelName)
 			if asset then
 				EquipmentPreviewUtil.Render(icon, asset)
 			end
 		end
 		local function getButtonAvailability(): (boolean, boolean, boolean)
 			local character = getCharacter()
-			local ready = character ~= nil and character:GetAttribute("CombatReady") == true
+			local isReady = character ~= nil and character:GetAttribute("CombatReady") == true
 			local rightProfile = character and getProfile(character, "Right")
 			local leftProfile = character and getProfile(character, "Left")
-			local canAttack = ready
+			local canAttack = isReady
 				and rightProfile
 				and rightProfile.kind == "PrimaryWeapon"
 				and getEquipmentModel(character :: Model, "Right") ~= nil
-			local canGuard = ready
+			local canGuard = isReady
 				and leftProfile
 				and leftProfile.kind == "Shield"
 				and getEquipmentModel(character :: Model, "Left") ~= nil
-			return ready, canAttack == true, canGuard == true
+			return isReady, canAttack == true, canGuard == true
 		end
 
 		lifecycleTrove:Connect(attackButton.Activated, function()
@@ -530,24 +661,24 @@ function Input.Start()
 				end
 			end
 		end)
-		local shieldButtonHeld = false
+		local isShieldButtonHeld = false
 		local function lowerShieldButton()
-			if not shieldButtonHeld then
+			if not isShieldButtonHeld then
 				return
 			end
-			shieldButtonHeld = false
-			if guardRequested then
+			isShieldButtonHeld = false
+			if isGuardRequested then
 				endGuard(getCharacter(), true)
 			end
 		end
 		lifecycleTrove:Connect(shieldButton.MouseButton1Down, function()
-			if shieldButtonHeld or ModalState.AnyOpen() then
+			if isShieldButtonHeld or ModalState.AnyOpen() then
 				return
 			end
 			local character = getCharacter()
 			local _, _, canGuard = getButtonAvailability()
 			if character and canGuard then
-				shieldButtonHeld = true
+				isShieldButtonHeld = true
 				beginGuard(character)
 			end
 		end)
@@ -557,13 +688,16 @@ function Input.Start()
 				lowerShieldButton()
 			end
 		end)
-		local modalOpen = ModalState.AnyOpen()
-		lifecycleTrove:Add(ModalState.OnChanged(function(isOpen: boolean)
-			modalOpen = isOpen
+		local isModalOpen = ModalState.AnyOpen()
+		local disconnectModal = ModalState.OnChanged(function(isOpen: boolean)
+			isModalOpen = isOpen
 			if isOpen then
 				lowerShieldButton()
 			end
-		end))
+		end)
+		lifecycleTrove:Add(function()
+			disconnectModal()
+		end)
 		local elapsed = 0
 		lifecycleTrove:Connect(RunService.Heartbeat, function(deltaTime: number)
 			elapsed += deltaTime
@@ -571,7 +705,7 @@ function Input.Start()
 				return
 			end
 			elapsed = 0
-			local ready, canAttack, canGuard = getButtonAvailability()
+			local isReady, canAttack, canGuard = getButtonAvailability()
 			local character = getCharacter()
 			local rightEquipment = if character then getEquipped(character, "Right") else ""
 			local leftEquipment = if character then getEquipped(character, "Left") else ""
@@ -583,46 +717,51 @@ function Input.Start()
 				renderedLeftEquipment = leftEquipment
 				renderEquipment(shieldIcon, leftEquipment)
 			end
-			root.Visible = ready and not modalOpen
-			attackButton.Interactable = canAttack and not modalOpen
-			shieldButton.Interactable = canGuard and not modalOpen
+			root.Visible = isReady and not isModalOpen
+			attackButton.Interactable = canAttack and not isModalOpen
+			shieldButton.Interactable = canGuard and not isModalOpen
 			attackButton.BackgroundTransparency = if canAttack then 0.12 else 0.5
 			shieldButton.BackgroundTransparency = if canGuard then 0.12 else 0.5
-			shieldButton.BackgroundColor3 = if guardRequested then PRESSED_BUTTON_COLOR else NORMAL_BUTTON_COLOR
+			shieldButton.BackgroundColor3 = if isGuardRequested
+				then PRESSED_BUTTON_COLOR
+				else NORMAL_BUTTON_COLOR
 			view.relayout()
 		end)
 		view.relayout()
 	end
 
-	lifecycleTrove:Connect(UserInputService.InputBegan, function(input: InputObject, gameProcessed: boolean)
-		if gameProcessed or UserInputService:GetFocusedTextBox() or ModalState.AnyOpen() then
-			return
-		end
-		local character = getCharacter()
-		if not character then
-			return
-		end
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			attack(character)
-		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-			if not guardRequested then
-				beginGuard(character)
+	lifecycleTrove:Connect(
+		UserInputService.InputBegan,
+		function(input: InputObject, wasGameProcessed: boolean)
+			if wasGameProcessed or UserInputService:GetFocusedTextBox() or ModalState.AnyOpen() then
+				return
+			end
+			local character = getCharacter()
+			if not character then
+				return
+			end
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				attack(character)
+			elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+				if not isGuardRequested then
+					beginGuard(character)
+				end
 			end
 		end
-	end)
+	)
 
 	lifecycleTrove:Connect(UserInputService.InputEnded, function(input: InputObject)
-		if input.UserInputType == Enum.UserInputType.MouseButton2 and guardRequested then
+		if input.UserInputType == Enum.UserInputType.MouseButton2 and isGuardRequested then
 			endGuard(getCharacter(), true)
 		end
 	end)
 
 	local function bindCharacter(character: Model)
 		characterTrove:Clean()
-		if guardRequested then
-			SetShieldGuard:FireServer(false)
+		if isGuardRequested then
+			setShieldGuard:FireServer(false)
 		end
-		guardRequested = false
+		isGuardRequested = false
 		guardToken += 1
 		stopGuardTracks(0)
 		clearActiveAttack()
@@ -642,7 +781,7 @@ function Input.Start()
 		local wasShieldGuarding = character:GetAttribute("ShieldGuarding") == true
 		characterTrove:Connect(character:GetAttributeChangedSignal("ShieldGuarding"), function()
 			local isShieldGuarding = character:GetAttribute("ShieldGuarding") == true
-			if wasShieldGuarding and not isShieldGuarding and guardRequested then
+			if wasShieldGuarding and not isShieldGuarding and isGuardRequested then
 				endGuard(character, true)
 			end
 			wasShieldGuarding = isShieldGuarding
@@ -656,6 +795,18 @@ function Input.Start()
 	lifecycleTrove:Add(task.defer(createCombatButtons))
 
 	stopImpl = function()
+		if isGuardRequested then
+			setShieldGuard:FireServer(false)
+		end
+		isGuardRequested = false
+		guardToken += 1
+		Knockback.ClearAll()
+		ShieldSlide.ClearAll()
+		if activeTransitionTrack then
+			activeTransitionTrack:Stop(0)
+			activeTransitionTrack:Destroy()
+			activeTransitionTrack = nil
+		end
 		clearActiveAttack()
 		stopGuardTracks(0)
 		lifecycleTrove:Destroy()
@@ -663,6 +814,8 @@ function Input.Start()
 end
 
 function Input.Stop()
+	isRunning = false
+	generation += 1
 	if stopImpl then
 		stopImpl()
 		stopImpl = nil

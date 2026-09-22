@@ -1,15 +1,23 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Screens/Inventory
 
+local Fusion = require(game:GetService("ReplicatedStorage").Packages.Fusion)
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Types = require(script.Parent.Parent.Parent.Types)
+
+local Mythlings = require(script.Mythlings)
+local Materials = require(script.Materials)
+local Equipment = require(script.Equipment)
+local Consumables = require(script.Consumables)
 
 export type Props = {
 	localData: Types.LocalDataApi,
 	inventoryController: Types.InventoryControllerApi,
 }
 
-local function Inventory(scope: any, props: Props): ScreenGui
-	local connections: { RBXScriptConnection } = scope
+local function Inventory(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenGui
+	local connections = scope
 	--
 	-- The inventory is the panel the design system was derived from, so it composes the shell
 	-- verbatim: header (identity · 88px tabs · coin pill + ✕), body split grid 2/3 · details
@@ -30,15 +38,15 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local CardList = require(Ui:WaitForChild("Components"):WaitForChild("CardList"))
 	local MenuState = require(Ui:WaitForChild("State"):WaitForChild("MenuState"))
 	local Motion = require(Ui:WaitForChild("Motion"))
-	local MythlingThumbnailUtil = require(Ui:WaitForChild("MythlingThumbnailUtil"))
 	local Theme = require(Ui:WaitForChild("Theme"))
 	local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
-	local EquipmentPreviewUtil = require(Ui:WaitForChild("EquipmentPreviewUtil"))
-	local MythlingsData =
-		require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Configurations"):WaitForChild("Mythlings"))
+	local MythlingsData = require(
+		ReplicatedStorage:WaitForChild("Shared")
+			:WaitForChild("Configurations")
+			:WaitForChild("Mythlings")
+	)
 	local MaterialsMeta = require(ReplicatedStorage.Shared.Configurations.Materials)
 	local EquipmentMeta = require(ReplicatedStorage.Shared.Configurations.Equipment)
-	local ConsumablesMeta = require(ReplicatedStorage.Shared.Configurations.Consumables)
 
 	local SELL_ICON = "rbxassetid://112895221053745"
 	local INVENTORY_CONTENT_SCALE = 1.15
@@ -46,7 +54,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local inventoryGui = scope:New("ScreenGui")({
 		Name = "InventoryGui",
 		Enabled = false,
-		DisplayOrder = Theme.Layer.panel,
+		DisplayOrder = Theme.layer.panel,
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = Players.LocalPlayer:WaitForChild("PlayerGui"),
@@ -59,19 +67,19 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	end
 
 	local function inventoryContentScale(viewport: Vector2): number
-		return Theme.isPhone(viewport) and 1 or INVENTORY_CONTENT_SCALE
+		return Theme.IsPhone(viewport) and 1 or INVENTORY_CONTENT_SCALE
 	end
 
 	local function inventoryPanelSize(viewport: Vector2): UDim2
-		if Theme.isPhone(viewport) then
-			return Theme.panelSize(viewport)
+		if Theme.IsPhone(viewport) then
+			return Theme.PanelSize(viewport)
 		end
 
 		-- UIScale enlarges the complete composition. Give the card its logical dimensions
 		-- here so its rendered footprint still lands at the intended responsive target.
 		local scale = inventoryContentScale(viewport)
 		local width = math.min(math.floor(viewport.X * 0.9), 1240)
-		local height = math.min(600, Theme.usableHeight(viewport) - 16)
+		local height = math.min(600, Theme.UsableHeight(viewport) - 16)
 		return UDim2.fromOffset(math.floor(width / scale), math.floor(height / scale))
 	end
 
@@ -82,17 +90,33 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local panel = Panel.Create({
 		parent = inventoryGui,
 		title = "Inventory",
-		titleTextEm = Theme.Em.panelTitleLarge,
+		titleTextEm = Theme.em.panelTitleLarge,
 		tabs = {
-			{ name = "Mythlings", icon = "rbxassetid://15909461117", color = Theme.TabIcon.mythlings },
-			{ name = "Equipment", icon = "rbxassetid://16181366859", color = Theme.TabIcon.equipment },
-			{ name = "Consumables", icon = "rbxassetid://16181402439", color = Theme.TabIcon.consumables },
-			{ name = "Materials", icon = "rbxassetid://15562720000", color = Theme.TabIcon.materials },
+			{
+				name = "Mythlings",
+				icon = "rbxassetid://15909461117",
+				color = Theme.tabIcon.mythlings,
+			},
+			{
+				name = "Equipment",
+				icon = "rbxassetid://16181366859",
+				color = Theme.tabIcon.equipment,
+			},
+			{
+				name = "Consumables",
+				icon = "rbxassetid://16181402439",
+				color = Theme.tabIcon.consumables,
+			},
+			{
+				name = "Materials",
+				icon = "rbxassetid://15562720000",
+				color = Theme.tabIcon.materials,
+			},
 		},
 		size = inventoryPanelSize,
-		-- No coin pill here. §08 puts one in every panel header, but the HUD's pill stays lit
-		-- and on top while a panel is open, so a second one would just repeat itself.
-		accent = Theme.Accent.gold,
+		-- The HUD coin pill stays visible
+		-- above open panels, so there is no duplicate currency display here.
+		accent = Theme.accent.gold,
 	})
 
 	local inventoryScale = Instance.new("UIScale")
@@ -141,23 +165,23 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local mythlingCardTemplate = Panel.CreateCellTemplate({
 		parent = mythlingsFrame,
 		check = true,
-		root = panel.Root,
+		root = panel.rootScale,
 	})
 	local materialsCardTemplate = Panel.CreateCellTemplate({
 		parent = materialsFrame,
 		quantity = true,
-		root = panel.Root,
+		root = panel.rootScale,
 	})
 	local equipmentCardTemplate = Panel.CreateCellTemplate({
 		parent = equipmentFrame,
 		quantity = true,
 		check = true,
-		root = panel.Root,
+		root = panel.rootScale,
 	})
 	local consumablesCardTemplate = Panel.CreateCellTemplate({
 		parent = consumablesFrame,
 		quantity = true,
-		root = panel.Root,
+		root = panel.rootScale,
 	})
 
 	--------------------------------------------------------------------------------
@@ -183,8 +207,8 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	local consumableInfoColumn = newDetailsColumn("ConsumableInfo")
 	local mythlingInfo = Panel.CreateDetails({
 		parent = mythlingInfoColumn,
-		root = panel.Root,
-		accent = Theme.Accent.gold,
+		root = panel.rootScale,
+		accent = Theme.accent.gold,
 		stats = 3,
 		info = true,
 		primary = "Evolve",
@@ -192,16 +216,16 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	})
 	local materialInfo = Panel.CreateDetails({
 		parent = materialInfoColumn,
-		root = panel.Root,
-		accent = Theme.Accent.gold,
+		root = panel.rootScale,
+		accent = Theme.accent.gold,
 		stats = 2,
 		info = true,
 		overflow = true,
 	})
 	local equipmentInfo = Panel.CreateDetails({
 		parent = equipmentInfoColumn,
-		root = panel.Root,
-		accent = Theme.Accent.gold,
+		root = panel.rootScale,
+		accent = Theme.accent.gold,
 		stats = 3,
 		info = true,
 		primary = "Equip",
@@ -209,8 +233,8 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	})
 	local consumableInfo = Panel.CreateDetails({
 		parent = consumableInfoColumn,
-		root = panel.Root,
-		accent = Theme.Accent.gold,
+		root = panel.rootScale,
+		accent = Theme.accent.gold,
 		stats = 3,
 		info = true,
 		primary = "Add to Hotbar",
@@ -221,38 +245,38 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	-- server-authoritative endpoints are added later. Equipment already has a live endpoint.
 	if mythlingInfo.PrimaryButton then
 		mythlingInfo.PrimaryButton:SetAttribute("ServerAction", "Evolve")
-		Panel.SetButtonEnabled(mythlingInfo.PrimaryButton, false, Theme.TabIcon.mythlings)
+		Panel.SetButtonEnabled(mythlingInfo.PrimaryButton, false, Theme.tabIcon.mythlings)
 	end
 	if equipmentInfo.PrimaryButton then
 		equipmentInfo.PrimaryButton:SetAttribute("ServerAction", "EquipOrUnequip")
 	end
 	if consumableInfo.PrimaryButton then
 		consumableInfo.PrimaryButton:SetAttribute("ServerAction", "AddToHotbar")
-		Panel.SetButtonEnabled(consumableInfo.PrimaryButton, false, Theme.TabIcon.consumables)
+		Panel.SetButtonEnabled(consumableInfo.PrimaryButton, false, Theme.tabIcon.consumables)
 	end
 
 	local actionMenu = Panel.CreateActionMenu({
 		parent = panel.Details,
-		root = panel.Root,
+		root = panel.rootScale,
 		items = {
 			{
 				id = "Sell",
 				label = "Sell",
 				icon = SELL_ICON,
-				iconColor = Theme.Accent.gold,
+				iconColor = Theme.accent.gold,
 				enabled = false,
 			},
 		},
 	})
 	actionMenu.Options.Sell:SetAttribute("ServerAction", "Sell")
 
-	local function connectOverflow(details, category: string)
+	local function connectOverflow(details: Panel.Details, category: string)
 		local button = details.SecondaryButton
 		if not button then
 			return
 		end
 		button:SetAttribute("InventoryCategory", category)
-		ButtonUtil.hookClick(button, function()
+		ButtonUtil.HookClick(button, function()
 			actionMenu.Root:SetAttribute("InventoryCategory", category)
 			actionMenu.Toggle(button)
 		end)
@@ -269,7 +293,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		end
 	end
 
-	local function showActions(details)
+	local function showActions(details: Panel.Details)
 		if details.Footer then
 			details.Footer.Visible = true
 		end
@@ -277,12 +301,12 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	end
 
 	--------------------------------------------------------------------------------
-	-- Lore modal (§08)
+	-- Lore modal
 	--------------------------------------------------------------------------------
 
 	local loreModal = Panel.CreateModal({
 		parent = inventoryGui,
-		root = panel.Root,
+		root = panel.rootScale,
 		name = "LoreModal",
 		subtitle = true,
 		body = true,
@@ -292,217 +316,55 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	-- State
 	--------------------------------------------------------------------------------
 
-	local selectedTab = nil
+	local selectedTab: TextButton? = nil
 
-	--- §05's ring rules do the highlighting now: the rarity colour is always on the cell, and
+	--- Rarity colour is always visible on the cell, and
 	--- selection is the difference between a 3px ring and a dimmed 2px one. The old yellow
 	--- stroke told the player nothing about the card.
 	---
 	--- Materials have no rarity, so their cells carry a RingColor instead and keep their own
 	--- identity colour when selected.
-	local function setRingHighlight(card, selected: boolean)
-		Panel.SetCellRing(card, card:GetAttribute("Rarity"), selected, card:GetAttribute("RingColor"))
-	end
-
-	--------------------------------------------------------------------------------
-	-- Mythlings
-	--------------------------------------------------------------------------------
-
-	local mythlingList = CardList.new({
+	local mythlingList = Mythlings.Create({
 		template = mythlingCardTemplate,
 		parent = mythlingsFrame,
-		setHighlight = setRingHighlight,
-		decorate = function(card, _id, entry)
-			local metadata = MythlingsData[entry.typeId]
-			local variant = metadata.variants[entry.variantId]
-			local preview = card:WaitForChild("2dPreview")
-			MythlingThumbnailUtil.Render(preview, variant.thumbnail)
-			-- Read back by setRingHighlight, which only receives the card.
-			card:SetAttribute("Rarity", metadata.rarity)
-			Panel.SetCellRing(card, metadata.rarity, false)
-
-			-- §05's green ✓ marks a mythling already working a stand.
-			local check = card:FindFirstChild("EquippedCheck")
-			if check then
-				check.Visible = entry.standId ~= nil
-			end
-		end,
-		onSelect = function(_id, entry)
-			showActions(mythlingInfo)
-			local metadata = MythlingsData[entry.typeId]
-			local material = MaterialsMeta[metadata.production.materialId]
-			local variant = metadata.variants[entry.variantId]
-
-			mythlingInfo.NameLabel.Text = metadata.displayName
-			MythlingThumbnailUtil.Render(mythlingInfo.Art, variant.thumbnail)
-			Panel.SetHeroRarity(mythlingInfo, metadata.rarity)
-
-			-- Current Mythling metadata does not yet expose elementId, so the produced Material's
-			-- configured colour is the available identity colour for this view.
-			mythlingInfo.ElementIcon.BackgroundColor3 = Color3.fromHex(material.guiColor)
-			mythlingInfo.ElementIcon.Image = material.thumbnail
-
-			mythlingInfo.Stats[1].Value.Text = string.format("%.2g/min", metadata.production.baseRate)
-			mythlingInfo.Stats[1].Label.Text = material.displayName
-			mythlingInfo.Stats[2].Value.Text = tostring(metadata.production.baseCapacity)
-			mythlingInfo.Stats[2].Label.Text = "Max Storage"
-			mythlingInfo.Stats[3].Value.Text = entry.standId and `#{entry.standId}` or "—"
-			mythlingInfo.Stats[3].Label.Text = "Stationed At"
-		end,
+		details = mythlingInfo,
+		onSelected = showActions,
 	})
 
-	local materialList = CardList.new({
+	local materialList = Materials.Create({
 		template = materialsCardTemplate,
 		parent = materialsFrame,
-		setHighlight = setRingHighlight,
-		filter = function(id)
-			return MaterialsMeta[id] ~= nil
-		end,
-		decorate = function(card, id, entry)
-			local metadata = MaterialsMeta[id]
-			card:WaitForChild("2dPreview").Image = metadata.thumbnail
-			card.QuantityLabel.Text = `x{entry.total}`
-			-- Materials have no rarity, so the ring carries their gui colour instead. Read back
-			-- by setRingHighlight, which only receives the card.
-			card:SetAttribute("RingColor", Color3.fromHex(metadata.guiColor))
-			Panel.SetCellRing(card, nil, false, Color3.fromHex(metadata.guiColor))
-		end,
-		onSelect = function(id, entry)
-			showActions(materialInfo)
-			local metadata = MaterialsMeta[id]
-			local tint = Color3.fromHex(metadata.guiColor)
-
-			materialInfo.NameLabel.Text = metadata.displayName
-			materialInfo.Art.Image = metadata.thumbnail
-			materialInfo.ElementIcon.BackgroundColor3 = tint
-			materialInfo.ElementIcon.Image = metadata.thumbnail
-			materialInfo.RarityLabel.Text = titleCase(metadata.category)
-			materialInfo.RarityLabel.TextColor3 = tint
-			Theme.ring(materialInfo.Hero, tint, 3)
-
-			materialInfo.Stats[1].Value.Text = tostring(entry.total)
-			materialInfo.Stats[1].Label.Text = "Owned"
-			materialInfo.Stats[2].Value.Text = titleCase(metadata.category)
-			materialInfo.Stats[2].Label.Text = "Category"
-		end,
+		details = materialInfo,
+		onSelected = showActions,
 	})
 
-	local function equipmentThumbnail(profile, entry): string
-		if profile.thumbnail and profile.thumbnail ~= "" then
-			return profile.thumbnail
-		end
-		return entry.textureId or ""
-	end
-
-	local function setEquipmentPreview(imageLabel: ImageLabel, profile, entry)
-		local thumbnail = equipmentThumbnail(profile, entry)
-		EquipmentPreviewUtil.Clear(imageLabel)
-		imageLabel.Image = thumbnail
-		if thumbnail == "" then
-			EquipmentPreviewUtil.Render(imageLabel, entry.previewModel)
-		end
-	end
-
-	local equipmentList = CardList.new({
+	local equipmentList = Equipment.Create({
 		template = equipmentCardTemplate,
 		parent = equipmentFrame,
-		setHighlight = setRingHighlight,
-		decorate = function(card, id, entry)
-			local profile = EquipmentMeta.Profiles[id]
-			setEquipmentPreview(card:WaitForChild("2dPreview"), profile, entry)
-			card.QuantityLabel.Text = entry.quantity > 1 and `x{entry.quantity}` or ""
-			card:SetAttribute("Rarity", profile.rarity or "Common")
-			Panel.SetCellRing(card, profile.rarity or "Common", false)
-			card.EquippedCheck.Visible = entry.equipped
-		end,
-		onSelect = function(id, entry)
-			showActions(equipmentInfo)
-			local profile = EquipmentMeta.Profiles[id]
-			local rarity = profile.rarity or "Common"
-			equipmentInfo.NameLabel.Text = profile.displayName or titleCase(id)
-			setEquipmentPreview(equipmentInfo.Art, profile, entry)
-			equipmentInfo.ElementIcon.BackgroundColor3 = Theme.rarityColor(rarity)
-			setEquipmentPreview(equipmentInfo.ElementIcon, profile, entry)
-			Panel.SetHeroRarity(equipmentInfo, rarity)
-			if equipmentInfo.PrimaryButton then
-				equipmentInfo.PrimaryButton.Text = if entry.equipped then "Unequip" else "Equip"
-				Panel.SetButtonEnabled(equipmentInfo.PrimaryButton, not entry.equipped, Theme.TabIcon.equipment)
-			end
-
-			if profile.kind == "Shield" then
-				equipmentInfo.Stats[1].Value.Text = string.format("%.2fs", profile.activationCooldownSeconds or 0)
-				equipmentInfo.Stats[1].Label.Text = "Raise Cooldown"
-				equipmentInfo.Stats[2].Value.Text = string.format("%.0f°", profile.blockArcDegrees or 0)
-				equipmentInfo.Stats[2].Label.Text = "Block Arc"
-				equipmentInfo.Stats[3].Value.Text = tostring(profile.slideKnockback or 0)
-				equipmentInfo.Stats[3].Label.Text = "Block Slide"
-			elseif profile.kind == "PrimaryWeapon" then
-				equipmentInfo.Stats[1].Value.Text = string.format("%.2fs", profile.cooldownSeconds or 0)
-				equipmentInfo.Stats[1].Label.Text = "Swing Cooldown"
-				equipmentInfo.Stats[2].Value.Text = string.format("%.2f", profile.reachStuds or 0)
-				equipmentInfo.Stats[2].Label.Text = "Reach (studs)"
-				equipmentInfo.Stats[3].Value.Text = tostring(profile.planarKnockback or 0)
-				equipmentInfo.Stats[3].Label.Text = "Knockback"
-			else
-				for _, stat in ipairs(equipmentInfo.Stats) do
-					stat.Value.Text = "—"
-					stat.Label.Text = ""
-				end
-			end
-		end,
+		details = equipmentInfo,
+		onSelected = showActions,
 	})
 
-	local function getConsumableMetadata(consumableId: string)
-		local direct = ConsumablesMeta[consumableId]
-		if direct then
-			return direct
-		end
-		for metadataId, metadata in pairs(ConsumablesMeta) do
-			if string.lower(metadataId) == string.lower(consumableId) then
-				return metadata
-			end
-		end
-		return nil
-	end
-
-	local consumableList = CardList.new({
+	local consumableList = Consumables.Create({
 		template = consumablesCardTemplate,
 		parent = consumablesFrame,
-		setHighlight = setRingHighlight,
-		filter = function(id, entry)
-			return getConsumableMetadata(entry.consumableId or id) ~= nil
-		end,
-		decorate = function(card, id, entry)
-			local metadata = getConsumableMetadata(entry.consumableId or id)
-			local rarity = metadata.rarity or "Common"
-			card:WaitForChild("2dPreview").Image = metadata.thumbnail or ""
-			card.QuantityLabel.Text = `x{entry.quantity or entry.total or 1}`
-			card:SetAttribute("Rarity", rarity)
-			Panel.SetCellRing(card, rarity, false)
-		end,
-		onSelect = function(id, entry)
-			showActions(consumableInfo)
-			local metadata = getConsumableMetadata(entry.consumableId or id)
-			local rarity = metadata.rarity or "Common"
-			local consumableType = metadata.category or "Consumable"
-			consumableInfo.NameLabel.Text = metadata.displayName or titleCase(entry.consumableId or id)
-			consumableInfo.Art.Image = metadata.thumbnail or ""
-			consumableInfo.ElementIcon.BackgroundColor3 = Theme.rarityColor(rarity)
-			consumableInfo.ElementIcon.Image = metadata.thumbnail or ""
-			Panel.SetHeroRarity(consumableInfo, rarity)
-			consumableInfo.Stats[1].Value.Text = tostring(entry.quantity or entry.total or 1)
-			consumableInfo.Stats[1].Label.Text = "Owned"
-			consumableInfo.Stats[2].Value.Text = consumableType
-			consumableInfo.Stats[2].Label.Text = "Type"
-			consumableInfo.Stats[3].Value.Text = metadata.value and `+{metadata.value}` or "—"
-			consumableInfo.Stats[3].Label.Text = metadata.effect or "Effect"
-		end,
+		details = consumableInfo,
+		onSelected = showActions,
 	})
 
-	local function newTabConfig(list, gridPage, detailsPage, category, icon, color, title, body)
+	local function newTabConfig<T>(
+		list: CardList.List<T>,
+		gridPage: GuiObject,
+		detailsPage: GuiObject,
+		category: string,
+		icon: string,
+		color: Color3,
+		title: string,
+		body: string
+	)
 		local emptyState = Panel.CreateEmptyState({
 			parent = panel.Content,
-			root = panel.Root,
+			root = panel.rootScale,
 		})
 		emptyState.Root.Name = `{category}EmptyState`
 		emptyState.Root:SetAttribute("InventoryCategory", category)
@@ -513,63 +375,79 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		emptyState.BodyLabel.Text = body
 
 		return {
-			list = list,
+			isEmpty = function()
+				return list:GetSelectedId() == nil
+			end,
 			gridPage = gridPage,
 			detailsPage = detailsPage,
 			emptyState = emptyState,
 		}
 	end
 
-	local emptyStateByTab = {
+	type TabConfig = {
+		isEmpty: () -> boolean,
+		gridPage: GuiObject,
+		detailsPage: GuiObject,
+		emptyState: Panel.EmptyStateView,
+	}
+	local emptyStateByTab: { [TextButton]: TabConfig } = {
 		[mythlingsTab] = newTabConfig(
 			mythlingList,
-			mythlingsFrame.Parent,
+			mythlingsFrame.Parent :: GuiObject,
 			mythlingInfoColumn,
 			"Mythlings",
 			"rbxassetid://15909461117",
-			Theme.TabIcon.mythlings,
+			Theme.tabIcon.mythlings,
 			"No Mythlings yet",
 			"Capture Mythlings in the Arena."
 		),
 		[equipmentTab] = newTabConfig(
 			equipmentList,
-			equipmentFrame.Parent,
+			equipmentFrame.Parent :: GuiObject,
 			equipmentInfoColumn,
 			"Equipment",
 			"rbxassetid://16181366859",
-			Theme.TabIcon.equipment,
+			Theme.tabIcon.equipment,
 			"No Equipment yet",
 			"Craft Equipment at a Crafting Station."
 		),
 		[consumablesTab] = newTabConfig(
 			consumableList,
-			consumablesFrame.Parent,
+			consumablesFrame.Parent :: GuiObject,
 			consumableInfoColumn,
 			"Consumables",
 			"rbxassetid://16181402439",
-			Theme.TabIcon.consumables,
+			Theme.tabIcon.consumables,
 			"No Consumables yet",
 			"Craft Consumables at a Crafting Station."
 		),
 		[materialsTab] = newTabConfig(
 			materialList,
-			materialsFrame.Parent,
+			materialsFrame.Parent :: GuiObject,
 			materialInfoColumn,
 			"Materials",
 			"rbxassetid://15562720000",
-			Theme.TabIcon.materials,
+			Theme.tabIcon.materials,
 			"No Materials yet",
 			"Assign Mythlings to Shrines and collect their output."
 		),
 	}
 
 	local transitionGeneration = 0
+	local cancelTabTransition: (() -> ())? = nil
+	local function cancelTab()
+		if cancelTabTransition then
+			cancelTabTransition()
+			cancelTabTransition = nil
+		end
+	end
+	table.insert(scope, cancelTab)
 
-	local function isEmpty(config): boolean
-		return config.list:GetSelectedId() == nil
+	local function isEmpty(config: TabConfig): boolean
+		return config.isEmpty()
 	end
 
-	local function tabObjects(config): { GuiObject }
+	local function tabObjects(config: TabConfig): { GuiObject }
 		if isEmpty(config) then
 			return { config.emptyState.Root }
 		end
@@ -577,6 +455,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	end
 
 	local function refreshEmptyState()
+		cancelTab()
 		transitionGeneration += 1
 		for _, config in pairs(emptyStateByTab) do
 			config.gridPage.Visible = false
@@ -603,7 +482,13 @@ local function Inventory(scope: any, props: Props): ScreenGui
 
 	--- The [ i ] button on each hero frame opens the lore modal, which is the only place
 	--- flavour text appears.
-	local function openLore(title: string, subtitle: string, body: string, tint: Color3, icon: string)
+	local function openLore(
+		title: string,
+		subtitle: string,
+		body: string,
+		tint: Color3,
+		icon: string
+	)
 		loreModal.TitleLabel.Text = title
 		loreModal.IconDisc.BackgroundColor3 = tint
 		loreModal.IconDisc.Image = icon
@@ -618,7 +503,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	end
 
 	if mythlingInfo.InfoButton then
-		ButtonUtil.hookClick(mythlingInfo.InfoButton, function()
+		ButtonUtil.HookClick(mythlingInfo.InfoButton, function()
 			local id = mythlingList:GetSelectedId()
 			local entry = id and mythlingList:GetData(id)
 			if not entry then
@@ -628,16 +513,16 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			local material = MaterialsMeta[metadata.production.materialId]
 			openLore(
 				metadata.displayName,
-				`{Theme.tier(metadata.rarity)} · {material.displayName}`,
+				`{Theme.Tier(metadata.rarity)} · {material.displayName}`,
 				metadata.description,
-				Theme.rarityColor(metadata.rarity),
+				Theme.RarityColor(metadata.rarity),
 				metadata.variants[entry.variantId].thumbnail
 			)
 		end)
 	end
 
 	if materialInfo.InfoButton then
-		ButtonUtil.hookClick(materialInfo.InfoButton, function()
+		ButtonUtil.HookClick(materialInfo.InfoButton, function()
 			local id = materialList:GetSelectedId()
 			local metadata = id and MaterialsMeta[id]
 			if not metadata then
@@ -654,38 +539,41 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	end
 
 	if equipmentInfo.InfoButton then
-		ButtonUtil.hookClick(equipmentInfo.InfoButton, function()
+		ButtonUtil.HookClick(equipmentInfo.InfoButton, function()
 			local id = equipmentList:GetSelectedId()
 			local entry = id and equipmentList:GetData(id)
-			local profile = id and EquipmentMeta.Profiles[id]
-			if not profile or not entry then
+			local profile = id and EquipmentMeta.profiles[id]
+			if not id or not profile or not entry then
 				return
 			end
 			local rarity = profile.rarity or "Common"
 			openLore(
 				profile.displayName or titleCase(id),
-				`{Theme.tier(rarity)} · {profile.kind}`,
+				`{Theme.Tier(rarity)} · {profile.kind}`,
 				profile.description or "Equipment used in Arena combat.",
-				Theme.rarityColor(rarity),
-				equipmentThumbnail(profile, entry)
+				Theme.RarityColor(rarity),
+				Equipment.Thumbnail(profile, entry)
 			)
 		end)
 	end
 
 	if consumableInfo.InfoButton then
-		ButtonUtil.hookClick(consumableInfo.InfoButton, function()
+		ButtonUtil.HookClick(consumableInfo.InfoButton, function()
 			local id = consumableList:GetSelectedId()
 			local entry = id and consumableList:GetData(id)
-			local metadata = entry and getConsumableMetadata(entry.consumableId or id)
+			if not id or not entry then
+				return
+			end
+			local metadata = entry and Consumables.GetMetadata(entry.consumableId or id)
 			if not metadata then
 				return
 			end
 			local rarity = metadata.rarity or "Common"
 			openLore(
 				metadata.displayName or titleCase(entry.consumableId or id),
-				`{Theme.tier(rarity)} · {metadata.category or "Consumable"}`,
+				`{Theme.Tier(rarity)} · {metadata.category or "Consumable"}`,
 				metadata.description or "A Consumable used in the Arena.",
-				Theme.rarityColor(rarity),
+				Theme.RarityColor(rarity),
 				metadata.thumbnail or ""
 			)
 		end)
@@ -695,7 +583,7 @@ local function Inventory(scope: any, props: Props): ScreenGui
 	-- Tabs
 	--------------------------------------------------------------------------------
 
-	local function selectTab(tab, skipAnimation: boolean?)
+	local function selectTab(tab: TextButton, skipAnimation: boolean?)
 		if selectedTab == tab then
 			refreshEmptyState()
 			return
@@ -706,30 +594,36 @@ local function Inventory(scope: any, props: Props): ScreenGui
 			return
 		end
 
+		cancelTab()
 		local previousTab = selectedTab
 		local previousConfig = previousTab and emptyStateByTab[previousTab]
 		if previousTab then
-			Panel.SetTabActive(previousTab, false, panel.Accent)
+			Panel.SetTabActive(previousTab, false, panel.accent)
 		end
 
 		actionMenu.Close()
-		Panel.SetTabActive(tab, true, panel.Accent)
+		Panel.SetTabActive(tab, true, panel.accent)
 		selectedTab = tab
 		transitionGeneration += 1
 		local generation = transitionGeneration
 
-		if previousConfig and not skipAnimation then
+		if previousTab and previousConfig and not skipAnimation then
 			local nextIsEmpty = isEmpty(nextConfig)
 			if not nextIsEmpty then
 				Panel.SetDetailsVisible(panel, true)
 			end
 
 			local direction = if previousTab.LayoutOrder < tab.LayoutOrder then 1 else -1
-			Motion.TransitionTab(tabObjects(previousConfig), tabObjects(nextConfig), direction, function()
-				if transitionGeneration == generation and selectedTab == tab then
-					Panel.SetDetailsVisible(panel, not nextIsEmpty)
+			cancelTabTransition = Motion.TransitionTab(
+				tabObjects(previousConfig),
+				tabObjects(nextConfig),
+				direction,
+				function()
+					if transitionGeneration == generation and selectedTab == tab then
+						Panel.SetDetailsVisible(panel, not nextIsEmpty)
+					end
 				end
-			end)
+			)
 		else
 			refreshEmptyState()
 		end
@@ -751,59 +645,45 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		end)
 	)
 
-	ButtonUtil.hookClick(mythlingsTab, function()
+	ButtonUtil.HookClick(mythlingsTab, function()
 		selectTab(mythlingsTab)
 	end)
 
-	ButtonUtil.hookClick(materialsTab, function()
+	ButtonUtil.HookClick(materialsTab, function()
 		selectTab(materialsTab)
 	end)
 
-	ButtonUtil.hookClick(equipmentTab, function()
+	ButtonUtil.HookClick(equipmentTab, function()
 		selectTab(equipmentTab)
 	end)
 
-	ButtonUtil.hookClick(consumablesTab, function()
+	ButtonUtil.HookClick(consumablesTab, function()
 		selectTab(consumablesTab)
 	end)
 
-	local function collectEquipment(): Types.InventoryEquipmentMap
-		return props.inventoryController.RequestEquipmentSnapshot()
-	end
-
-	local equipmentRefreshQueued = false
-	local function queueEquipmentRefresh()
-		if equipmentRefreshQueued then
-			return
-		end
-		equipmentRefreshQueued = true
-		task.defer(function()
-			equipmentRefreshQueued = false
-			if inventoryGui.Enabled then
-				equipmentList:Replace(collectEquipment())
-				refreshEmptyState()
-			end
-		end)
-	end
-
-	table.insert(connections, props.inventoryController.OnEquipmentChanged:Connect(queueEquipmentRefresh))
+	local equipmentSession = props.inventoryController.BindEquipmentView({
+		isVisible = function()
+			return inventoryGui.Enabled
+		end,
+		onSnapshot = function(equipment)
+			equipmentList:Replace(equipment)
+			refreshEmptyState()
+		end,
+	})
+	table.insert(scope, equipmentSession.Destroy)
 
 	if equipmentInfo.PrimaryButton then
-		ButtonUtil.hookClick(equipmentInfo.PrimaryButton, function()
+		ButtonUtil.HookClick(equipmentInfo.PrimaryButton, function()
 			local id = equipmentList:GetSelectedId()
-			local entry = id and equipmentList:GetData(id)
-			if not entry or entry.equipped or type(entry.instanceId) ~= "string" then
-				return
-			end
-			if props.inventoryController.Equip(entry.instanceId) then
-				equipmentList:Replace(collectEquipment())
+			local entry = if id then equipmentList:GetData(id) else nil
+			if entry and not entry.equipped and entry.instanceId then
+				equipmentSession.Equip(entry.instanceId)
 			end
 		end)
 	end
-
 	-- Cloned card templates inherit the shared scale attributes, and Panel preserves them
 	-- when a viewport change supplies a new device text root.
-	Panel.ApplyTextScale(inventoryGui, panel.Root, Theme.MenuTextScale)
+	Panel.ApplyTextScale(inventoryGui, panel.rootScale, Theme.menuTextScale)
 
 	local menuTransition = Motion.CreateMenuTransition({
 		screenGui = inventoryGui,
@@ -811,12 +691,14 @@ local function Inventory(scope: any, props: Props): ScreenGui
 		panelName = PANEL_NAME,
 		onOpen = function()
 			mythlingList:Replace(LocalData.Peek("mythlings") or {})
-			equipmentList:Replace(collectEquipment())
+			equipmentSession.Refresh()
 			consumableList:Replace(LocalData.Peek("consumables") or {})
 			materialList:Replace(LocalData.Peek("materials") or {})
 			selectTab(mythlingsTab, true)
 		end,
 		onCloseStart = function()
+			equipmentSession.Close()
+			cancelTab()
 			loreModal:Close()
 			actionMenu.Close()
 		end,

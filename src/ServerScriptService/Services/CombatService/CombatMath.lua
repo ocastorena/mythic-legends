@@ -1,11 +1,15 @@
 --!strict
--- ReplicatedStorage/Shared/CombatMath
+-- ServerScriptService/Services/CombatService/CombatMath
 -- Deterministic combat validation helpers shared by server runtime and tests.
 
 local CombatMath = {}
 
 function CombatMath.IsValidSequence(value: unknown, maximum: number): boolean
-	return type(value) == "number" and value == value and value % 1 == 0 and value >= 1 and value <= maximum
+	return type(value) == "number"
+		and value == value
+		and value % 1 == 0
+		and value >= 1
+		and value <= maximum
 end
 
 function CombatMath.IsWithinGuardArc(

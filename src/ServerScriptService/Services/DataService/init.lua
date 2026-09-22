@@ -1,51 +1,50 @@
+--!strict
 -- ServerScriptService/Services/DataService
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 local ServerStorage = game:GetService("ServerStorage")
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
-local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
-local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
-local PlayerDataTemplate = require(ServerStorage:WaitForChild("Databases"):WaitForChild("PlayerDataTemplate"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
+local RateLimiter = require(infrastructure:WaitForChild("RateLimiter"))
+local ProfileStore =
+	require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
+local PlayerDataTemplate =
+	require(ServerStorage:WaitForChild("Databases"):WaitForChild("PlayerDataTemplate"))
 local Migrations = require(script.Migrations)
+local Types = require(ReplicatedStorage.Shared.Types)
+local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
+local Trove = require(ReplicatedStorage.Packages.Trove)
+local lifecycle = ServiceLifecycle.new("DataService")
 
 local log = LogUtil.For("DataService")
 
 local STORE_NAME = "MythicLegends_PlayerData_v2"
 local PROFILE_KEY_PREFIX = "Player_"
-local CLIENT_STATE_KEYS = {
-	"currency",
-	"materials",
-	"consumables",
-	"equipment",
-	"combatLoadout",
-	"mythlings",
-	"base",
-}
 
-export type PlayerData = typeof(PlayerDataTemplate)
-export type StatePacket = {
-	revision: number,
-	values: { [string]: any },
-	removed: { string }?,
-	full: boolean?,
-}
+export type PlayerData = Types.PlayerDoc
+export type StatePacket = Types.StatePacket
 
-local liveStore = ProfileStore.New(STORE_NAME, PlayerDataTemplate)
-local playerStore = if RunService:IsStudio() then liveStore.Mock else liveStore
+type Profile = ProfileStore.Profile<PlayerData>
+local startSession: ((string, { Cancel: () -> boolean, Steal: boolean? }) -> Profile?)?
 
 local DataService = {}
 
-local profiles: { [Player]: any } = {}
+local profiles: { [Player]: Profile } = {}
+local profileTroves: { [Profile]: Trove.Trove } = {}
 local loading: { [Player]: boolean } = {}
-local releasing: { [Player]: any } = {}
+local releasing: { [Player]: Profile } = {}
 local revisions: { [Player]: number } = {}
 local projections: { [Player]: { [string]: any } } = {}
 local loadedBindable = Instance.new("BindableEvent")
 local releasedBindable = Instance.new("BindableEvent")
+lifecycle.trove:Add(loadedBindable)
+lifecycle.trove:Add(releasedBindable)
 
 DataService.OnLoaded = loadedBindable.Event
 DataService.OnReleased = releasedBindable.Event
@@ -53,7 +52,7 @@ DataService.OnReleased = releasedBindable.Event
 local updateState: RemoteEvent?
 local requestState: RemoteFunction?
 local stateRequestLimiter = RateLimiter.new(6, 1)
-local mythlingsData: any
+local MythlingsData: { [string]: Types.MythlingDef }
 
 local function deepClone(value: any): any
 	if type(value) ~= "table" then
@@ -87,14 +86,16 @@ local function deepEqual(left: any, right: any): boolean
 end
 
 local function buildProjection(data: PlayerData): { [string]: any }
-	local projection = {}
-	for _, key in ipairs(CLIENT_STATE_KEYS) do
-		local value = data[key]
-		if value ~= nil then
-			projection[key] = deepClone(value)
-		end
-	end
-	return projection
+	-- Explicit allowlist: no dynamic indexing into the complete player document.
+	return deepClone({
+		currency = data.currency,
+		materials = data.materials,
+		consumables = data.consumables,
+		equipment = data.equipment,
+		combatLoadout = data.combatLoadout,
+		mythlings = data.mythlings,
+		base = data.base,
+	})
 end
 
 local function makeSnapshot(player: Player): StatePacket?
@@ -150,15 +151,29 @@ local function publishChanges(player: Player, forceFull: boolean?)
 	end
 end
 
-function DataService.Init(context: any)
-	updateState = context.Remotes.State.Update
-	requestState = context.Remotes.State.Request
-	mythlingsData = context.Configurations.Mythlings
+function DataService.Init(serviceContext: ServerTypes.Context)
+	updateState = serviceContext.Remotes.State.Update
+	requestState = serviceContext.Remotes.State.Request
+	MythlingsData = serviceContext.Configurations.Mythlings
 end
 
 function DataService.Start()
+	if not lifecycle:Start() then
+		return
+	end
+	-- The vendor's recursive JSONAcceptable intersection cannot infer this valid nested template.
+	-- Isolate that constructor adaptation; all loaded documents retain their canonical type.
+	local liveStore: ProfileStore.ProfileStore<PlayerData> =
+		ProfileStore.New(STORE_NAME, PlayerDataTemplate :: any)
+	local playerStore = if RunService:IsStudio() then liveStore.Mock else liveStore
+	startSession = function(
+		key: string,
+		parameters: { Cancel: () -> boolean, Steal: boolean? }
+	): Profile?
+		return playerStore:StartSessionAsync(key, parameters)
+	end
 	if requestState then
-		requestState.OnServerInvoke = function(player: Player)
+		requestState.OnServerInvoke = function(player: Player): StatePacket?
 			if not stateRequestLimiter:Allow(player) then
 				return nil
 			end
@@ -171,6 +186,9 @@ function DataService.Start()
 end
 
 function DataService.Load(player: Player): boolean
+	if not lifecycle:IsRunning() then
+		return false
+	end
 	local existing = profiles[player]
 	if existing and existing:IsActive() then
 		return true
@@ -179,9 +197,12 @@ function DataService.Load(player: Player): boolean
 	if loading[player] then
 		repeat
 			task.wait()
-		until not loading[player] or player.Parent ~= Players
+		until not loading[player] or player.Parent ~= Players or not lifecycle:IsRunning()
 		local loaded = profiles[player]
-		return loaded ~= nil and loaded:IsActive()
+		return lifecycle:IsRunning()
+			and player.Parent == Players
+			and loaded ~= nil
+			and loaded:IsActive()
 	end
 
 	if player.Parent ~= Players then
@@ -189,10 +210,12 @@ function DataService.Load(player: Player): boolean
 	end
 
 	loading[player] = true
+	local loadSession = startSession
+	assert(loadSession, "[DataService] Profile store is not started")
 	local ok, result = pcall(function()
-		return playerStore:StartSessionAsync(PROFILE_KEY_PREFIX .. player.UserId, {
+		return loadSession(PROFILE_KEY_PREFIX .. player.UserId, {
 			Cancel = function()
-				return player.Parent ~= Players
+				return player.Parent ~= Players or not lifecycle:IsRunning()
 			end,
 		})
 	end)
@@ -200,7 +223,7 @@ function DataService.Load(player: Player): boolean
 
 	if not ok then
 		log.error(`Profile load threw for userId {player.UserId}`, result)
-		if player.Parent == Players then
+		if lifecycle:IsRunning() and player.Parent == Players then
 			player:Kick("Your data could not be loaded safely. Please rejoin.")
 		end
 		return false
@@ -208,43 +231,57 @@ function DataService.Load(player: Player): boolean
 
 	local profile = result
 	if not profile then
-		if player.Parent == Players then
+		if lifecycle:IsRunning() and player.Parent == Players then
 			player:Kick("Your data could not be loaded safely. Please rejoin.")
 		end
 		return false
 	end
+	if not lifecycle:IsRunning() or player.Parent ~= Players or not profile:IsActive() then
+		profile:EndSession()
+		return false
+	end
 
 	profile:AddUserId(player.UserId)
-	local migrationOk, migrated, migrationError = pcall(Migrations.Apply, profile.Data, mythlingsData, os.time())
+	local migrationOk, migrated, migrationError =
+		pcall(Migrations.Apply, profile.Data, MythlingsData, os.time())
 	if not migrationOk or not migrated then
 		log.error(`Profile migration failed for userId {player.UserId}`, migrationError or migrated)
 		profile:EndSession()
-		if player.Parent == Players then
+		if lifecycle:IsRunning() and player.Parent == Players then
 			player:Kick("Your data could not be updated safely. Please rejoin.")
 		end
 		return false
 	end
 	profile:Reconcile()
-	profile.OnSessionEnd:Connect(function()
+	local profileTrove = lifecycle.trove:Extend()
+	profileTroves[profile] = profileTrove
+	local endedConnection = profile.OnSessionEnd:Connect(function()
 		local endedIntentionally = releasing[player] == profile
 		releasing[player] = nil
 		profiles[player] = nil
 		projections[player] = nil
 		revisions[player] = nil
-		releasedBindable:Fire(player)
-		if not endedIntentionally and player.Parent == Players then
+		if lifecycle:IsRunning() then
+			releasedBindable:Fire(player)
+		end
+		if lifecycle:IsRunning() and not endedIntentionally and player.Parent == Players then
 			player:Kick("Your data session ended on another server. Please rejoin.")
 		end
+		profileTroves[profile] = nil
+		lifecycle.trove:Remove(profileTrove)
+	end)
+	profileTrove:Add(function()
+		endedConnection:Disconnect()
 	end)
 
-	if player.Parent ~= Players or not profile:IsActive() then
+	if not lifecycle:IsRunning() or player.Parent ~= Players or not profile:IsActive() then
 		profile:EndSession()
 		return false
 	end
 
 	profiles[player] = profile
 	revisions[player] = 0
-	local playerData = profile.Data :: PlayerData
+	local playerData: PlayerData = profile.Data
 	playerData.profile.userId = player.UserId
 	if playerData.profile.createdAt == 0 then
 		playerData.profile.createdAt = os.time()
@@ -273,29 +310,16 @@ function DataService.Release(player: Player)
 	revisions[player] = nil
 end
 
--- Non-yielding access for already-loaded production operations. Unlike GetOrCreateSection,
--- this never starts a load or publishes defaults in the middle of a mutation.
-function DataService.GetLoadedSection(player: Player, sectionName: string): { [any]: any }?
+function DataService.GetLoadedData(player: Player): PlayerData?
 	local profile = profiles[player]
-	if not profile or not profile:IsActive() then
-		return nil
-	end
-	local section = profile.Data[sectionName]
-	return if type(section) == "table" then section else nil
+	return if lifecycle:IsRunning() and profile and profile:IsActive() then profile.Data else nil
 end
 
-function DataService.GetOrCreateSection(player: Player, sectionName: string): { [any]: any }
-	assert(sectionName ~= "", "[DataService.GetOrCreateSection] sectionName must not be empty")
-	assert(DataService.Load(player), "[DataService.GetOrCreateSection] player profile is unavailable")
-	local profile = profiles[player]
-	assert(profile and profile:IsActive(), "[DataService.GetOrCreateSection] profile session is inactive")
-	local section = profile.Data[sectionName]
-	if type(section) ~= "table" then
-		section = {}
-		profile.Data[sectionName] = section
-		publishChanges(player)
-	end
-	return section
+function DataService.GetData(player: Player): PlayerData
+	assert(DataService.Load(player), "[DataService] Player profile is unavailable")
+	local data = DataService.GetLoadedData(player)
+	assert(data, "[DataService] Player profile is inactive")
+	return data
 end
 
 function DataService.MarkDirty(player: Player): boolean
@@ -323,16 +347,28 @@ function DataService.SaveNow(player: Player): boolean
 end
 
 function DataService.Stop()
+	if not lifecycle:Stop() then
+		return
+	end
+	table.clear(loading)
 	if requestState then
-		requestState.OnServerInvoke = nil
+		RemoteUtil.ClearServerHandler(requestState)
 	end
 	stateRequestLimiter:Clear()
 	if ProfileStore.IsClosing then
+		table.clear(profiles)
+		table.clear(releasing)
+		table.clear(projections)
+		table.clear(revisions)
+		table.clear(profileTroves)
 		return
 	end
 	for player in pairs(profiles) do
 		DataService.Release(player)
 	end
+	table.clear(releasing)
+	table.clear(profileTroves)
+	startSession = nil
 end
 
 return DataService

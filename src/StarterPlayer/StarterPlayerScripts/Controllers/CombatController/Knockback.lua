@@ -1,7 +1,11 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/CombatController/Knockback
--- eased force curve. The avatar remains one rigid assembly; this is not a limb ragdoll.
+-- Presents a server-authorized launch with a short eased force curve and owned recovery.
 
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Trove = require(ReplicatedStorage.Packages.Trove)
+local rememberedHits = Trove.new()
 
 local Knockback = {}
 
@@ -11,11 +15,12 @@ type ReactionState = {
 	humanoid: Humanoid,
 	root: BasePart,
 	supportPart: BasePart?,
-	autoRotate: boolean,
-	platformStand: boolean,
-	cleaned: boolean,
+	wasAutoRotate: boolean,
+	wasPlatformStand: boolean,
+	isCleaned: boolean,
 	attachment: Attachment?,
 	force: VectorForce?,
+	tasks: Trove.Trove,
 }
 
 local seenHitIds: { [number]: boolean } = {}
@@ -41,7 +46,10 @@ local function getVerticalHalfExtent(part: BasePart): number
 end
 
 local function isFiniteVector(vector: Vector3): boolean
-	return vector.X == vector.X and vector.Y == vector.Y and vector.Z == vector.Z and vector.Magnitude < math.huge
+	return vector.X == vector.X
+		and vector.Y == vector.Y
+		and vector.Z == vector.Z
+		and vector.Magnitude < math.huge
 end
 
 local function hasGroundSupport(state: ReactionState): boolean
@@ -65,11 +73,13 @@ local function cleanupActuator(state: ReactionState)
 	state.attachment = nil
 end
 
-local function recover(state: ReactionState, settle: boolean)
-	if state.cleaned then
+local function recover(state: ReactionState, shouldSettle: boolean)
+	if state.isCleaned then
 		return
 	end
-	state.cleaned = true
+	state.isCleaned = true
+	state.tasks:Pop(coroutine.running())
+	state.tasks:Destroy()
 	cleanupActuator(state)
 	if activeStates[state.character] == state then
 		activeStates[state.character] = nil
@@ -78,16 +88,18 @@ local function recover(state: ReactionState, settle: boolean)
 		return
 	end
 	state.root.AssemblyAngularVelocity = Vector3.zero
-	if settle then
+	if shouldSettle then
 		local velocity = state.root.AssemblyLinearVelocity
 		state.root.AssemblyLinearVelocity = Vector3.new(velocity.X * 0.35, 0, velocity.Z * 0.35)
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
 		params.FilterDescendantsInstances = { state.character }
 		params.IgnoreWater = true
-		local floor = workspace:Raycast(state.root.Position + Vector3.yAxis * 2, -Vector3.yAxis * 10, params)
+		local floor =
+			workspace:Raycast(state.root.Position + Vector3.yAxis * 2, -Vector3.yAxis * 10, params)
 		if floor then
-			local look = Vector3.new(state.root.CFrame.LookVector.X, 0, state.root.CFrame.LookVector.Z)
+			local look =
+				Vector3.new(state.root.CFrame.LookVector.X, 0, state.root.CFrame.LookVector.Z)
 			look = if look.Magnitude > 0.001 then look.Unit else Vector3.new(0, 0, -1)
 			local position = Vector3.new(
 				state.root.Position.X,
@@ -98,9 +110,14 @@ local function recover(state: ReactionState, settle: boolean)
 			state.root.AssemblyLinearVelocity = Vector3.zero
 		end
 	end
-	state.humanoid.AutoRotate = state.autoRotate
-	state.humanoid.PlatformStand = state.platformStand
-	if not state.platformStand then
+	if not state.humanoid.AutoRotate then
+		state.humanoid.AutoRotate = state.wasAutoRotate
+	end
+	local ownsPlatformStand = state.humanoid.PlatformStand
+	if ownsPlatformStand then
+		state.humanoid.PlatformStand = state.wasPlatformStand
+	end
+	if ownsPlatformStand and not state.wasPlatformStand then
 		state.humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 	end
 end
@@ -132,9 +149,10 @@ function Knockback.Apply(
 		return false
 	end
 	seenHitIds[hitId] = true
-	task.delay(HIT_ID_MEMORY_SECONDS, function()
+	rememberedHits:Add(task.delay(HIT_ID_MEMORY_SECONDS, function()
 		seenHitIds[hitId] = nil
-	end)
+		rememberedHits:Pop(coroutine.running())
+	end))
 
 	local previous = activeStates[character]
 	if previous then
@@ -147,11 +165,12 @@ function Knockback.Apply(
 		humanoid = humanoid,
 		root = root,
 		supportPart = character:FindFirstChild("LowerTorso") :: BasePart?,
-		autoRotate = humanoid.AutoRotate,
-		platformStand = humanoid.PlatformStand,
-		cleaned = false,
+		wasAutoRotate = humanoid.AutoRotate,
+		wasPlatformStand = humanoid.PlatformStand,
+		isCleaned = false,
 		attachment = nil,
 		force = nil,
+		tasks = Trove.new(),
 	}
 	activeStates[character] = state
 
@@ -180,8 +199,8 @@ function Knockback.Apply(
 		else angularVelocity
 	local forceDuration = math.clamp(durationSeconds, 0.08, 0.25)
 
-	task.spawn(function()
-		if activeStates[character] ~= state or state.cleaned then
+	state.tasks:Add(task.defer(function()
+		if activeStates[character] ~= state or state.isCleaned then
 			return
 		end
 		root.AssemblyAngularVelocity = desiredAngular
@@ -190,7 +209,12 @@ function Knockback.Apply(
 			velocityDelta = velocityDelta.Unit * MAX_VELOCITY_CORRECTION
 		end
 		local elapsed = 0
-		while elapsed < forceDuration and activeStates[character] == state and root.Parent and vectorForce.Parent do
+		while
+			elapsed < forceDuration
+			and activeStates[character] == state
+			and root.Parent
+			and vectorForce.Parent
+		do
 			local simulationStep = RunService.PreSimulation:Wait()
 			local activeStep = math.min(simulationStep, forceDuration - elapsed)
 			local alpha = (elapsed + activeStep * 0.5) / forceDuration
@@ -201,24 +225,26 @@ function Knockback.Apply(
 			elapsed += activeStep
 		end
 		cleanupActuator(state)
-	end)
+		state.tasks:Pop(coroutine.running())
+	end))
 
-	task.spawn(function()
+	state.tasks:Add(task.defer(function()
 		local startedAt = os.clock()
-		local observedTakeoff = false
-		while activeStates[character] == state and not state.cleaned do
+		local hasObservedTakeoff = false
+		while activeStates[character] == state and not state.isCleaned do
 			local velocity = root.AssemblyLinearVelocity
 			if velocity.Y >= TAKEOFF_SPEED or not hasGroundSupport(state) then
-				observedTakeoff = true
+				hasObservedTakeoff = true
 			end
 			if
-				observedTakeoff
+				hasObservedTakeoff
 				and velocity.Y <= 0
 				and math.abs(velocity.Y) <= MAX_LANDING_VERTICAL_SPEED
 				and hasGroundSupport(state)
 			then
-				if onLanded then
-					task.defer(onLanded)
+				local callback = onLanded
+				if callback then
+					callback()
 				end
 				task.wait(math.max(0, landingRecoverySeconds))
 				recover(state, true)
@@ -230,7 +256,7 @@ function Knockback.Apply(
 			end
 			task.wait(0.03)
 		end
-	end)
+	end))
 	return true
 end
 
@@ -239,6 +265,14 @@ function Knockback.Clear(character: Model)
 	if state then
 		recover(state, false)
 	end
+end
+
+function Knockback.ClearAll()
+	for character in activeStates do
+		Knockback.Clear(character)
+	end
+	rememberedHits:Clean()
+	table.clear(seenHitIds)
 end
 
 return Knockback

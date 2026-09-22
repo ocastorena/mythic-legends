@@ -1,7 +1,12 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/CombatController/ShieldSlide
--- airborne knockback/tumble state. Only horizontal velocity is constrained.
+-- Presents a server-authorized Shield slide by constraining horizontal velocity only.
 
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Trove = require(ReplicatedStorage.Packages.Trove)
+local Equipment = require(ReplicatedStorage.Shared.Configurations.Equipment)
+local rememberedHits = Trove.new()
 
 local ShieldSlide = {}
 
@@ -11,7 +16,8 @@ type SlideState = {
 	root: BasePart,
 	attachment: Attachment?,
 	linearVelocity: LinearVelocity?,
-	cleaned: boolean,
+	isCleaned: boolean,
+	tasks: Trove.Trove,
 }
 
 local seenHitIds: { [number]: boolean } = {}
@@ -21,17 +27,22 @@ local HIT_ID_MEMORY_SECONDS = 5
 local MAX_PLANAR_SPEED = 100
 local MIN_SLIDE_SECONDS = 0.08
 local MAX_SLIDE_SECONDS = 0.75
-local FULL_SPEED_FRACTION = 0.55
+local FULL_SPEED_FRACTION = Equipment.presentationDefaults.shieldSlideFullSpeedFraction
 
 local function isFiniteVector(vector: Vector3): boolean
-	return vector.X == vector.X and vector.Y == vector.Y and vector.Z == vector.Z and vector.Magnitude < math.huge
+	return vector.X == vector.X
+		and vector.Y == vector.Y
+		and vector.Z == vector.Z
+		and vector.Magnitude < math.huge
 end
 
 local function cleanup(state: SlideState)
-	if state.cleaned then
+	if state.isCleaned then
 		return
 	end
-	state.cleaned = true
+	state.isCleaned = true
+	state.tasks:Pop(coroutine.running())
+	state.tasks:Destroy()
 	if state.linearVelocity and state.linearVelocity.Parent then
 		state.linearVelocity:Destroy()
 	end
@@ -45,7 +56,12 @@ local function cleanup(state: SlideState)
 	end
 end
 
-function ShieldSlide.Apply(character: Model, hitId: number, launchVelocity: Vector3, durationSeconds: number): boolean
+function ShieldSlide.Apply(
+	character: Model,
+	hitId: number,
+	launchVelocity: Vector3,
+	durationSeconds: number
+): boolean
 	if seenHitIds[hitId] then
 		return true
 	end
@@ -54,7 +70,11 @@ function ShieldSlide.Apply(character: Model, hitId: number, launchVelocity: Vect
 	if not humanoid or humanoid.Health <= 0 or not root or not root:IsA("BasePart") then
 		return false
 	end
-	if hitId % 1 ~= 0 or durationSeconds ~= durationSeconds or not isFiniteVector(launchVelocity) then
+	if
+		hitId % 1 ~= 0
+		or durationSeconds ~= durationSeconds
+		or not isFiniteVector(launchVelocity)
+	then
 		return false
 	end
 
@@ -68,9 +88,10 @@ function ShieldSlide.Apply(character: Model, hitId: number, launchVelocity: Vect
 	local duration = math.clamp(durationSeconds, MIN_SLIDE_SECONDS, MAX_SLIDE_SECONDS)
 
 	seenHitIds[hitId] = true
-	task.delay(HIT_ID_MEMORY_SECONDS, function()
+	rememberedHits:Add(task.delay(HIT_ID_MEMORY_SECONDS, function()
 		seenHitIds[hitId] = nil
-	end)
+		rememberedHits:Pop(coroutine.running())
+	end))
 
 	local previous = activeStates[character]
 	if previous then
@@ -83,7 +104,8 @@ function ShieldSlide.Apply(character: Model, hitId: number, launchVelocity: Vect
 		root = root,
 		attachment = nil,
 		linearVelocity = nil,
-		cleaned = false,
+		isCleaned = false,
+		tasks = Trove.new(),
 	}
 	activeStates[character] = state
 
@@ -106,12 +128,12 @@ function ShieldSlide.Apply(character: Model, hitId: number, launchVelocity: Vect
 	state.attachment = attachment
 	state.linearVelocity = linearVelocity
 
-	task.spawn(function()
+	state.tasks:Add(task.defer(function()
 		local elapsed = 0
 		while
 			elapsed < duration
 			and activeStates[character] == state
-			and not state.cleaned
+			and not state.isCleaned
 			and humanoid.Health > 0
 			and root.Parent
 			and linearVelocity.Parent
@@ -125,10 +147,11 @@ function ShieldSlide.Apply(character: Model, hitId: number, launchVelocity: Vect
 				-- Smoothly brake the planar slide without touching vertical velocity.
 				speedScale = 1 - (releaseAlpha * releaseAlpha * (3 - 2 * releaseAlpha))
 			end
-			linearVelocity.PlaneVelocity = Vector2.new(planarVelocity.X * speedScale, planarVelocity.Z * speedScale)
+			linearVelocity.PlaneVelocity =
+				Vector2.new(planarVelocity.X * speedScale, planarVelocity.Z * speedScale)
 		end
 		cleanup(state)
-	end)
+	end))
 
 	return true
 end
@@ -138,6 +161,14 @@ function ShieldSlide.Clear(character: Model)
 	if state then
 		cleanup(state)
 	end
+end
+
+function ShieldSlide.ClearAll()
+	for character in activeStates do
+		ShieldSlide.Clear(character)
+	end
+	rememberedHits:Clean()
+	table.clear(seenHitIds)
 end
 
 return ShieldSlide

@@ -9,8 +9,12 @@ local expect = JestGlobals.expect
 local it = JestGlobals.it
 
 local definitions = {
-	dragon = { production = { materialId = "crystal", baseRate = 0.7, baseCapacity = 300 } },
-	satyr = { production = { materialId = "shadow_dust", baseRate = 0.85, baseCapacity = 340 } },
+	dragon = {
+		production = { materialId = "crystal", materialsPerMinute = 0.7, baseCapacity = 300 },
+	},
+	satyr = {
+		production = { materialId = "shadow_dust", materialsPerMinute = 0.85, baseCapacity = 340 },
+	},
 }
 
 local function copy(value: any): any
@@ -63,28 +67,31 @@ describe("Migrations.Apply", function()
 		expect(data.mythlings.worker.lastCollectionAt).toBeNil()
 
 		local afterFirstMigration = copy(data)
-		expect(Migrations.Apply(data, definitions, 520)).toBe(true)
+		expect((Migrations.Apply(data, definitions, 520))).toBe(true)
 		expect(data).toEqual(afterFirstMigration)
 	end)
 
-	it("preserves unrelated earned progression, legacy fields, inventory, and stand data", function()
-		local data = profile()
-		local original = copy(data)
-		expect(Migrations.Apply(data, definitions, 220)).toBe(true)
-		expect(data.currency).toEqual(original.currency)
-		expect(data.materials).toEqual(original.materials)
-		expect(data.equipment).toEqual(original.equipment)
-		expect(data.consumables).toEqual(original.consumables)
-		expect(data.base.unlockedSlots).toBe(4)
-		expect(data.base.stands["0"].customName).toBe("Saved stand")
-		original.mythlings.worker.lastCollectionAt = nil
-		expect(data.mythlings).toEqual(original.mythlings)
-	end)
+	it(
+		"preserves unrelated earned progression, legacy fields, inventory, and stand data",
+		function()
+			local data = profile()
+			local original = copy(data)
+			expect((Migrations.Apply(data, definitions, 220))).toBe(true)
+			expect(data.currency).toEqual(original.currency)
+			expect(data.materials).toEqual(original.materials)
+			expect(data.equipment).toEqual(original.equipment)
+			expect(data.consumables).toEqual(original.consumables)
+			expect(data.base.unlockedSlots).toBe(4)
+			expect(data.base.stands["0"].customName).toBe("Saved stand")
+			original.mythlings.worker.lastCollectionAt = nil
+			expect(data.mythlings).toEqual(original.mythlings)
+		end
+	)
 
 	it("keeps each stand's original Material and caps only newly computed legacy output", function()
 		local data = profile()
 		data.mythlings.second = { typeId = "satyr", standId = 1, lastCollectionAt = 100 }
-		expect(Migrations.Apply(data, definitions, 1_000_000)).toBe(true)
+		expect((Migrations.Apply(data, definitions, 1_000_000))).toBe(true)
 		local crystal = data.base.stands["0"].production.materials.crystal
 		local dust = data.base.stands["1"].production.materials.shadow_dust
 		expect(crystal.stored).toBe(300)
@@ -94,34 +101,40 @@ describe("Migrations.Apply", function()
 		expect(data.materials.crystal.total).toBe(17)
 	end)
 
-	it("starts an assigned worker without a timestamp at migration time without backfill", function()
-		local data = profile()
-		data.mythlings.worker.lastCollectionAt = nil
-		expect(Migrations.Apply(data, definitions, 220)).toBe(true)
-		local ledger = data.base.stands["0"].production
-		expect(ledger.lastAccruedAt).toBe(220)
-		local bucket = ledger.materials.crystal
-		expect(if bucket then bucket.stored else 0).toBe(0)
-		expect(if bucket then bucket.progress else 0).toBe(0)
-	end)
+	it(
+		"starts an assigned worker without a timestamp at migration time without backfill",
+		function()
+			local data = profile()
+			data.mythlings.worker.lastCollectionAt = nil
+			expect((Migrations.Apply(data, definitions, 220))).toBe(true)
+			local ledger = data.base.stands["0"].production
+			expect(ledger.lastAccruedAt).toBe(220)
+			local bucket = ledger.materials.crystal
+			expect(if bucket then bucket.stored else 0).toBe(0)
+			expect(if bucket then bucket.progress else 0).toBe(0)
+		end
+	)
 
-	it("preserves a future legacy cursor without granting negative or repeated elapsed time", function()
-		local data = profile()
-		data.mythlings.worker.lastCollectionAt = 500
-		expect(Migrations.Apply(data, definitions, 220)).toBe(true)
-		local ledger = data.base.stands["0"].production
-		expect(ledger.lastAccruedAt).toBe(500)
-		local bucket = ledger.materials.crystal
-		expect(if bucket then bucket.stored else 0).toBe(0)
-		expect(if bucket then bucket.progress else 0).toBe(0)
-	end)
+	it(
+		"preserves a future legacy cursor without granting negative or repeated elapsed time",
+		function()
+			local data = profile()
+			data.mythlings.worker.lastCollectionAt = 500
+			expect((Migrations.Apply(data, definitions, 220))).toBe(true)
+			local ledger = data.base.stands["0"].production
+			expect(ledger.lastAccruedAt).toBe(500)
+			local bucket = ledger.materials.crystal
+			expect(if bucket then bucket.stored else 0).toBe(0)
+			expect(if bucket then bucket.progress else 0).toBe(0)
+		end
+	)
 
 	it("migrates unversioned empty profiles and leaves current profiles untouched", function()
 		local data: any = { currency = { gold = 41 } }
-		expect(Migrations.Apply(data, definitions, 220)).toBe(true)
+		expect((Migrations.Apply(data, definitions, 220))).toBe(true)
 		expect(data).toEqual({ version = 3, currency = { gold = 41 }, base = { stands = {} } })
 		local before = copy(data)
-		expect(Migrations.Apply(data, nil, 500)).toBe(true)
+		expect((Migrations.Apply(data, nil, 500))).toBe(true)
 		expect(data).toEqual(before)
 	end)
 

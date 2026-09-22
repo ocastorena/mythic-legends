@@ -1,13 +1,19 @@
+--!strict
 -- ServerScriptService/Services/BaseService/StandPlacement
 local StandPlacement = {}
 
 local ServerScriptService = game:GetService("ServerScriptService")
+local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
 local log = LogUtil.For("BaseService.StandPlacement")
 
-local function getMythlingModel(variantId: unknown, mythlingAssets: Folder, mythlingMeta: any): (Model?, string?)
+local function getMythlingModel(
+	variantId: unknown,
+	mythlingAssets: Folder,
+	mythlingMeta: Types.MythlingDef?
+): (Model?, string?)
 	if type(variantId) ~= "string" or variantId == "" then
 		return nil, "Mythling variantId is invalid"
 	end
@@ -23,7 +29,7 @@ local function getMythlingModel(variantId: unknown, mythlingAssets: Folder, myth
 
 	local mythlingAsset = mythlingAssets:FindFirstChild(modelName)
 	if not (mythlingAsset and mythlingAsset:IsA("Model")) then
-		return nil, `Missing Model '{modelName}' in MythlingAssets for variantId {variantId}`
+		return nil, `Missing Model '{modelName}' in mythlingAssets for variantId {variantId}`
 	end
 
 	local cloneSucceeded, mythlingModel = pcall(function()
@@ -50,14 +56,16 @@ local function getMythlingModel(variantId: unknown, mythlingAssets: Folder, myth
 	end)
 	if not surfaceSucceeded or not surface then
 		mythlingModel:Destroy()
-		return nil, `Could not clone SurfaceAppearance '{variantId}' in Mythling model '{modelName}'`
+		return nil,
+			`Could not clone SurfaceAppearance '{variantId}' in Mythling model '{modelName}'`
 	end
 	surface.Parent = mesh
 	return mythlingModel, nil
 end
 
 local function setMythlingModel(mythlingModel: Model, stand: BasePart): (boolean, string?)
-	local primaryPart = mythlingModel.PrimaryPart or mythlingModel:FindFirstChildWhichIsA("BasePart", true)
+	local primaryPart = mythlingModel.PrimaryPart
+		or mythlingModel:FindFirstChildWhichIsA("BasePart", true)
 	if not primaryPart then
 		return false, `No BasePart found in Mythling model '{mythlingModel.Name}'`
 	end
@@ -76,7 +84,7 @@ local function setMythlingModel(mythlingModel: Model, stand: BasePart): (boolean
 	return true, nil
 end
 
-local function getStands(baseModel: any): (Folder?, string?)
+local function getStands(baseModel: unknown): (Folder?, string?)
 	if typeof(baseModel) ~= "Instance" or not baseModel:IsA("Model") then
 		return nil, "Base model is invalid"
 	end
@@ -87,7 +95,7 @@ local function getStands(baseModel: any): (Folder?, string?)
 	return stands, nil
 end
 
-local function findStand(baseModel: any, standId: number): (BasePart?, string?)
+local function findStand(baseModel: unknown, standId: number): (BasePart?, string?)
 	local stands, standsError = getStands(baseModel)
 	if not stands then
 		return nil, standsError
@@ -100,15 +108,15 @@ local function findStand(baseModel: any, standId: number): (BasePart?, string?)
 	return nil, `Stand {standId} was not found`
 end
 
-function StandPlacement.HasStand(baseModel: any, standId: number): boolean
+function StandPlacement.HasStand(baseModel: unknown, standId: number): boolean
 	return findStand(baseModel, standId) ~= nil
 end
 
 function StandPlacement.LoadMythlingsOnStands(
-	mythlingSection: any,
-	baseModel: any,
+	mythlingSection: { [string]: Types.MythlingEntry },
+	baseModel: unknown,
 	mythlingAssets: Folder,
-	MythlingsMeta: any
+	MythlingsMeta: { [string]: Types.MythlingDef }
 )
 	local stands, standsError = getStands(baseModel)
 	if not stands then
@@ -134,7 +142,8 @@ function StandPlacement.LoadMythlingsOnStands(
 			end
 
 			local mythlingMeta = MythlingsMeta[entry.typeId]
-			local model, modelError = getMythlingModel(entry.variantId, mythlingAssets, mythlingMeta)
+			local model, modelError =
+				getMythlingModel(entry.variantId, mythlingAssets, mythlingMeta)
 			if not model then
 				log.warn(`Could not load Mythling {mythlingId} on stand {standId}: {modelError}`)
 				continue
@@ -148,18 +157,20 @@ function StandPlacement.LoadMythlingsOnStands(
 			local placed, placementError = setMythlingModel(model, stand)
 			if not placed then
 				model:Destroy()
-				log.warn(`Could not load Mythling {mythlingId} on stand {standId}: {placementError}`)
+				log.warn(
+					`Could not load Mythling {mythlingId} on stand {standId}: {placementError}`
+				)
 			end
 		end
 	end
 end
 
 function StandPlacement.SetMythlingOnStand(
-	mythlingEntry: any,
-	baseModel: any,
+	mythlingEntry: Types.MythlingEntry,
+	baseModel: unknown,
 	standId: number,
 	mythlingAssets: Folder,
-	mythlingMeta: any
+	mythlingMeta: Types.MythlingDef?
 ): (boolean, string?)
 	if type(mythlingEntry) ~= "table" then
 		return false, "Mythling entry is invalid"
@@ -176,7 +187,8 @@ function StandPlacement.SetMythlingOnStand(
 		return false, `Stand {standId} is occupied`
 	end
 
-	local mythlingModel, modelError = getMythlingModel(mythlingEntry.variantId, mythlingAssets, mythlingMeta)
+	local mythlingModel, modelError =
+		getMythlingModel(mythlingEntry.variantId, mythlingAssets, mythlingMeta)
 	if not mythlingModel then
 		return false, modelError
 	end
@@ -191,7 +203,10 @@ function StandPlacement.SetMythlingOnStand(
 	return true, nil
 end
 
-function StandPlacement.RemoveMythlingFromStand(mythlingEntry: any, baseModel: any): (boolean, string?)
+function StandPlacement.RemoveMythlingFromStand(
+	mythlingEntry: Types.MythlingEntry,
+	baseModel: unknown
+): (boolean, string?)
 	if type(mythlingEntry) ~= "table" or type(mythlingEntry.standId) ~= "number" then
 		return false, "Mythling is not assigned to a valid stand"
 	end

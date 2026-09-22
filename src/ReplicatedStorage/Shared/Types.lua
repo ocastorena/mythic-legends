@@ -1,11 +1,45 @@
 --!strict
 -- ReplicatedStorage/Shared/Types
--- Shared shapes so services can stop typing `any`. Import with:
---   local Types = require(ReplicatedStorage.Shared.Types)
---   local function f(ctx: Types.Context) ... end
+-- Canonical configuration, saved-state, and network contracts shared across boundaries.
 
 export type MaterialEntry = {
 	total: number,
+}
+
+export type MaterialDef = {
+	displayName: string,
+	category: string,
+	guiColor: string,
+	thumbnail: string,
+	description: string,
+}
+
+-- Inactive prototype definitions remain optional until their future update is designed.
+export type ConsumableDef = {
+	displayName: string?,
+	thumbnail: string?,
+	description: string?,
+	rarity: string?,
+	category: string?,
+	value: number?,
+	effect: string?,
+}
+
+export type ConsumableEntry = {
+	consumableId: string?,
+	quantity: number?,
+	total: number?,
+}
+
+export type MythlingSpawnConfiguration = {
+	targetActive: number,
+	spawnIntervalMin: number, -- seconds
+	spawnIntervalMax: number, -- seconds
+	zonePadding: number, -- studs
+	maxPlacementTries: number,
+	rarityWeights: { [string]: number },
+	expireSeconds: { [string]: number },
+	defaultExpireSeconds: number,
 }
 
 -- One owned mythling, as persisted under the player document's `mythlings` section.
@@ -20,7 +54,7 @@ export type MythlingEntry = {
 
 export type MythlingProduction = {
 	materialId: string,
-	baseRate: number,
+	materialsPerMinute: number,
 	baseCapacity: number,
 }
 
@@ -77,22 +111,37 @@ export type EquipmentProfile = {
 }
 
 export type EquipmentConfiguration = {
-	Combat: {
+	presentationDefaults: {
+		cooldownSeconds: number,
+		hitStartFallbackSeconds: number,
+		contactWindowSeconds: number,
+		slideDurationSeconds: number,
+		launchControlSeconds: number,
+		maximumReactionSeconds: number,
+		landingRecoverySeconds: number,
+		shieldSlideFullSpeedFraction: number,
+	},
+	combat: {
 		staminaMaximum: number,
 		staminaRegenPerSecond: number,
 		knockbackImmunitySeconds: number,
 		arenaHeightAllowanceStuds: number,
 	},
-	Profiles: { [string]: EquipmentProfile },
+	profiles: { [string]: EquipmentProfile },
 }
 
 -- The player document held by DataService through ProfileStore.
 export type PlayerDoc = {
 	version: number,
-	profile: { [string]: any },
+	profile: {
+		userId: number,
+		createdAt: number,
+		lastLoginAt: number,
+	},
 	mythlings: { [string]: MythlingEntry },
 	materials: { [string]: MaterialEntry },
-	consumables: { [string]: any },
+	-- Legacy values are preserved opaquely; this cleanup does not activate Consumables.
+	consumables: { [string]: unknown },
 	currency: { [string]: number },
 	equipment: { [string]: { definitionId: string } },
 	combatLoadout: {
@@ -106,32 +155,11 @@ export type PlayerDoc = {
 
 export type StatePacket = {
 	revision: number,
+	-- This heterogeneous projection is decoded by LocalData's named-section boundary.
+	-- Domain APIs expose their concrete records instead of carrying this dynamic shape onward.
 	values: { [string]: any },
 	removed: { string }?,
 	full: boolean?,
-}
-
-export type LocalDataApi = {
-	OnStateChanged: RBXScriptSignal,
-	Peek: (string) -> any?,
-	GetRevision: () -> number,
-}
-
-export type InventoryEquipmentEntry = {
-	quantity: number,
-	equipped: boolean,
-	textureId: string,
-	instanceId: string?,
-	previewModel: Instance?,
-}
-
-export type InventoryEquipmentMap = { [string]: InventoryEquipmentEntry }
-
-export type InventoryControllerApi = {
-	OnEquipmentChanged: RBXScriptSignal,
-	RequestEquipmentSnapshot: () -> InventoryEquipmentMap,
-	Equip: (string) -> boolean,
-	DeleteMythling: (string) -> boolean,
 }
 
 export type ProductionStatus = {
@@ -155,58 +183,6 @@ export type ProductionCollection = {
 	materials: { [string]: number },
 }
 
-export type StandControllerApi = {
-	OnStandRequested: RBXScriptSignal,
-	GetProductionStatus: (number) -> ProductionStatus?,
-	Collect: (number) -> ProductionCollection?,
-	Place: (number, string) -> boolean,
-	Remove: (number, string) -> boolean,
-}
-
-export type HotbarSlotView = {
-	button: ImageButton,
-	icon: ImageLabel,
-	label: TextLabel,
-	keyLabel: TextLabel,
-	ring: UIStroke,
-}
-
-export type HotbarView = {
-	screenGui: ScreenGui,
-	tray: Frame,
-	slots: { HotbarSlotView },
-}
-
-export type HotbarControllerApi = {
-	BindView: (HotbarView) -> () -> (),
-}
-
-export type StaminaView = {
-	container: Frame,
-	fill: Frame,
-}
-
-export type CombatActionView = {
-	root: Frame,
-	attackButton: ImageButton,
-	attackIcon: Frame,
-	shieldButton: ImageButton,
-	shieldIcon: Frame,
-	relayout: () -> (),
-}
-
-export type CombatControllerApi = {
-	BindView: (CombatActionView) -> () -> (),
-	BindStaminaView: (StaminaView) -> () -> (),
-}
-
-export type ClientContext = {
-	PlayerScripts: PlayerScripts,
-	LocalData: LocalDataApi,
-}
-
-export type ActionResult<T> = { ok: true, value: T? } | { ok: false, code: string }
-
 export type Network = {
 	State: { Update: RemoteEvent, Request: RemoteFunction },
 	Inventory: { DeleteMythling: RemoteFunction },
@@ -222,27 +198,6 @@ export type Network = {
 		Equip: RemoteFunction,
 	},
 	World: { Spawned: RemoteEvent, ClaimState: RemoteEvent },
-}
-
--- Injected into every service's Init by MainServer.
-export type Context = {
-	Instances: { [string]: Instance },
-	Configurations: {
-		Mythlings: { [string]: MythlingDef },
-		Materials: { [string]: any },
-		Consumables: { [string]: any },
-		MythlingSpawns: { [string]: any },
-		Equipment: EquipmentConfiguration,
-	},
-	Remotes: Network,
-	Services: { [string]: any },
-}
-
--- Every bootstrapped service follows this lifecycle; MainServer owns ordering.
-export type Service = {
-	Init: (Context) -> (),
-	Start: () -> (),
-	Stop: () -> (),
 }
 
 return {}

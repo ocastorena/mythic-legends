@@ -1,3 +1,4 @@
+--!strict
 -- ServerScriptService/Infrastructure/LogUtil
 -- Tagged failure-only logging for project-owned server code.
 

@@ -1,7 +1,9 @@
 --!strict
 -- ServerStorage/Databases/PlayerDataTemplate
 
-local PlayerDataTemplate = {
+local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+
+local PlayerDataTemplate: Types.PlayerDoc = {
 	version = 3,
 	profile = {
 		userId = 0,

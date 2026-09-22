@@ -1,7 +1,9 @@
+--!strict
 -- ServerScriptService/Services/BaseService/BaseRuntime
 local BaseRuntime = {}
+export type Slots = { [number]: { userId: number, base: Model } }
 
-local function getFreeSlot(slots: any, maxSlots: number): number?
+local function getFreeSlot(slots: Slots, maxSlots: number): number?
 	for i = 1, maxSlots do
 		if not slots[i] then
 			return i
@@ -92,13 +94,13 @@ end
 
 function BaseRuntime.SpawnBaseFor(
 	player: Player,
-	slots: any,
+	slots: Slots,
 	maxSlots: number,
-	baseModel: Model,
+	baseModel: Model?,
 	arena: BasePart,
 	baseIslands: Folder,
 	basesFolder: Folder
-)
+): (boolean, string?)
 	-- check if player already has a base
 	local userId = player.UserId
 	for _, slot in pairs(slots) do
@@ -124,9 +126,17 @@ function BaseRuntime.SpawnBaseFor(
 	end
 
 	model.Name = tostring(userId)
-	model:WaitForChild("NameSign"):WaitForChild("SurfaceGui"):WaitForChild("Name").Text = player.DisplayName
+	local sign = model:FindFirstChild("NameSign")
+	local surface = sign and sign:FindFirstChild("SurfaceGui")
+	local label = surface and surface:FindFirstChild("Name")
+	local stands = model:FindFirstChild("Stands")
+	if not label or not label:IsA("TextLabel") or not stands then
+		model:Destroy()
+		return false, "Base template is missing its name label or Stands"
+	end
+	label.Text = player.DisplayName
 
-	for _, prompt in model.Stands:GetDescendants() do
+	for _, prompt in stands:GetDescendants() do
 		if prompt:IsA("ProximityPrompt") then
 			prompt:SetAttribute("OwnerId", userId)
 		end
@@ -136,10 +146,14 @@ function BaseRuntime.SpawnBaseFor(
 	model:PivotTo(position)
 	-- update slots
 	slots[slotIndex] = { userId = userId, base = model }
-	return true
+	return true, nil
 end
 
-function BaseRuntime.TeleportToBaseSpawn(_player: Player, char: Model, base: Model)
+function BaseRuntime.TeleportToBaseSpawn(
+	_player: Player,
+	char: Model,
+	base: Model
+): (boolean, string?)
 	if not base then
 		return false, "Base not found"
 	end
@@ -150,23 +164,23 @@ function BaseRuntime.TeleportToBaseSpawn(_player: Player, char: Model, base: Mod
 	end
 
 	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if not hrp then
+	if not hrp or not hrp:IsA("BasePart") then
 		return false, "HRP not found"
 	end
 
 	local pos = spawnPart.Position + Vector3.new(0, 3, 0)
 	local look = spawnPart.CFrame.LookVector
 	hrp.CFrame = CFrame.lookAt(pos, pos + look)
-	return true
+	return true, nil
 end
 
-function BaseRuntime.RemoveBaseFor(player: Player, slots: any)
+function BaseRuntime.RemoveBaseFor(player: Player, slots: Slots): (boolean, string?)
 	local userId = player.UserId
 	for i, slot in pairs(slots) do
 		if slot.userId == userId then
 			slot.base:Destroy()
 			slots[i] = nil
-			return true
+			return true, nil
 		end
 	end
 	return false, "Base not found"

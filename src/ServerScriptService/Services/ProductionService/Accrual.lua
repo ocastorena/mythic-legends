@@ -1,31 +1,59 @@
+--!strict
 -- ServerScriptService/Services/ProductionService/Accrual
 -- All mutations use an already-loaded profile and never yield. Settle and transfer both
 -- sides before publishing so collection cannot expose an intermediate grant.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
-local Ledger = require(script.Parent.ProductionLedger)
+local Ledger = require(game:GetService("ServerScriptService").Domain.Production.ProductionLedger)
 
 local Accrual = {}
 export type ProductionStatus = Types.ProductionStatus
 export type ProductionCollection = Types.ProductionCollection
 
-function Accrual.new(dataService, mythlingsData, ownsStand, clock: (() -> number)?)
-	local now = clock or os.time
+export type ProductionData = Types.PlayerDoc
+export type DataSource = {
+	GetLoadedData: (Player) -> ProductionData?,
+	MarkDirty: (Player) -> boolean,
+}
+export type Definitions = { [string]: Types.MythlingDef }
+type Resolved = {
+	base: { stands: { [string]: { production: Types.StandProduction? } } },
+	stand: { production: Types.StandProduction? }?,
+	standId: number,
+	materials: { [string]: Types.MaterialEntry },
+	settled: Types.StandProduction,
+	definition: Types.MythlingProduction?,
+	timestamp: number,
+}
+export type Accrual = {
+	Get: (Player, number) -> ProductionStatus?,
+	Settle: (Player, number) -> (boolean, string?),
+	Collect: (Player, number) -> (boolean, string?, ProductionCollection?),
+}
+
+function Accrual.new(
+	DataService: DataSource,
+	mythlingsData: Definitions,
+	ownsStand: (Player, number) -> boolean,
+	clock: (() -> number)?
+): Accrual
+	local now: () -> number = clock or function()
+		return os.time()
+	end
 	local api = {}
 
-	local function resolve(player: Player, standId: number)
-		local base = dataService.GetLoadedSection(player, "base")
-		local mythlings = dataService.GetLoadedSection(player, "mythlings")
-		local materials = dataService.GetLoadedSection(player, "materials")
-		if not base or not mythlings or not materials then
+	local function resolve(player: Player, standId: number): (Resolved?, string?)
+		local data = DataService.GetLoadedData(player)
+		if not data then
 			return nil, "DataUnavailable"
 		end
+		local base, mythlings, materials = data.base, data.mythlings, data.materials
 		local stand = base.stands[tostring(standId)]
 		if not (stand and stand.production) and not ownsStand(player, standId) then
 			return nil, "StandUnavailable"
 		end
-		local definition = nil
+		local definition: Types.MythlingProduction? = nil
 		for _, entry in pairs(mythlings) do
 			if entry.standId == standId then
 				if definition then
@@ -44,7 +72,7 @@ function Accrual.new(dataService, mythlingsData, ownsStand, clock: (() -> number
 			state,
 			timestamp,
 			if definition then definition.materialId else nil,
-			if definition then definition.baseRate else 0,
+			if definition then definition.materialsPerMinute else 0,
 			if definition then definition.baseCapacity else 0
 		)
 		return {
@@ -55,11 +83,12 @@ function Accrual.new(dataService, mythlingsData, ownsStand, clock: (() -> number
 			settled = settled,
 			definition = definition,
 			timestamp = timestamp,
-		}, nil
+		},
+			nil
 	end
 
-	local function commit(resolved, state)
-		local stand = resolved.stand or {}
+	local function commit(resolved: Resolved, state: Types.StandProduction)
+		local stand: { production: Types.StandProduction? } = resolved.stand or {}
 		stand.production = state
 		resolved.base.stands[tostring(resolved.standId)] = stand
 	end
@@ -78,7 +107,7 @@ function Accrual.new(dataService, mythlingsData, ownsStand, clock: (() -> number
 		return {
 			production = production,
 			capacity = if definition then definition.baseCapacity else 0,
-			rate = if definition then definition.baseRate else 0,
+			rate = if definition then definition.materialsPerMinute else 0,
 			progress = if work then work.progress else 0,
 			materials = resolved.settled.materials,
 			active = definition ~= nil,
@@ -92,8 +121,8 @@ function Accrual.new(dataService, mythlingsData, ownsStand, clock: (() -> number
 			return false, code
 		end
 		commit(resolved, resolved.settled)
-		dataService.MarkDirty(player)
-		return true
+		DataService.MarkDirty(player)
+		return true, nil
 	end
 
 	function api.Collect(player: Player, standId: number): (boolean, string?, ProductionCollection?)
@@ -121,7 +150,7 @@ function Accrual.new(dataService, mythlingsData, ownsStand, clock: (() -> number
 			end
 		end
 		commit(resolved, remaining)
-		dataService.MarkDirty(player)
+		DataService.MarkDirty(player)
 		return true, nil, { collected = total, remaining = 0, materials = amounts }
 	end
 

@@ -1,6 +1,9 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/State/MenuState
 -- Owns the single active top-level menu. Screens register their transition API; callers
 -- express intent by semantic name instead of mutating ScreenGui.Enabled directly.
+
+local SubscriptionList = require(script.Parent.SubscriptionList)
 
 local MenuState = {}
 
@@ -12,23 +15,19 @@ export type Menu = {
 
 local menus: { [string]: Menu } = {}
 local activeName: string? = nil
-local listeners: { [(string?) -> ()]: boolean } = {}
+local listeners: SubscriptionList.Channel<string?> = (SubscriptionList.new :: (
+	string
+) -> SubscriptionList.Channel<string?>)("MenuState.SubscriptionList")
 
 local function notifyListeners()
-	for listener in listeners do
-		listener(activeName)
-	end
+	listeners.Publish(activeName)
 end
 
 function MenuState.Subscribe(listener: (string?) -> ()): () -> ()
-	listeners[listener] = true
-	listener(activeName)
-
-	return function()
-		listeners[listener] = nil
-	end
+	local unsubscribe = listeners.Subscribe(listener)
+	listeners.Notify(listener, activeName)
+	return unsubscribe
 end
-
 function MenuState.Register(name: string, menu: Menu): () -> ()
 	assert(type(name) == "string" and name ~= "", "[MenuState] name required")
 	assert(menus[name] == nil, `[MenuState] {name} is already registered`)

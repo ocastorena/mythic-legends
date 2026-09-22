@@ -1,34 +1,37 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/CombatController/Stamina
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Types = require(script.Parent.Parent.Parent.Types)
 local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Trove"))
-type TroveInstance = typeof(Trove.new())
+type TroveInstance = Trove.Trove
 
 local Stamina = {}
 
-local initialized = false
-local running = false
+local isInitialized = false
+local isRunning = false
 local view: Types.StaminaView?
 local lifecycleTrove: TroveInstance?
 local characterTrove: TroveInstance?
 
 local function update()
-	if not running or not view then
+	local currentView = view
+	if not isRunning or not currentView then
 		return
 	end
 	local player = Players.LocalPlayer
 	local character = player.Character
-	view.container.Visible = character ~= nil and character:GetAttribute("CombatReady") == true
+	currentView.container.Visible = character ~= nil
+		and character:GetAttribute("CombatReady") == true
 	local stamina = player:GetAttribute("CombatStamina")
 	local maximum = player:GetAttribute("MaxCombatStamina")
 	if type(stamina) ~= "number" or type(maximum) ~= "number" or maximum <= 0 then
-		view.fill.Size = UDim2.fromScale(1, 1)
+		currentView.fill.Size = UDim2.fromScale(1, 1)
 		return
 	end
-	view.fill.Size = UDim2.fromScale(math.clamp(stamina / maximum, 0, 1), 1)
+	currentView.fill.Size = UDim2.fromScale(math.clamp(stamina / maximum, 0, 1), 1)
 end
 
 local function bindCharacter(character: Model)
@@ -38,16 +41,19 @@ local function bindCharacter(character: Model)
 	end
 	currentCharacterTrove:Clean()
 	currentCharacterTrove:Connect(character:GetAttributeChangedSignal("CombatReady"), update)
-	task.defer(update)
+	currentCharacterTrove:Add(task.defer(update))
 end
 
 function Stamina.Init(_context: Types.ClientContext)
-	initialized = true
+	isInitialized = true
 end
 
 function Stamina.BindView(newView: Types.StaminaView): () -> ()
-	assert(initialized, "[CombatController.Stamina] Init must run before BindView")
-	assert(view == nil or view == newView, "[CombatController.Stamina] A Stamina view is already bound")
+	assert(isInitialized, "[CombatController.Stamina] Init must run before BindView")
+	assert(
+		view == nil or view == newView,
+		"[CombatController.Stamina] A Stamina view is already bound"
+	)
 	view = newView
 	return function()
 		if view == newView then
@@ -57,12 +63,12 @@ function Stamina.BindView(newView: Types.StaminaView): () -> ()
 end
 
 function Stamina.Start()
-	assert(initialized, "[CombatController.Stamina] Init must run before Start")
+	assert(isInitialized, "[CombatController.Stamina] Init must run before Start")
 	assert(view, "[CombatController.Stamina] Stamina view must be bound before Start")
-	if running then
+	if isRunning then
 		return
 	end
-	running = true
+	isRunning = true
 	local player = Players.LocalPlayer
 	local trove = Trove.new()
 	lifecycleTrove = trove
@@ -77,10 +83,10 @@ function Stamina.Start()
 end
 
 function Stamina.Stop()
-	if not running then
+	if not isRunning then
 		return
 	end
-	running = false
+	isRunning = false
 	if lifecycleTrove then
 		lifecycleTrove:Destroy()
 		lifecycleTrove = nil

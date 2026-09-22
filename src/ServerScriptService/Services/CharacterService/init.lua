@@ -1,84 +1,83 @@
+--!strict
 -- ServerScriptService/Services/CharacterService
+-- One terminal server lifetime; character overrides belong to their character Trove.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local Trove = require(ReplicatedStorage.Packages.Trove)
+local PlayerUtil = require(ServerScriptService.Infrastructure.PlayerUtil)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
 
-local PlayerUtil = require(ServerScriptService:WaitForChild("Infrastructure"):WaitForChild("PlayerUtil"))
-
+local ServerTypes = require(ServerScriptService.Domain.Types)
 local CharacterService = {}
+local lifecycle = ServiceLifecycle.new("CharacterService")
+local playerTroves: { [Player]: Trove.Trove } = {}
+local isInitialized = false
 
-local connections: { RBXScriptConnection } = {}
-local characterConnections: { [Player]: RBXScriptConnection } = {}
-local initialized = false
-local running = false
-
-local function disableClimbing(humanoid: Humanoid)
-	humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
-end
-
-local function onCharacterAdded(character: Model)
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		disableClimbing(humanoid)
-		return
-	end
-
-	local connection: RBXScriptConnection?
-	connection = character.ChildAdded:Connect(function(child)
-		if child:IsA("Humanoid") then
-			disableClimbing(child)
-			if connection then
-				connection:Disconnect()
-			end
+local function configureCharacter(character: Model, owner: Trove.Trove)
+	local configured: { [Humanoid]: boolean } = {}
+	local function configure(child: Instance)
+		if not child:IsA("Humanoid") or configured[child] then
+			return
 		end
-	end)
-end
-
-local function onPlayerAdded(player: Player)
-	local existing = characterConnections[player]
-	if existing then
-		existing:Disconnect()
+		configured[child] = true
+		local wasEnabled = child:GetStateEnabled(Enum.HumanoidStateType.Climbing)
+		child:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+		owner:Add(function()
+			if
+				child.Parent == character
+				and not child:GetStateEnabled(Enum.HumanoidStateType.Climbing)
+			then
+				child:SetStateEnabled(Enum.HumanoidStateType.Climbing, wasEnabled)
+			end
+		end)
 	end
-	characterConnections[player] = player.CharacterAdded:Connect(onCharacterAdded)
-	if player.Character then
-		task.defer(onCharacterAdded, player.Character)
-	end
-end
-
-local function onPlayerRemoving(player: Player)
-	local connection = characterConnections[player]
-	if connection then
-		connection:Disconnect()
-		characterConnections[player] = nil
+	owner:Connect(character.ChildAdded, configure)
+	for _, child in character:GetChildren() do
+		configure(child)
 	end
 end
 
-function CharacterService.Init(_context: unknown)
-	initialized = true
+local function removePlayer(player: Player)
+	local owner = playerTroves[player]
+	if owner then
+		playerTroves[player] = nil
+		lifecycle.trove:Remove(owner)
+	end
+end
+
+function CharacterService.Init(_context: ServerTypes.Context): ()
+	isInitialized = true
 end
 
 function CharacterService.Start()
-	assert(initialized, "[CharacterService] Init must run before Start")
-	if running then
+	assert(isInitialized, "[CharacterService] Init must run before Start")
+	if not lifecycle:Start() then
 		return
 	end
-	running = true
-	table.insert(connections, PlayerUtil.OnPlayer(onPlayerAdded))
-	table.insert(connections, Players.PlayerRemoving:Connect(onPlayerRemoving))
+	PlayerUtil.OnPlayer(function(player)
+		local owner = lifecycle.trove:Extend()
+		playerTroves[player] = owner
+		local characterOwner = owner:Extend()
+		local function onCharacter(character: Model)
+			characterOwner:Clean()
+			configureCharacter(character, characterOwner)
+		end
+		owner:Connect(player.CharacterAdded, onCharacter)
+		owner:Connect(player.CharacterRemoving, function()
+			characterOwner:Clean()
+		end)
+		if player.Character then
+			onCharacter(player.Character)
+		end
+	end, lifecycle.trove)
+	lifecycle.trove:Connect(Players.PlayerRemoving, removePlayer)
 end
 
 function CharacterService.Stop()
-	if not running then
-		return
-	end
-	running = false
-	for _, connection in connections do
-		connection:Disconnect()
-	end
-	table.clear(connections)
-	for player, connection in characterConnections do
-		connection:Disconnect()
-		characterConnections[player] = nil
+	if lifecycle:Stop() then
+		table.clear(playerTroves)
 	end
 end
 

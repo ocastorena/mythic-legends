@@ -1,25 +1,55 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/CombatController/VFX
 
 local VFX = {}
 local stopImpl: (() -> ())?
+local isRunning = false
+local generation = 0
 
 function VFX.Init(_context: unknown) end
 
 function VFX.Start()
-	-- All effects are cosmetic; CombatImpact carries only server-confirmed outcomes.
+	if isRunning then
+		return
+	end
+	isRunning = true
+	generation += 1
+	local currentGeneration = generation
+	-- All effects are cosmetic; combatImpact carries only server-confirmed outcomes.
 
 	local ContentProvider = game:GetService("ContentProvider")
 	local Players = game:GetService("Players")
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local SoundService = game:GetService("SoundService")
 
-	local Equipment =
-		require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Configurations"):WaitForChild("Equipment"))
+	local Equipment = require(
+		ReplicatedStorage:WaitForChild("Shared")
+			:WaitForChild("Configurations")
+			:WaitForChild("Equipment")
+	)
 	local PresentationBus = require(script.Parent.PresentationBus)
-	local CombatImpact =
-		ReplicatedStorage:WaitForChild("Network"):WaitForChild("Combat"):WaitForChild("Impact") :: RemoteEvent
+	local combatImpact = ReplicatedStorage:WaitForChild("Network")
+		:WaitForChild("Combat")
+		:WaitForChild("Impact") :: RemoteEvent
 	local localPlayer = Players.LocalPlayer
-	local lifecycleConnections: { RBXScriptConnection } = {}
+	local Trove = require(ReplicatedStorage.Packages.Trove)
+	local lifetime = Trove.new()
+	if not isRunning or generation ~= currentGeneration then
+		return
+	end
+	local function schedule(seconds: number, callback: () -> ()): thread
+		local scheduled = task.delay(seconds, function()
+			if isRunning and generation == currentGeneration then
+				callback()
+			end
+			lifetime:Pop(coroutine.running())
+		end)
+		lifetime:Add(scheduled)
+		return scheduled
+	end
+	local function defer(callback: () -> ())
+		schedule(0, callback)
+	end
 
 	type AirTrailState = {
 		token: number,
@@ -29,7 +59,7 @@ function VFX.Start()
 		emitter: ParticleEmitter,
 		lastPosition: Vector3,
 		particleRemainder: number,
-		observedTakeoff: boolean,
+		hasObservedTakeoff: boolean,
 	}
 
 	type LocalPresentation = {
@@ -39,7 +69,7 @@ function VFX.Start()
 
 	type PooledSound = {
 		sound: Sound,
-		inUse: boolean,
+		isInUse: boolean,
 		token: number,
 	}
 
@@ -60,10 +90,9 @@ function VFX.Start()
 	local nextTrailToken = 0
 
 	local function destroyAfter(instance: Instance, seconds: number)
-		task.delay(seconds, function()
-			if instance.Parent then
-				instance:Destroy()
-			end
+		lifetime:Add(instance)
+		schedule(seconds, function()
+			lifetime:Remove(instance)
 		end)
 	end
 
@@ -85,7 +114,7 @@ function VFX.Start()
 
 	local function preloadImpactSounds()
 		local sounds = {}
-		for _, profile in Equipment.Profiles do
+		for _, profile in Equipment.profiles do
 			local soundId = profile.impactSoundId
 			if type(soundId) == "string" and soundId ~= "" and not soundPools[soundId] then
 				local pool = {}
@@ -95,17 +124,19 @@ function VFX.Start()
 					sound.Name = "CombatImpactSoundPool"
 					sound.SoundId = soundId
 					sound.Parent = SoundService
-					table.insert(pool, { sound = sound, inUse = false, token = 0 })
+					table.insert(pool, { sound = sound, isInUse = false, token = 0 })
 					table.insert(sounds, sound)
 				end
 			end
 		end
 		if #sounds > 0 then
-			pcall(ContentProvider.PreloadAsync, ContentProvider, sounds)
+			pcall(function()
+				ContentProvider:PreloadAsync(sounds)
+			end)
 		end
 	end
 
-	task.spawn(preloadImpactSounds)
+	defer(preloadImpactSounds)
 
 	local function playHitBurst(character: Model)
 		local effectPart = getEffectPart(character)
@@ -198,12 +229,14 @@ function VFX.Start()
 		attachment.Name = "ShieldImpactBurst"
 		attachment.Parent = effectPart
 		if effectPart == bubble then
-			local attackerRoot = attackerCharacter and attackerCharacter:FindFirstChild("HumanoidRootPart")
+			local attackerRoot = attackerCharacter
+				and attackerCharacter:FindFirstChild("HumanoidRootPart")
 			local outward = if attackerRoot and attackerRoot:IsA("BasePart")
 				then attackerRoot.Position - effectPart.Position
 				else -effectPart.CFrame.LookVector
 			if outward.Magnitude > 0.001 then
-				attachment.Position = effectPart.CFrame:VectorToObjectSpace(outward.Unit) * (effectPart.Size.X * 0.48)
+				attachment.Position = effectPart.CFrame:VectorToObjectSpace(outward.Unit)
+					* (effectPart.Size.X * 0.48)
 			end
 		end
 		local sparks = Instance.new("ParticleEmitter")
@@ -224,7 +257,8 @@ function VFX.Start()
 			NumberSequenceKeypoint.new(0, 0),
 			NumberSequenceKeypoint.new(1, 1),
 		})
-		sparks.Color = ColorSequence.new(Color3.fromRGB(255, 218, 105), Color3.fromRGB(118, 225, 255))
+		sparks.Color =
+			ColorSequence.new(Color3.fromRGB(255, 218, 105), Color3.fromRGB(118, 225, 255))
 		sparks.LightEmission = 1
 		sparks.LightInfluence = 0
 		sparks.LockedToPart = false
@@ -244,23 +278,25 @@ function VFX.Start()
 		destroyAfter(flash, 0.16)
 	end
 
-	local function playImpactSound(character: Model, soundId: any)
+	local function playImpactSound(character: Model, soundId: unknown)
 		local effectPart = getEffectPart(character)
 		if not effectPart or type(soundId) ~= "string" or soundId == "" then
 			return
 		end
 		local entry: PooledSound? = nil
-		for _, candidate in soundPools[soundId] or {} do
-			if not candidate.inUse then
+		for _, candidate in ipairs(soundPools[soundId] or {}) do
+			if not candidate.isInUse then
 				entry = candidate
 				break
 			end
 		end
 		local sound = if entry then entry.sound else Instance.new("Sound")
+		local soundLifetime = lifetime:Extend()
 		if entry then
-			entry.inUse = true
+			entry.isInUse = true
 			entry.token += 1
 		else
+			soundLifetime:Add(sound)
 			sound.SoundId = soundId
 		end
 		local token = entry and entry.token or 0
@@ -271,23 +307,23 @@ function VFX.Start()
 		sound.Parent = effectPart
 		sound.TimePosition = 0.06
 		sound:Play()
-		local cleaned = false
+		local isCleaned = false
 		local function cleanup()
-			if cleaned then
+			if isCleaned then
 				return
 			end
-			cleaned = true
-			if entry and entry.token == token then
-				entry.inUse = false
+			isCleaned = true
+			if isRunning and entry and entry.token == token then
+				entry.isInUse = false
 				sound:Stop()
 				sound.TimePosition = 0
 				sound.Parent = SoundService
-			elseif not entry and sound.Parent then
-				sound:Destroy()
 			end
+			soundLifetime:Pop(coroutine.running())
+			lifetime:Remove(soundLifetime)
 		end
-		sound.Ended:Once(cleanup)
-		task.delay(4, cleanup)
+		soundLifetime:Connect(sound.Ended, cleanup)
+		soundLifetime:Add(task.delay(4, cleanup))
 	end
 
 	local function stopAirTrail(character: Model, preserveParticles: boolean)
@@ -336,7 +372,8 @@ function VFX.Start()
 			NumberSequenceKeypoint.new(0.35, 0.35),
 			NumberSequenceKeypoint.new(1, 1),
 		})
-		emitter.Color = ColorSequence.new(Color3.fromRGB(172, 156, 135), Color3.fromRGB(107, 99, 94))
+		emitter.Color =
+			ColorSequence.new(Color3.fromRGB(172, 156, 135), Color3.fromRGB(107, 99, 94))
 		emitter.LightInfluence = 1
 		emitter.VelocityInheritance = 0
 		emitter.LockedToPart = false
@@ -349,11 +386,11 @@ function VFX.Start()
 			emitter = emitter,
 			lastPosition = root.Position,
 			particleRemainder = 0,
-			observedTakeoff = false,
+			hasObservedTakeoff = false,
 		}
 		activeTrails[character] = state
 		emitter:Emit(AIR_TRAIL_BURST_PARTICLES)
-		task.spawn(function()
+		defer(function()
 			while activeTrails[character] == state do
 				if not character.Parent or not root.Parent then
 					stopAirTrail(character, true)
@@ -367,9 +404,14 @@ function VFX.Start()
 				local velocity = root.AssemblyLinearVelocity
 				local grounded = workspace:Raycast(position, -Vector3.yAxis * 3, params) ~= nil
 				if velocity.Y >= 2 or not grounded then
-					state.observedTakeoff = true
+					state.hasObservedTakeoff = true
 				end
-				if state.observedTakeoff and velocity.Y <= 0 and math.abs(velocity.Y) <= 12 and grounded then
+				if
+					state.hasObservedTakeoff
+					and velocity.Y <= 0
+					and math.abs(velocity.Y) <= 12
+					and grounded
+				then
 					stopAirTrail(character, true)
 					return
 				end
@@ -386,96 +428,110 @@ function VFX.Start()
 				task.wait(TRAIL_POLL_SECONDS)
 			end
 		end)
-		task.delay(duration, function()
+		schedule(duration, function()
 			if activeTrails[character] == state then
 				stopAirTrail(character, true)
 			end
 		end)
 	end
 
-	table.insert(
-		lifecycleConnections,
+	lifetime:Add(
 		PresentationBus.GetEvent()
-			:Connect(function(action: string, character: Model, presentation: any, sequence: number)
-				if type(sequence) ~= "number" or not character or not character:IsA("Model") then
-					return
-				end
-				if action == "Landed" then
-					stopAirTrail(character, true)
-					return
-				end
-				local kind: "Impact" | "ShieldImpact"
-				if action == "LocalImpact" then
-					kind = "Impact"
-					playImpactSound(character, presentation)
-					playHitBurst(character)
-				elseif action == "LocalShieldImpact" then
-					kind = "ShieldImpact"
-					playShieldBurst(
-						character,
-						if presentation and presentation:IsA("Model") then presentation else nil,
-						localPlayer.Character
-					)
-				else
-					return
-				end
-				local entry = { character = character, kind = kind }
-				localPresentations[sequence] = entry
-				task.delay(1, function()
-					if localPresentations[sequence] == entry then
-						localPresentations[sequence] = nil
+			:Connect(
+				function(action: string, character: Model, presentation: unknown, sequence: number)
+					if
+						type(sequence) ~= "number"
+						or not character
+						or not character:IsA("Model")
+					then
+						return
 					end
-				end)
-			end)
+					if action == "Landed" then
+						stopAirTrail(character, true)
+						return
+					end
+					local kind: "Impact" | "ShieldImpact"
+					if action == "LocalImpact" then
+						kind = "Impact"
+						playImpactSound(character, presentation)
+						playHitBurst(character)
+					elseif action == "LocalShieldImpact" then
+						kind = "ShieldImpact"
+						playShieldBurst(
+							character,
+							if typeof(presentation) == "Instance" and presentation:IsA("Model")
+								then presentation
+								else nil,
+							localPlayer.Character
+						)
+					else
+						return
+					end
+					local entry = { character = character, kind = kind }
+					localPresentations[sequence] = entry
+					schedule(1, function()
+						if localPresentations[sequence] == entry then
+							localPresentations[sequence] = nil
+						end
+					end)
+				end
+			)
 	)
 
-	table.insert(
-		lifecycleConnections,
-		CombatImpact.OnClientEvent:Connect(function(payload: any)
-			if type(payload) ~= "table" then
-				return
+	lifetime:Add(combatImpact.OnClientEvent:Connect(function(rawPayload: unknown)
+		if type(rawPayload) ~= "table" then
+			return
+		end
+		local payload = rawPayload :: { [string]: unknown }
+		local target = type(payload.targetUserId) == "number"
+			and Players:GetPlayerByUserId(payload.targetUserId)
+		local character = target and target.Character
+		if not character then
+			return
+		end
+		local kind = if payload.blocked == true then "ShieldImpact" else "Impact"
+		local localEntry = type(payload.sequence) == "number"
+				and localPresentations[payload.sequence]
+			or nil
+		local wasLocal = payload.attackerUserId == localPlayer.UserId
+			and localEntry ~= nil
+			and localEntry.character == character
+			and localEntry.kind == kind
+		if
+			localEntry
+			and localEntry.character == character
+			and type(payload.sequence) == "number"
+		then
+			localPresentations[payload.sequence] = nil
+		end
+		if not wasLocal then
+			if kind == "ShieldImpact" then
+				local attacker = type(payload.attackerUserId) == "number"
+					and Players:GetPlayerByUserId(payload.attackerUserId)
+				playShieldBurst(
+					character,
+					getShieldModel(character),
+					if attacker then attacker.Character else nil
+				)
+			else
+				playImpactSound(character, payload.impactSoundId)
+				playHitBurst(character)
 			end
-			local target = type(payload.targetUserId) == "number" and Players:GetPlayerByUserId(payload.targetUserId)
-			local character = target and target.Character
-			if not character then
-				return
-			end
-			local kind = if payload.blocked == true then "ShieldImpact" else "Impact"
-			local localEntry = type(payload.sequence) == "number" and localPresentations[payload.sequence] or nil
-			local wasLocal = payload.attackerUserId == localPlayer.UserId
-				and localEntry ~= nil
-				and localEntry.character == character
-				and localEntry.kind == kind
-			if localEntry and localEntry.character == character then
-				localPresentations[payload.sequence] = nil
-			end
-			if not wasLocal then
-				if kind == "ShieldImpact" then
-					local attacker = type(payload.attackerUserId) == "number"
-						and Players:GetPlayerByUserId(payload.attackerUserId)
-					playShieldBurst(character, getShieldModel(character), attacker and attacker.Character)
-				else
-					playImpactSound(character, payload.impactSoundId)
-					playHitBurst(character)
-				end
-			end
-			if kind == "Impact" and type(payload.airTrailSeconds) == "number" then
-				startAirTrail(character, payload.airTrailSeconds)
-			end
-		end)
-	)
+		end
+		if kind == "Impact" and type(payload.airTrailSeconds) == "number" then
+			startAirTrail(character, payload.airTrailSeconds)
+		end
+	end))
 
 	stopImpl = function()
-		for _, connection in lifecycleConnections do
-			connection:Disconnect()
-		end
-		table.clear(lifecycleConnections)
+		lifetime:Destroy()
 		for character in activeTrails do
-			stopAirTrail(character)
+			stopAirTrail(character, false)
 		end
 		table.clear(localPresentations)
 		for _, pool in soundPools do
 			for _, entry in pool do
+				entry.token += 1
 				entry.sound:Destroy()
 			end
 		end
@@ -484,6 +540,8 @@ function VFX.Start()
 end
 
 function VFX.Stop()
+	isRunning = false
+	generation += 1
 	if stopImpl then
 		stopImpl()
 		stopImpl = nil

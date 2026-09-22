@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/State/ModalState
 -- Single owner of modal state and the input guard. UI/Overlays/ModalBackdrop observes it.
 --
@@ -16,6 +17,8 @@
 
 local InputGuard = require(script.Parent.Parent.InputGuard)
 
+local SubscriptionList = require(script.Parent.SubscriptionList)
+
 local ModalState = {}
 
 -- openPanels owns the input guard through the complete exit animation. backdropPanels drops
@@ -29,8 +32,12 @@ local isBackdropVisible = false
 -- here through SetCoreGuiEnabled, but HotbarController owns that CoreGui flag now -- it
 -- keeps the platform hotbar off for the whole session -- so re-enabling it here would put
 -- Roblox's unstyled hotbar back on screen every time a panel closed.
-local listeners: { (boolean) -> () } = {}
-local backdropListeners: { (boolean) -> () } = {}
+local listeners: SubscriptionList.Channel<boolean> = (SubscriptionList.new :: (
+	string
+) -> SubscriptionList.Channel<boolean>)("ModalState.SubscriptionList")
+local backdropListeners: SubscriptionList.Channel<boolean> = (SubscriptionList.new :: (
+	string
+) -> SubscriptionList.Channel<boolean>)("ModalState.SubscriptionList")
 
 local function anyOpen(): boolean
 	return next(openPanels) ~= nil
@@ -55,12 +62,7 @@ local function sync()
 		InputGuard.Close()
 	end
 
-	for _, listener in ipairs(table.clone(listeners)) do
-		local ok, err = pcall(listener, shouldShow)
-		if not ok then
-			warn(`[ModalState] Listener failed: {err}`)
-		end
-	end
+	listeners.Publish(shouldShow)
 end
 
 local function syncBackdrop()
@@ -69,46 +71,22 @@ local function syncBackdrop()
 		return
 	end
 	isBackdropVisible = shouldShow
-	for _, listener in ipairs(table.clone(backdropListeners)) do
-		local ok, err = pcall(listener, shouldShow)
-		if not ok then
-			warn(`[ModalState] Backdrop listener failed: {err}`)
-		end
-	end
+	backdropListeners.Publish(shouldShow)
 end
 
 --- Calls `listener(anyPanelOpen)` now and on every empty <-> non-empty transition after.
 --- Returns a function that unsubscribes.
 function ModalState.OnChanged(listener: (boolean) -> ()): () -> ()
-	table.insert(listeners, listener)
-	local ok, err = pcall(listener, anyOpen())
-	if not ok then
-		warn(`[ModalState] Initial listener failed: {err}`)
-	end
-
-	return function()
-		local index = table.find(listeners, listener)
-		if index then
-			table.remove(listeners, index)
-		end
-	end
+	local unsubscribe = listeners.Subscribe(listener)
+	listeners.Notify(listener, anyOpen())
+	return unsubscribe
 end
 
 function ModalState.OnBackdropChanged(listener: (boolean) -> ()): () -> ()
-	table.insert(backdropListeners, listener)
-	local ok, err = pcall(listener, anyBackdropVisible())
-	if not ok then
-		warn(`[ModalState] Initial backdrop listener failed: {err}`)
-	end
-
-	return function()
-		local index = table.find(backdropListeners, listener)
-		if index then
-			table.remove(backdropListeners, index)
-		end
-	end
+	local unsubscribe = backdropListeners.Subscribe(listener)
+	backdropListeners.Notify(listener, anyBackdropVisible())
+	return unsubscribe
 end
-
 --- Marks `panelName` as open. Calling twice for the same panel is harmless.
 function ModalState.Open(panelName: string)
 	assert(type(panelName) == "string" and panelName ~= "", "[ModalState] panelName required")

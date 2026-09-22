@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/CombatController/PresentationBus
 
 local PresentationBus = {}

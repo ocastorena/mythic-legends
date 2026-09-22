@@ -1,12 +1,22 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/EnvironmentController/Audio
 
 local Audio = {}
-local ownedInstances: { Instance } = {}
-local ambienceThread: thread?
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Trove = require(ReplicatedStorage.Packages.Trove)
+local lifetime = Trove.new()
+local isRunning = false
+local generation = 0
 
 function Audio.Init(_context: unknown) end
 
 function Audio.Start()
+	if isRunning then
+		return
+	end
+	isRunning = true
+	generation += 1
+	local currentGeneration = generation
 	-- Restrained ambient audio layers for the floating-island environment.
 
 	local SoundService = game:GetService("SoundService")
@@ -29,6 +39,7 @@ function Audio.Start()
 		soundGroup.Name = AMBIENCE_GROUP_NAME
 		soundGroup.Volume = 1
 		soundGroup.Parent = SoundService
+		lifetime:Add(soundGroup)
 		return soundGroup
 	end
 
@@ -44,17 +55,22 @@ function Audio.Start()
 		anchor.Transparency = 1
 		anchor.Position = position
 		anchor.Parent = workspace
-		table.insert(ownedInstances, anchor)
+		lifetime:Add(anchor)
 		return anchor
 	end
 
-	local function createSound(name: string, soundId: string, parent: Instance, soundGroup: SoundGroup): Sound
+	local function createSound(
+		name: string,
+		soundId: string,
+		parent: Instance,
+		soundGroup: SoundGroup
+	): Sound
 		local sound = Instance.new("Sound")
 		sound.Name = name
 		sound.SoundId = soundId
 		sound.SoundGroup = soundGroup
 		sound.Parent = parent
-		table.insert(ownedInstances, sound)
+		lifetime:Add(sound)
 		return sound
 	end
 
@@ -69,6 +85,9 @@ function Audio.Start()
 	local map = workspace:WaitForChild("Map")
 	local environment = workspace:WaitForChild("Visuals"):WaitForChild("Environment")
 	local landmarks = environment:WaitForChild("ElementalLandmarks")
+	if not isRunning or generation ~= currentGeneration then
+		return
+	end
 	local fireLandmark = landmarks:FindFirstChild("FireLandmark")
 	if fireLandmark and (fireLandmark:IsA("Model") or fireLandmark:IsA("BasePart")) then
 		local volcanoAnchor = createAnchor("VolcanoAudioAnchor", fireLandmark:GetPivot().Position)
@@ -89,7 +108,15 @@ function Audio.Start()
 		volcano:Play()
 	end
 
-	local arenaCenter = map:WaitForChild("ArenaStructure"):GetPivot().Position
+	local arenaStructure = map:WaitForChild("ArenaStructure")
+	if not isRunning or generation ~= currentGeneration then
+		return
+	end
+	assert(
+		arenaStructure:IsA("PVInstance"),
+		"[EnvironmentController.Audio] ArenaStructure must have a pivot"
+	)
+	local arenaCenter = arenaStructure:GetPivot().Position
 	local gustAnchor = createAnchor("BridgeGustAudioAnchor", arenaCenter)
 	local gust = createSound("BridgeWindGust", GUST_SOUND_ID, gustAnchor, ambienceGroup)
 	gust.Volume = 0.12
@@ -100,30 +127,29 @@ function Audio.Start()
 
 	local random = Random.new()
 
-	ambienceThread = task.spawn(function()
+	lifetime:Add(task.defer(function()
 		task.wait(random:NextNumber(6, 10))
 		while gustAnchor.Parent do
 			local entranceIndex = random:NextInteger(0, 7)
 			local angle = entranceIndex * math.pi / 4
 			gustAnchor.Position = arenaCenter
-				+ Vector3.new(math.cos(angle) * ARENA_RADIUS, GUST_HEIGHT_OFFSET, math.sin(angle) * ARENA_RADIUS)
+				+ Vector3.new(
+					math.cos(angle) * ARENA_RADIUS,
+					GUST_HEIGHT_OFFSET,
+					math.sin(angle) * ARENA_RADIUS
+				)
 			gust.PlaybackSpeed = random:NextNumber(0.88, 1)
 			gust.Volume = random:NextNumber(0.08, 0.13)
 			gust:Play()
 			task.wait(random:NextNumber(18, 30))
 		end
-	end)
+	end))
 end
 
 function Audio.Stop()
-	if ambienceThread then
-		pcall(task.cancel, ambienceThread)
-		ambienceThread = nil
-	end
-	for index = #ownedInstances, 1, -1 do
-		ownedInstances[index]:Destroy()
-		ownedInstances[index] = nil
-	end
+	isRunning = false
+	generation += 1
+	lifetime:Clean()
 end
 
 return Audio

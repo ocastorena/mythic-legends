@@ -1,4 +1,7 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Screens/Shop
+
+local Fusion = require(game:GetService("ReplicatedStorage").Packages.Fusion)
 
 local Players = game:GetService("Players")
 
@@ -15,26 +18,26 @@ local GOLD_ICON = "rbxassetid://112895221053745"
 local SHOP_CONTENT_SCALE = 1.15
 
 local function contentScale(viewport: Vector2): number
-	return if Theme.isPhone(viewport) then 1 else SHOP_CONTENT_SCALE
+	return if Theme.IsPhone(viewport) then 1 else SHOP_CONTENT_SCALE
 end
 
 local function panelSize(viewport: Vector2): UDim2
-	if Theme.isPhone(viewport) then
-		return Theme.panelSize(viewport)
+	if Theme.IsPhone(viewport) then
+		return Theme.PanelSize(viewport)
 	end
 
 	local scale = contentScale(viewport)
 	local width = math.min(math.floor(viewport.X * 0.9), 1240)
-	local height = math.min(600, Theme.usableHeight(viewport) - 16)
+	local height = math.min(600, Theme.UsableHeight(viewport) - 16)
 	return UDim2.fromOffset(math.floor(width / scale), math.floor(height / scale))
 end
 
-local function Shop(scope: any): ScreenGui
+local function Shop(scope: Fusion.Scope<typeof(Fusion)>): ScreenGui
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local shopGui = scope:New("ScreenGui")({
 		Name = "ShopGui",
 		Enabled = false,
-		DisplayOrder = Theme.Layer.panel,
+		DisplayOrder = Theme.layer.panel,
 		ResetOnSpawn = false,
 		IgnoreGuiInset = false,
 		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,
@@ -47,13 +50,21 @@ local function Shop(scope: any): ScreenGui
 	local panel = Panel.Create({
 		parent = shopGui,
 		title = "Shop",
-		titleTextEm = Theme.Em.panelTitleLarge,
+		titleTextEm = Theme.em.panelTitleLarge,
 		tabs = {
-			{ name = "Featured", icon = "rbxassetid://15909461117", color = Theme.TabIcon.featured },
-			{ name = "Upgrades", icon = "rbxassetid://12338897538", color = Theme.TabIcon.upgrades },
+			{
+				name = "Featured",
+				icon = "rbxassetid://15909461117",
+				color = Theme.tabIcon.featured,
+			},
+			{
+				name = "Upgrades",
+				icon = "rbxassetid://12338897538",
+				color = Theme.tabIcon.upgrades,
+			},
 		},
 		size = panelSize,
-		accent = Theme.Accent.green,
+		accent = Theme.accent.green,
 	})
 
 	local camera = workspace.CurrentCamera
@@ -79,17 +90,17 @@ local function Shop(scope: any): ScreenGui
 	offerInfoColumn.Parent = panel.Details
 	local offerInfo = Panel.CreateDetails({
 		parent = offerInfoColumn,
-		root = panel.Root,
-		accent = Theme.Accent.green,
+		root = panel.rootScale,
+		accent = Theme.accent.green,
 		stats = 2,
 		primary = "Purchase",
 	})
 	offerInfo.NameLabel.Text = "No offer selected"
 	offerInfo.RarityLabel.Text = "Catalog unavailable"
-	offerInfo.RarityLabel.TextColor3 = Theme.Text.dim
+	offerInfo.RarityLabel.TextColor3 = Theme.textColors.dim
 	offerInfo.Art.Image = SHOP_ICON
-	offerInfo.Art.ImageColor3 = Theme.Accent.green
-	offerInfo.ElementIcon.BackgroundColor3 = Theme.Accent.gold
+	offerInfo.Art.ImageColor3 = Theme.accent.green
+	offerInfo.ElementIcon.BackgroundColor3 = Theme.accent.gold
 	offerInfo.ElementIcon.Image = GOLD_ICON
 	offerInfo.Stats[1].Value.Text = "—"
 	offerInfo.Stats[1].Label.Text = "Price"
@@ -97,7 +108,7 @@ local function Shop(scope: any): ScreenGui
 	offerInfo.Stats[2].Label.Text = "Availability"
 	if offerInfo.PrimaryButton then
 		offerInfo.PrimaryButton:SetAttribute("ServerAction", "PurchaseOffer")
-		Panel.SetButtonEnabled(offerInfo.PrimaryButton, false, Theme.TabIcon.featured)
+		Panel.SetButtonEnabled(offerInfo.PrimaryButton, false, Theme.tabIcon.featured)
 	end
 	Panel.SetDetailsVisible(panel, false)
 
@@ -105,7 +116,7 @@ local function Shop(scope: any): ScreenGui
 	local function newEmptyTabConfig(category, icon, color, title, body, primary, action)
 		local emptyState = Panel.CreateEmptyState({
 			parent = panel.Content,
-			root = panel.Root,
+			root = panel.rootScale,
 		})
 		emptyState.Root.Name = `{category}EmptyState`
 		emptyState.Root:SetAttribute("ShopCategory", category)
@@ -127,7 +138,7 @@ local function Shop(scope: any): ScreenGui
 		[panel.Tabs.Featured] = newEmptyTabConfig(
 			"Featured",
 			"rbxassetid://15909461117",
-			Theme.TabIcon.featured,
+			Theme.tabIcon.featured,
 			"No Featured offers yet",
 			"Check back later for new Shop offers.",
 			"Purchase",
@@ -136,7 +147,7 @@ local function Shop(scope: any): ScreenGui
 		[panel.Tabs.Upgrades] = newEmptyTabConfig(
 			"Upgrades",
 			"rbxassetid://12338897538",
-			Theme.TabIcon.upgrades,
+			Theme.tabIcon.upgrades,
 			"No Upgrades available",
 			"Check back later for new Inventory upgrades.",
 			"Upgrade",
@@ -158,11 +169,20 @@ local function Shop(scope: any): ScreenGui
 		end
 	end
 
+	local cancelTabTransition: (() -> ())? = nil
+	local function cancelTab()
+		if cancelTabTransition then
+			cancelTabTransition()
+			cancelTabTransition = nil
+		end
+	end
+	table.insert(scope, cancelTab)
 	local function selectTab(tab: TextButton, skipAnimation: boolean?)
 		if selectedTab == tab then
 			applyAction(tab)
 			return
 		end
+		cancelTab()
 		local previousTab = selectedTab
 		local previousConfig = previousTab and emptyStateByTab[previousTab]
 		local nextConfig = emptyStateByTab[tab]
@@ -170,15 +190,19 @@ local function Shop(scope: any): ScreenGui
 			return
 		end
 		if selectedTab then
-			Panel.SetTabActive(selectedTab, false, panel.Accent)
+			Panel.SetTabActive(selectedTab, false, panel.accent)
 		end
 		selectedTab = tab
-		Panel.SetTabActive(tab, true, panel.Accent)
+		Panel.SetTabActive(tab, true, panel.accent)
 		applyAction(tab)
 
-		if previousConfig and not skipAnimation then
+		if previousTab and previousConfig and not skipAnimation then
 			local direction = if previousTab.LayoutOrder < tab.LayoutOrder then 1 else -1
-			Motion.TransitionTab({ previousConfig.emptyState.Root }, { nextConfig.emptyState.Root }, direction)
+			cancelTabTransition = Motion.TransitionTab(
+				{ previousConfig.emptyState.Root },
+				{ nextConfig.emptyState.Root },
+				direction
+			)
 		else
 			for _, config in pairs(emptyStateByTab) do
 				config.emptyState.Root.Visible = false
@@ -187,14 +211,14 @@ local function Shop(scope: any): ScreenGui
 		end
 	end
 
-	ButtonUtil.hookClick(panel.Tabs.Featured, function()
+	ButtonUtil.HookClick(panel.Tabs.Featured, function()
 		selectTab(panel.Tabs.Featured)
 	end)
-	ButtonUtil.hookClick(panel.Tabs.Upgrades, function()
+	ButtonUtil.HookClick(panel.Tabs.Upgrades, function()
 		selectTab(panel.Tabs.Upgrades)
 	end)
 
-	Panel.ApplyTextScale(shopGui, panel.Root, Theme.MenuTextScale)
+	Panel.ApplyTextScale(shopGui, panel.rootScale, Theme.menuTextScale)
 
 	local menuTransition = Motion.CreateMenuTransition({
 		screenGui = shopGui,

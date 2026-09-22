@@ -1,13 +1,17 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Screens/HUD
+
+local Fusion = require(game:GetService("ReplicatedStorage").Packages.Fusion)
 
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Types = require(script.Parent.Parent.Parent.Types)
 local HudButton = require(script.Parent.Parent:WaitForChild("Components"):WaitForChild("HudButton"))
-local LocalDataValue = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("LocalDataValue"))
+local LocalDataValue =
+	require(script.Parent.Parent:WaitForChild("State"):WaitForChild("LocalDataValue"))
 local MenuState = require(script.Parent.Parent:WaitForChild("State"):WaitForChild("MenuState"))
+local FusionUtil = require(script.Parent.Parent.State.FusionUtil)
 local Theme = require(script.Parent.Parent:WaitForChild("Theme"))
 
 local INVENTORY_ICON = "rbxassetid://6870729295"
@@ -15,7 +19,7 @@ local GOLD_ICON = "rbxassetid://112895221053745"
 local SHOP_ICON = "rbxassetid://13429538917"
 local SHOP_TINT = Color3.fromHex("00ff69")
 local BUTTON_GAP = 8
-local HOTBAR_WIDTH = 6 * Theme.Metric.hotbarSlot + 5 * Theme.Metric.hotbarGap
+local HOTBAR_WIDTH = 6 * Theme.metric.hotbarSlot + 5 * Theme.metric.hotbarGap
 
 export type Props = {
 	localData: Types.LocalDataApi,
@@ -33,17 +37,17 @@ local function formatGold(amount: number): string
 	end
 end
 
-local function HUD(scope: any, props: Props): ScreenGui
+local function HUD(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenGui
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local camera = workspace.CurrentCamera
 	local initialViewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
-	local initialTopbar = Theme.topbar(initialViewport)
+	local initialTopbar = Theme.Topbar(initialViewport)
 	local rowTop = scope:Value(initialTopbar.rowTop)
 	local rowHeight = scope:Value(initialTopbar.rowHeight)
 	local buttonSize = scope:Value(initialTopbar.buttonSize)
 	local screenWidth = scope:Value(initialViewport.X)
 	local viewportSize = scope:Value(initialViewport)
-	local textRoot = scope:Value(Theme.root(initialViewport))
+	local textRoot = scope:Value(Theme.Root(initialViewport))
 	local inventoryOpen = scope:Value(false)
 	local shopOpen = scope:Value(false)
 	local unsubscribeMenuState = MenuState.Subscribe(function(activeName)
@@ -51,7 +55,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 		shopOpen:set(activeName == "Shop")
 	end)
 	table.insert(scope, unsubscribeMenuState)
-	local currency = LocalDataValue.observe(scope, props.localData, "currency", {})
+	local currency = LocalDataValue.Observe(scope, props.localData, "currency", {})
 	local staminaFill = scope:New("Frame")({
 		Name = "Fill",
 		Size = UDim2.fromScale(1, 1),
@@ -72,7 +76,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 		ClipsDescendants = true,
 		Visible = false,
 		[scope.Children] = {
-			staminaFill,
+			staminaFill :: Instance,
 			scope:New("UICorner")({ CornerRadius = UDim.new(0, 4) }),
 		},
 	}) :: Frame
@@ -83,7 +87,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 	table.insert(scope, unbindStamina)
 	scope:New("ScreenGui")({
 		Name = "StaminaGui",
-		DisplayOrder = Theme.Layer.stamina,
+		DisplayOrder = Theme.layer.stamina,
 		IgnoreGuiInset = true,
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
@@ -95,11 +99,11 @@ local function HUD(scope: any, props: Props): ScreenGui
 	local cluster = scope:New("Frame")({
 		Name = "Cluster",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = scope:Computed(function(use)
-			return UDim2.new(0, use(screenWidth) / 2, 0.5, 0)
+		Position = scope:Computed(function(use: Fusion.Use)
+			return UDim2.new(0, FusionUtil.UseNumber(use, screenWidth) / 2, 0.5, 0)
 		end),
-		Size = scope:Computed(function(use)
-			return UDim2.fromOffset(0, use(buttonSize))
+		Size = scope:Computed(function(use: Fusion.Use)
+			return UDim2.fromOffset(0, FusionUtil.UseNumber(use, buttonSize))
 		end),
 		AutomaticSize = Enum.AutomaticSize.X,
 		BackgroundTransparency = 1,
@@ -115,7 +119,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 			HudButton(scope, {
 				name = "OpenButton",
 				icon = INVENTORY_ICON,
-				iconColor = Theme.Accent.gold,
+				iconColor = Theme.accent.gold,
 				isOpen = inventoryOpen,
 				layoutOrder = 1,
 				buttonSize = buttonSize,
@@ -137,27 +141,33 @@ local function HUD(scope: any, props: Props): ScreenGui
 		},
 	}) :: Frame
 
-	local goldText = scope:Computed(function(use)
+	local goldText = scope:Computed(function(use: Fusion.Use)
 		local payload = use(currency)
-		local amount = if type(payload) == "table" then tonumber(payload.gold) or 0 else 0
+		local gold = if type(payload) == "table"
+			then (payload :: { [string]: unknown }).gold
+			else nil
+		local amount = if type(gold) == "number"
+			then gold
+			elseif type(gold) == "string" then tonumber(gold) or 0
+			else 0
 		return formatGold(amount)
 	end)
-	local scale = scope:Computed(function(use)
-		return use(buttonSize) / 26
+	local scale = scope:Computed(function(use: Fusion.Use)
+		return FusionUtil.UseNumber(use, buttonSize) / 26
 	end)
 
 	local goldFrame = scope:New("Frame")({
 		Name = "GoldFrame",
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = scope:Computed(function(use)
-			local width = use(screenWidth)
-			local viewport = use(viewportSize)
+		Position = scope:Computed(function(use: Fusion.Use)
+			local width = FusionUtil.UseNumber(use, screenWidth)
+			local viewport = FusionUtil.UseVector2(use, viewportSize)
 			local safeInset = math.max(0, (width - viewport.X) / 2)
-			local edgePadding = math.round(safeInset) + Theme.Platform.topbarEdgePadding
+			local edgePadding = math.round(safeInset) + Theme.platform.topbarEdgePadding
 			return UDim2.new(0, width - edgePadding, 0.5, 0)
 		end),
-		Size = scope:Computed(function(use)
-			return UDim2.fromOffset(0, use(buttonSize))
+		Size = scope:Computed(function(use: Fusion.Use)
+			return UDim2.fromOffset(0, FusionUtil.UseNumber(use, buttonSize))
 		end),
 		AutomaticSize = Enum.AutomaticSize.X,
 		BackgroundTransparency = 1,
@@ -167,37 +177,37 @@ local function HUD(scope: any, props: Props): ScreenGui
 				Name = "Pill",
 				AnchorPoint = Vector2.new(1, 0.5),
 				Position = UDim2.fromScale(1, 0.5),
-				Size = scope:Computed(function(use)
-					return UDim2.fromOffset(0, use(buttonSize))
+				Size = scope:Computed(function(use: Fusion.Use)
+					return UDim2.fromOffset(0, FusionUtil.UseNumber(use, buttonSize))
 				end),
 				AutomaticSize = Enum.AutomaticSize.X,
-				BackgroundColor3 = Theme.Platform.topbarButtonFill,
-				BackgroundTransparency = Theme.Platform.topbarButtonTransparency,
+				BackgroundColor3 = Theme.platform.topbarButtonFill,
+				BackgroundTransparency = Theme.platform.topbarButtonTransparency,
 				BorderSizePixel = 0,
 				[scope.Children] = {
 					scope:New("UICorner")({
 						CornerRadius = UDim.new(1, 0),
 					}),
 					scope:New("UIPadding")({
-						PaddingLeft = scope:Computed(function(use)
-							return UDim.new(0, math.round(8 * use(scale)))
+						PaddingLeft = scope:Computed(function(use: Fusion.Use)
+							return UDim.new(0, math.round(8 * FusionUtil.UseNumber(use, scale)))
 						end),
-						PaddingRight = scope:Computed(function(use)
-							return UDim.new(0, math.round(11 * use(scale)))
+						PaddingRight = scope:Computed(function(use: Fusion.Use)
+							return UDim.new(0, math.round(11 * FusionUtil.UseNumber(use, scale)))
 						end),
 					}),
 					scope:New("UIListLayout")({
 						FillDirection = Enum.FillDirection.Horizontal,
-						Padding = scope:Computed(function(use)
-							return UDim.new(0, math.round(5 * use(scale)))
+						Padding = scope:Computed(function(use: Fusion.Use)
+							return UDim.new(0, math.round(5 * FusionUtil.UseNumber(use, scale)))
 						end),
 						VerticalAlignment = Enum.VerticalAlignment.Center,
 						SortOrder = Enum.SortOrder.LayoutOrder,
 					}),
 					scope:New("ImageLabel")({
 						Name = "Icon",
-						Size = scope:Computed(function(use)
-							local iconSize = math.round(15 * use(scale))
+						Size = scope:Computed(function(use: Fusion.Use)
+							local iconSize = math.round(15 * FusionUtil.UseNumber(use, scale))
 							return UDim2.fromOffset(iconSize, iconSize)
 						end),
 						BackgroundTransparency = 1,
@@ -208,15 +218,18 @@ local function HUD(scope: any, props: Props): ScreenGui
 					scope:New("TextLabel")({
 						Name = "GoldTotalLabel",
 						AutomaticSize = Enum.AutomaticSize.X,
-						Size = scope:Computed(function(use)
-							return UDim2.fromOffset(0, use(buttonSize))
+						Size = scope:Computed(function(use: Fusion.Use)
+							return UDim2.fromOffset(0, FusionUtil.UseNumber(use, buttonSize))
 						end),
 						BackgroundTransparency = 1,
-						FontFace = Theme.Font.extraBold,
+						FontFace = Theme.font.extraBold,
 						Text = goldText,
-						TextColor3 = Theme.Text.coin,
-						TextSize = scope:Computed(function(use)
-							return Theme.text(Theme.Em.sectionLabel, use(textRoot)) * use(scale)
+						TextColor3 = Theme.textColors.coin,
+						TextSize = scope:Computed(function(use: Fusion.Use)
+							return Theme.Text(
+								Theme.em.sectionLabel,
+								FusionUtil.UseNumber(use, textRoot)
+							) * FusionUtil.UseNumber(use, scale)
 						end),
 						LayoutOrder = 2,
 					}),
@@ -228,11 +241,11 @@ local function HUD(scope: any, props: Props): ScreenGui
 	local mainFrame: Frame
 	mainFrame = scope:New("Frame")({
 		Name = "MainFrame",
-		Size = scope:Computed(function(use)
-			return UDim2.new(1, 0, 0, use(rowHeight))
+		Size = scope:Computed(function(use: Fusion.Use)
+			return UDim2.new(1, 0, 0, FusionUtil.UseNumber(use, rowHeight))
 		end),
-		Position = scope:Computed(function(use)
-			return UDim2.fromOffset(0, use(rowTop))
+		Position = scope:Computed(function(use: Fusion.Use)
+			return UDim2.fromOffset(0, FusionUtil.UseNumber(use, rowTop))
 		end),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
@@ -241,12 +254,12 @@ local function HUD(scope: any, props: Props): ScreenGui
 
 	local function refreshLayout()
 		local viewport = camera and camera.ViewportSize or initialViewport
-		local topbar = Theme.topbar(viewport)
+		local topbar = Theme.Topbar(viewport)
 		rowTop:set(topbar.rowTop)
 		rowHeight:set(topbar.rowHeight)
 		buttonSize:set(topbar.buttonSize)
 		viewportSize:set(viewport)
-		textRoot:set(Theme.root(viewport))
+		textRoot:set(Theme.Root(viewport))
 		local resolvedWidth = mainFrame.AbsoluteSize.X
 		screenWidth:set(if resolvedWidth > 0 then resolvedWidth else viewport.X)
 	end
@@ -264,7 +277,7 @@ local function HUD(scope: any, props: Props): ScreenGui
 
 	local screenGui = scope:New("ScreenGui")({
 		Name = "HUDGui",
-		DisplayOrder = Theme.Layer.hud,
+		DisplayOrder = Theme.layer.hud,
 		IgnoreGuiInset = true,
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,

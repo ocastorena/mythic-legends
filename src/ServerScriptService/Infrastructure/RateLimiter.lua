@@ -1,3 +1,4 @@
+--!strict
 -- ServerScriptService/Infrastructure/RateLimiter
 
 local RateLimiter = {}

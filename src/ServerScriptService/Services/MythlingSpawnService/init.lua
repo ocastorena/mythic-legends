@@ -1,30 +1,31 @@
+--!strict
 -- ServerScriptService/Services/MythlingSpawnService
 local MythlingSpawnService = {}
 
 -- Services
 local HttpService = game:GetService("HttpService")
-local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
-local PathfindingService = game:GetService("PathfindingService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
 local log = LogUtil.For("MythlingSpawnService")
+local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+local ServerTypes = require(ServerScriptService.Domain.Types)
+local Trove = require(game:GetService("ReplicatedStorage").Packages.Trove)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
+local ClaimEscort = require(script.ClaimEscort)
+local lifecycle = ServiceLifecycle.new("MythlingSpawnService")
+local encounterTroves: { [string]: Trove.Trove } = {}
 
 --// Module State --------------------------------------------------------------
 
 -- Context passed from Bootstrap (holds Config, Instances, Remotes, etc.)
-local Context = nil
+local serviceContext: ServerTypes.Context
 
-local MythlingsData = nil
+local MythlingsData: { [string]: Types.MythlingDef }
 
 -- Service run flag and background threads
-local running = false
-local threads = {
-	spawn = nil,
-	expire = nil,
-}
 
 -- Active mythlings by id
 -- entry = {
@@ -41,7 +42,7 @@ local threads = {
 --   state: "SPAWNED" | "CONTEST" | "CLAIMED" | "ESCORT" | "DESPAWNED",
 --   ownerUserId: number?,
 -- }
-local Active: { [string]: any } = {}
+local activeMythlings: { [string]: ServerTypes.SpawnEntry } = {}
 
 -- Absolute unix time of the next permitted spawn. Kept distinct from the interval used to
 -- pace the loop: these were previously the same variable, so the deadline check compared
@@ -49,10 +50,10 @@ local Active: { [string]: any } = {}
 local nextSpawnAt = 0
 
 -- Rarity weights filtered to those that actually have mythlings defined (built in Init).
-local SpawnableWeights: { [string]: number } = {}
+local spawnableWeights: { [string]: number } = {}
 
--- rarity -> {typeId, ...} (built in Init from MythlingsData + Spawn.RarityWeights)
-local TypesByRarity: { [string]: { string } } = {}
+-- rarity -> {typeId, ...} (built in Init from MythlingsData + Spawn.rarityWeights)
+local typesByRarity: { [string]: { string } } = {}
 
 --// Small Utils ---------------------------------------------------------------
 
@@ -108,7 +109,7 @@ end
 
 --- True if `point` would overlap any active zone, with padding.
 local function overlapsExisting(point: Vector3, radius: number, padding: number): boolean
-	for _, e in pairs(Active) do
+	for _, e in pairs(activeMythlings) do
 		if e.state ~= "DESPAWNED" then
 			local center = e.model:GetPivot().Position
 			if distXZ(point, center) < (radius + e.radius + padding) then
@@ -181,15 +182,15 @@ local function makeZone(radius: number, pivot: CFrame): BasePart
 end
 
 --// Remote dispatch (centralized) ---------------------------------------------
-local function sendAll(action: string, payload: any)
-	local evt = Context.Remotes and Context.Remotes.World.Spawned
+local function sendAll(action: string, payload: { [string]: unknown })
+	local evt = serviceContext.Remotes and serviceContext.Remotes.World.Spawned
 	if evt then
 		evt:FireAllClients(action, payload)
 	end
 end
 
-local function sendTo(player: Player, action: string, payload: any)
-	local evt = Context.Remotes and Context.Remotes.World.Spawned
+local function sendTo(player: Player, action: string, payload: { [string]: unknown })
+	local evt = serviceContext.Remotes and serviceContext.Remotes.World.Spawned
 	if evt then
 		evt:FireClient(player, action, payload)
 	end
@@ -199,9 +200,14 @@ end
 
 --- Spawns a mythling model for typeId at world `position`, adds zone, and clones expire timer GUI.
 --- Returns (model, zone) or (nil, nil) on failure.
-local function createMythlingModel(typeId: string, position: Vector3, zoneRadius: number): (Model?, BasePart?)
-	local mythlings = Context.Instances.MythlingAssets
-	local template = mythlings and mythlings:FindFirstChild(MythlingsData[typeId].variants["regular"].model)
+local function createMythlingModel(
+	typeId: string,
+	position: Vector3,
+	zoneRadius: number
+): (Model?, BasePart?)
+	local mythlings = serviceContext.Instances.MythlingAssets
+	local template = mythlings
+		and mythlings:FindFirstChild(MythlingsData[typeId].variants["regular"].model)
 	if not (template and template:IsA("Model")) then
 		log.warn(`Missing base model for typeId: {typeId}`)
 		return nil, nil
@@ -211,17 +217,17 @@ local function createMythlingModel(typeId: string, position: Vector3, zoneRadius
 
 	local angle = math.rad(math.random(0, 359)) -- random rotation in degrees
 	model:PivotTo(CFrame.new(position) * CFrame.Angles(0, angle, 0))
-	model.Parent = Context.Instances.Mythlings
+	model.Parent = serviceContext.Instances.Mythlings
 
 	-- Visual zone under the model
 	local zone = makeZone(zoneRadius, model:GetPivot())
 	zone.Parent = model
 
 	-- Attach expire timer GUI if template exists
-	local guiRoot = Context.Instances.Templates
+	local guiRoot = serviceContext.Instances.Templates
 	local billboards = guiRoot and guiRoot:FindFirstChild("Billboards")
 	local timerTemplate = billboards and billboards:FindFirstChild("MythlingExpireTimer")
-	if timerTemplate and model.PrimaryPart then
+	if timerTemplate and timerTemplate:IsA("BillboardGui") and model.PrimaryPart then
 		local timer = timerTemplate:Clone()
 		timer.Name = "MythlingExpireTimer"
 		timer.Adornee = model.PrimaryPart
@@ -232,7 +238,12 @@ local function createMythlingModel(typeId: string, position: Vector3, zoneRadius
 end
 
 --- Destroys a mythling entry and its model safely.
-local function destroyEntry(e)
+local function destroyEntry(e: ServerTypes.SpawnEntry)
+	local owner = encounterTroves[e.id]
+	if owner then
+		encounterTroves[e.id] = nil
+		lifecycle.trove:Remove(owner)
+	end
 	if not e then
 		return
 	end
@@ -244,7 +255,7 @@ end
 
 --- Applies a visual variant by swapping SurfaceAppearance maps if present.
 local function applyVariant(model: Model, typeId: string, variantId: string)
-	local vtab = Context.Configurations.Mythlings[typeId].variants
+	local vtab = serviceContext.Configurations.Mythlings[typeId].variants
 	local def = vtab and vtab[variantId]
 	if not def then
 		return
@@ -264,15 +275,26 @@ end
 --- Attempts to spawn exactly ONE mythling (random rarity/type) if a valid spot is found.
 --- Returns true on success, false otherwise. (No side effects beyond one spawn.)
 -- Helper: roll rarity → pick typeId → fetch per-type stats + expire seconds
-local function chooseSpawnDef(cfg)
+type SpawnDefinition = {
+	rarity: string,
+	typeId: string,
+	zoneRadius: number,
+	fillRate: number,
+	drainRate: number,
+	displayName: string,
+	expireSec: number,
+}
+local function chooseSpawnDef(
+	cfg: typeof(serviceContext.Configurations.MythlingSpawns)
+): SpawnDefinition?
 	-- 1) roll rarity (only those with mythlings behind them; see Init)
-	local rarity = pickWeighted(SpawnableWeights)
+	local rarity = pickWeighted(spawnableWeights)
 	if not rarity then
 		return nil
 	end
 
 	-- 2) pick a typeId within that rarity
-	local list = TypesByRarity[rarity]
+	local list = typesByRarity[rarity]
 	if not (list and #list > 0) then
 		log.warn(`No typeIds for rarity: {rarity}`)
 		return nil
@@ -280,13 +302,13 @@ local function chooseSpawnDef(cfg)
 	local typeId = list[math.random(1, #list)]
 
 	-- 3) read stats for that type
-	local stats = Context.Configurations.Mythlings[typeId]
+	local stats = serviceContext.Configurations.Mythlings[typeId]
 	if not stats then
 		return nil
 	end
 
 	-- 4) compute expire seconds for this rarity
-	local expireSec = (cfg.ExpireSeconds and cfg.ExpireSeconds[rarity]) or cfg.DefaultExpireSeconds
+	local expireSec = (cfg.expireSeconds and cfg.expireSeconds[rarity]) or cfg.defaultExpireSeconds
 
 	return {
 		rarity = rarity,
@@ -300,8 +322,8 @@ local function chooseSpawnDef(cfg)
 end
 
 -- Helper: find a valid non-overlapping world position inside the arena disc
-local function findSpawnPosition(zoneRadius: number, padding: number, tries: number)
-	local arena = Context.Instances.Arena
+local function findSpawnPosition(zoneRadius: number, padding: number, tries: number): Vector3?
+	local arena = serviceContext.Instances.Arena
 	local _, arenaR = arenaInfo(arena)
 	local usableR = math.max(0, arenaR - zoneRadius - padding)
 
@@ -319,9 +341,14 @@ local function findSpawnPosition(zoneRadius: number, padding: number, tries: num
 end
 
 -- Helper: register new mythling entry and set model attributes
-local function registerMythling(model: Model, zone: BasePart, def, expireAt: number)
+local function registerMythling(
+	model: Model,
+	zone: BasePart,
+	def: SpawnDefinition,
+	expireAt: number
+): (string, ServerTypes.SpawnEntry)
 	local id = guid()
-	local entry = {
+	local entry: ServerTypes.SpawnEntry = {
 		id = id,
 		displayName = def.displayName,
 		model = model,
@@ -336,7 +363,8 @@ local function registerMythling(model: Model, zone: BasePart, def, expireAt: num
 		ownerUserId = nil,
 		variantId = "regular",
 	}
-	Active[id] = entry
+	activeMythlings[id] = entry
+	encounterTroves[id] = lifecycle.trove:Extend()
 
 	-- attributes for client/UI
 	model:SetAttribute("ExpireAt", expireAt)
@@ -346,7 +374,7 @@ local function registerMythling(model: Model, zone: BasePart, def, expireAt: num
 end
 
 -- Helper: notify clients a spawn occurred
-local function announceSpawn(id: string, def, model: Model, expireAt: number)
+local function announceSpawn(id: string, def: SpawnDefinition, model: Model, expireAt: number)
 	sendAll("Spawned", {
 		mythlingId = id,
 		typeId = def.typeId,
@@ -359,7 +387,7 @@ local function announceSpawn(id: string, def, model: Model, expireAt: number)
 end
 
 local function spawnOne(): boolean
-	local cfg = Context.Configurations.MythlingSpawns
+	local cfg = serviceContext.Configurations.MythlingSpawns
 
 	-- Step 1) choose rarity/type and stats
 	local def = chooseSpawnDef(cfg)
@@ -368,7 +396,7 @@ local function spawnOne(): boolean
 	end
 
 	-- Step 2) find a valid position
-	local pos = findSpawnPosition(def.zoneRadius, cfg.ZonePadding, cfg.MaxPlacementTries)
+	local pos = findSpawnPosition(def.zoneRadius, cfg.zonePadding, cfg.maxPlacementTries)
 	if not pos then
 		return false
 	end
@@ -394,22 +422,13 @@ end
 
 --- Scans and despawns expired mythlings (no winner).
 local function despawnExpired(t: number)
-	for id, e in pairs(Active) do
+	for id, e in pairs(activeMythlings) do
 		if e.state ~= "DESPAWNED" and (e.state == "SPAWNED" or e.state == "CONTEST") then
 			if t >= e.expireAt then
 				-- send event to clients for expired mythlings
 				sendAll("Expired", { mythling = id })
-				if
-					Context.Services
-					and Context.Services.ClaimService
-					and Context.Services.ClaimService.OnMythlingRemoved
-				then
-					Context.Services.ClaimService.OnMythlingRemoved(id)
-				end
-				if e.model and e.model.Parent then
-					e.model:Destroy()
-				end
-				Active[id] = nil
+				destroyEntry(e)
+				activeMythlings[id] = nil
 			end
 		end
 	end
@@ -418,17 +437,17 @@ end
 -- Helpers for OnClaimed -------------------------------------------------------
 
 --- Mark entry as claimed and set basic attributes/owner.
-local function markClaimed(e, winner: Player)
+local function markClaimed(e: ServerTypes.SpawnEntry, winner: Player)
 	e.state = "CLAIMED"
 	e.model:SetAttribute("State", "CLAIMED")
 	e.ownerUserId = winner.UserId
 end
 
 --- Remove the capture zone if present.
-local function removeZoneIfAny(e)
+local function removeZoneIfAny(e: ServerTypes.SpawnEntry)
 	if e.zone and e.zone.Parent then
 		local timer = e.model and e.model:FindFirstChild("MythlingExpireTimer")
-		if timer then
+		if timer and timer:IsA("BillboardGui") then
 			timer:Destroy()
 		end
 		e.zone:Destroy()
@@ -436,95 +455,9 @@ local function removeZoneIfAny(e)
 	end
 end
 
--- Tries to create or find an Animator on the model (Humanoid or AnimationController).
-local function getAnimator(model: Model): Animator?
-	if not model then
-		return nil
-	end
-
-	-- Prefer an existing Humanoid
-	local humanoid = model:FindFirstChildWhichIsA("Humanoid")
-	if humanoid then
-		local animator = humanoid:FindFirstChildWhichIsA("Animator")
-		if animator then
-			return animator
-		end
-		local newAnimator = Instance.new("Animator")
-		newAnimator.Parent = humanoid
-		return newAnimator
-	end
-
-	-- Fallback to an AnimationController
-	local controller = model:FindFirstChildWhichIsA("AnimationController")
-	if not controller then
-		controller = Instance.new("AnimationController")
-		controller.Name = "AnimationController"
-		controller.Parent = model
-	end
-	local animator = controller:FindFirstChildWhichIsA("Animator")
-	if animator then
-		return animator
-	end
-	local newAnimator = Instance.new("Animator")
-	newAnimator.Parent = controller
-	return newAnimator
-end
-
--- Plays a looping Walking animation if present; returns a cleanup callback.
-local function playWalkingAnimation(model: Model): (() -> ())?
-	local animationsFolder = model:FindFirstChild("Animations") or model:FindFirstChild("Animation")
-	if not animationsFolder then
-		return nil
-	end
-
-	local walking = animationsFolder:FindFirstChild("Walking")
-	if not (walking and walking:IsA("Animation")) then
-		return nil
-	end
-
-	local animator = getAnimator(model)
-	if not animator then
-		return nil
-	end
-
-	local ok, track = pcall(function()
-		return animator:LoadAnimation(walking)
-	end)
-	if not ok or not track then
-		return nil
-	end
-
-	track.Looped = true
-	track:Play()
-
-	local destroyingConn
-	destroyingConn = model.Destroying:Connect(function()
-		if destroyingConn then
-			destroyingConn:Disconnect()
-		end
-		if track then
-			pcall(function()
-				track:Stop()
-			end)
-		end
-	end)
-
-	return function()
-		if destroyingConn then
-			destroyingConn:Disconnect()
-			destroyingConn = nil
-		end
-		if track then
-			pcall(function()
-				track:Stop()
-			end)
-		end
-	end
-end
-
 --- Find the winner's base anchor (by UserId) or return nil.
 local function findBaseAnchor(winner: Player): BasePart?
-	local bases = Context.Instances.Bases
+	local bases = serviceContext.Instances.Bases
 	if not bases then
 		return nil
 	end
@@ -542,195 +475,103 @@ local function findBaseAnchor(winner: Player): BasePart?
 	return nil
 end
 
---- Tween the model to the player's base and cleanup afterward.
-local function escortThenCleanup(e, winner: Player, mythlingId: string, baseAnchor: BasePart)
-	e.state = "ESCORT"
-	e.model:SetAttribute("State", "ESCORT")
-
-	sendTo(winner, "EscortStart", {
-		mythlingId = mythlingId,
-		baseCFrame = baseAnchor.CFrame,
-	})
-
-	local root = e.model.PrimaryPart
-
-	local path =
-		PathfindingService:CreatePath({ AgentRadius = 4, AgentHeight = 6, AgentCanJump = false, WaypointSpacing = 4 })
-
-	local success, errorMessage = pcall(function()
-		local dest = Vector3.new(baseAnchor.Position.X, root.Position.Y, baseAnchor.Position.Z)
-		path:ComputeAsync(root.Position, dest)
-	end)
-
-	if success then
-		local stopWalk = playWalkingAnimation(e.model)
-		for _, waypoint in pairs(path:GetWaypoints()) do
-			-------------------
-			-- local part = Instance.new("Part")
-			-- part.Material = "Neon"
-			-- part.Anchored = true
-			-- part.CanCollide = false
-			-- part.Shape = "Ball"
-			-- part.Position = waypoint.Position
-			-- part.Parent = game.Workspace
-			-------------------
-			local target = Vector3.new(waypoint.Position.X, root.Position.Y, waypoint.Position.Z)
-			local lookAt = Vector3.new(target.X, root.Position.Y, target.Z)
-			local faceCF = CFrame.lookAt(root.Position, lookAt)
-			local moveCF = CFrame.new(target) * (faceCF - faceCF.Position) -- apply orientation at destination
-			local dist = (target - root.Position).Magnitude
-			local t = math.max(dist / 4, 0.05)
-			local tween = TweenService:Create(root, TweenInfo.new(t, Enum.EasingStyle.Linear), { CFrame = moveCF })
-			tween:Play()
-			tween.Completed:Wait()
-		end
-		-- playWalkingAnimation returns nil when the model has no animator or no Walking
-		-- clip, so this must be guarded -- calling it unconditionally aborted the escort
-		-- and leaked the mythling model.
-		if stopWalk then
-			stopWalk()
-		end
-		destroyEntry(e)
-	else
-		log.warn(`Escort pathfinding failed: {errorMessage}`)
-		-- Still clean up, otherwise a failed path leaves the mythling stranded forever.
-		destroyEntry(e)
-	end
-
-	-- local tween = TweenService:Create(
-	-- 	root,
-	-- 	TweenInfo.new(10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, 2),
-	-- 	{ CFrame = CFrame.new(baseAnchor.Position + Vector3.new(0, 2, 0)) }
-	-- )
-	-- tween:Play()
-
-	-- tween.Completed:Connect(function()
-	-- 	if stopWalk then
-	-- 		stopWalk()
-	-- 	end
-	-- end)
-
-	-- task.delay(10.1, function()
-	-- 	if stopWalk then
-	-- 		stopWalk()
-	-- 	end
-	-- 	sendTo(winner, "EscortArrived", { mythlingId = mythlingId })
-	-- 	destroyEntry(e)
-	-- 	Active[mythlingId] = nil
-	-- 	if Context.Services and Context.Services.ClaimService and Context.Services.ClaimService.OnMythlingRemoved then
-	-- 		Context.Services.ClaimService.OnMythlingRemoved(mythlingId)
-	-- 	end
-	-- end)
-end
-
---- Cleanup path when there's no base anchor available.
-local function cleanupSoon(e, mythlingId: string)
-	task.delay(1, function()
-		destroyEntry(e)
-		Active[mythlingId] = nil
-	end)
-end
-
 --// Public API ----------------------------------------------------------------
 
 --- Builds rarity->typeId lookup from Config and seeds RNG.
-function MythlingSpawnService.Init(context)
-	Context = context
+function MythlingSpawnService.Init(context: ServerTypes.Context)
+	serviceContext = context
 	MythlingsData = context.Configurations.Mythlings
 
 	math.randomseed(tick() % 1 * 1e7)
 
-	local weights = Context.Configurations.MythlingSpawns.RarityWeights or {}
+	local weights = serviceContext.Configurations.MythlingSpawns.rarityWeights or {}
 
-	for typeId, def in pairs(Context.Configurations.Mythlings) do
+	for typeId, def in pairs(serviceContext.Configurations.Mythlings) do
 		local rarity = def.rarity
 		if rarity and weights[rarity] ~= nil then
-			TypesByRarity[rarity] = TypesByRarity[rarity] or {}
-			table.insert(TypesByRarity[rarity], typeId)
+			typesByRarity[rarity] = typesByRarity[rarity] or {}
+			table.insert(typesByRarity[rarity], typeId)
 		elseif rarity == nil then
 			log.warn(`Mythling '{typeId}' is missing a rarity`)
 		else
-			log.warn(`Rarity '{rarity}' on '{typeId}' has no weight in MythlingSpawns.RarityWeights`)
+			log.warn(
+				`Rarity '{rarity}' on '{typeId}' has no weight in MythlingSpawns.rarityWeights`
+			)
 		end
 	end
 
-	-- Only roll rarities that can actually produce a mythling. MythlingSpawns.RarityWeights lists
-	-- Epic and Secret, but no mythling declares them, so those rolls used to pick a rarity
-	-- and then fail with "No typeIds for rarity" -- silently wasting spawn attempts.
-	table.clear(SpawnableWeights)
+	-- Filter configured rarities without a matching form so they cannot waste a spawn attempt.
+	table.clear(spawnableWeights)
 	for rarity, weight in pairs(weights) do
-		if TypesByRarity[rarity] and #TypesByRarity[rarity] > 0 then
-			SpawnableWeights[rarity] = weight
+		if typesByRarity[rarity] and #typesByRarity[rarity] > 0 then
+			spawnableWeights[rarity] = weight
 		end
 	end
 
-	if next(SpawnableWeights) == nil then
+	if next(spawnableWeights) == nil then
 		log.error("No spawnable rarities; nothing will spawn")
 	end
 end
 
 --- Starts the spawn/expire pumps. Spawns at most one mythling per tick (no prefill).
 function MythlingSpawnService.Start()
-	if running then
+	if not lifecycle:Start() then
 		return
 	end
-	running = true
 
-	local cfg = Context.Configurations.MythlingSpawns
+	local cfg = serviceContext.Configurations.MythlingSpawns
 
 	local function rollInterval(): number
-		return math.random(cfg.SpawnIntervalMin, cfg.SpawnIntervalMax)
+		return math.random(cfg.spawnIntervalMin, cfg.spawnIntervalMax)
 	end
 
 	nextSpawnAt = timeNow() + rollInterval()
 
 	-- Spawn pump. Polls on a short fixed tick and gates on the deadline, so the interval
 	-- only advances when a spawn actually happens.
-	threads.spawn = task.spawn(function()
-		while running do
+	lifecycle.trove:Add(task.defer(function()
+		while lifecycle:IsRunning() do
 			task.wait(0.5)
 
 			if timeNow() >= nextSpawnAt then
 				-- Count current live
 				local live = 0
-				for _, e in pairs(Active) do
+				for _, e in pairs(activeMythlings) do
 					if e.state ~= "DESPAWNED" then
 						live += 1
 					end
 				end
 
-				if live < cfg.TargetActive and spawnOne() then
+				if live < cfg.targetActive and spawnOne() then
 					nextSpawnAt = timeNow() + rollInterval()
 				end
 			end
 		end
-	end)
+	end))
 
 	-- Expire pump: check every 0.5s
-	threads.expire = task.spawn(function()
-		while running do
+	lifecycle.trove:Add(task.defer(function()
+		while lifecycle:IsRunning() do
 			task.wait(0.5)
 			despawnExpired(timeNow())
 		end
-	end)
+	end))
 end
 
 --- Stops pumps and clears all active mythlings.
 function MythlingSpawnService.Stop()
-	running = false
-	for key, th in pairs(threads) do
-		pcall(task.cancel, th)
-		threads[key] = nil
+	if not lifecycle:Stop() then
+		return
 	end
-	for _, e in pairs(Active) do
+	for _, e in pairs(activeMythlings) do
 		destroyEntry(e)
 	end
-	table.clear(Active)
+	table.clear(activeMythlings)
 end
 
 --- Called after a mythling is claimed and saved (winner decided).
 function MythlingSpawnService.OnClaimed(mythlingId: string, winner: Player)
-	local e = Active[mythlingId]
+	local e = activeMythlings[mythlingId]
 	if not e or e.state == "DESPAWNED" then
 		return
 	end
@@ -748,15 +589,25 @@ function MythlingSpawnService.OnClaimed(mythlingId: string, winner: Player)
 	-- 3) escort to base if possible, otherwise cleanup shortly
 	local baseAnchor = findBaseAnchor(winner)
 	if baseAnchor and e.model.PrimaryPart then
-		escortThenCleanup(e, winner, mythlingId, baseAnchor)
+		e.state = "ESCORT"
+		e.model:SetAttribute("State", "ESCORT")
+		sendTo(winner, "EscortStart", { mythlingId = mythlingId, baseCFrame = baseAnchor.CFrame })
+		ClaimEscort.Start(e, baseAnchor, encounterTroves[mythlingId], function()
+			destroyEntry(e)
+		end)
 	else
-		cleanupSoon(e, mythlingId)
+		local owner = encounterTroves[mythlingId]
+		owner:Add(task.delay(1, function()
+			owner:Pop(coroutine.running())
+			destroyEntry(e)
+			activeMythlings[mythlingId] = nil
+		end))
 	end
 end
 
 --- Returns the Active table (read-only by convention).
 function MythlingSpawnService.GetActiveMythlings()
-	return Active
+	return activeMythlings
 end
 
 return MythlingSpawnService

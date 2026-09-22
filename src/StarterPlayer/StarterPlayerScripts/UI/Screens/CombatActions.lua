@@ -1,10 +1,12 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Screens/CombatActions
 
+local Fusion = require(game:GetService("ReplicatedStorage").Packages.Fusion)
+
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Types = require(script.Parent.Parent.Parent.Types)
 
 local NORMAL_BUTTON_COLOR = Color3.fromRGB(60, 60, 64)
 local FALLBACK_JUMP_SIZE = 70
@@ -46,7 +48,7 @@ local function createButton(root: Frame, name: string): (ImageButton, Frame)
 	return button, icon
 end
 
-local function CombatActions(scope: any, props: Props): ScreenGui
+local function CombatActions(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenGui
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local screenGui = scope:New("ScreenGui")({
 		Name = "CombatActionGui",
@@ -97,10 +99,14 @@ local function CombatActions(scope: any, props: Props): ScreenGui
 		local radialOffset = jumpSize / 2 + JUMP_GAP + actionSize / 2
 		attackButton.Size = UDim2.fromOffset(actionSize, actionSize)
 		shieldButton.Size = UDim2.fromOffset(actionSize, actionSize)
-		attackButton.Position =
-			UDim2.fromOffset(jumpCenter.X - radialOffset - origin.X, jumpCenter.Y - CLUSTER_INSET - origin.Y)
-		shieldButton.Position =
-			UDim2.fromOffset(jumpCenter.X - CLUSTER_INSET - origin.X, jumpCenter.Y - radialOffset - origin.Y)
+		attackButton.Position = UDim2.fromOffset(
+			jumpCenter.X - radialOffset - origin.X,
+			jumpCenter.Y - CLUSTER_INSET - origin.Y
+		)
+		shieldButton.Position = UDim2.fromOffset(
+			jumpCenter.X - CLUSTER_INSET - origin.X,
+			jumpCenter.Y - radialOffset - origin.Y
+		)
 	end
 
 	local unbind = props.combatController.BindView({

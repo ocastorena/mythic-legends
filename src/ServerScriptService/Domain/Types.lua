@@ -1,0 +1,96 @@
+--!strict
+-- ServerScriptService/Domain/Types
+-- Server-only protocols. Saved records and wire payloads retain their shared owner.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SharedTypes = require(ReplicatedStorage.Shared.Types)
+
+export type PlayerData = SharedTypes.PlayerDoc
+export type Mythlings = { [string]: SharedTypes.MythlingEntry }
+export type Materials = { [string]: SharedTypes.MaterialEntry }
+export type InventorySession = {
+	mythlings: Mythlings?,
+	materials: Materials?,
+}
+export type InventorySessions = { [number]: InventorySession }
+export type DataApi = {
+	Load: (Player) -> boolean,
+	Release: (Player) -> (),
+	GetData: (Player) -> PlayerData,
+	GetLoadedData: (Player) -> PlayerData?,
+	MarkDirty: (Player) -> boolean,
+	SaveNow: (Player) -> boolean,
+}
+export type ProductionApi = {
+	GetProduction: (Player, number) -> SharedTypes.ProductionStatus?,
+	CollectProduction: (Player, number) -> (boolean, string?, SharedTypes.ProductionCollection?),
+	SettleProduction: (Player, number) -> (boolean, string?),
+}
+export type InventoryApi = {
+	SaveWonMythling: (Player, { typeId: string, variantId: string }) -> string?,
+	GetMythling: (Player, string) -> SharedTypes.MythlingEntry?,
+	MarkDirty: (Player) -> boolean,
+	AddMaterial: (Player, string, number) -> (),
+}
+export type BaseApi = {
+	HasStand: (Player, number) -> boolean,
+	RemoveMythlingFromStand: (Player, string) -> boolean,
+}
+export type SpawnEntry = {
+	id: string,
+	displayName: string,
+	model: Model,
+	zone: BasePart?,
+	typeId: string,
+	variantId: string,
+	rarity: string,
+	radius: number,
+	fillRate: number,
+	drainRate: number,
+	expireAt: number,
+	state: "SPAWNED" | "CONTEST" | "CLAIMED" | "ESCORT" | "DESPAWNED",
+	ownerUserId: number?,
+	claimed: boolean?,
+	claiming: boolean?,
+}
+export type SpawnApi = {
+	GetActiveMythlings: () -> { [string]: SpawnEntry },
+	OnClaimed: (string, Player) -> (),
+}
+export type Services = {
+	DataService: DataApi,
+	InventoryService: InventoryApi,
+	BaseService: BaseApi,
+	ProductionService: ProductionApi,
+	MythlingSpawnService: SpawnApi,
+}
+export type Context = {
+	Instances: {
+		Runtime: Instance,
+		Arena: BasePart,
+		Mythlings: Instance,
+		Bases: Folder,
+		BaseIslands: Folder,
+		Visuals: Instance,
+		MythlingAssets: Folder,
+		BaseAssets: Instance,
+		EquipmentAssets: Folder,
+		Templates: Instance,
+	},
+	Configurations: {
+		Mythlings: { [string]: SharedTypes.MythlingDef },
+		Equipment: SharedTypes.EquipmentConfiguration,
+		MythlingSpawns: SharedTypes.MythlingSpawnConfiguration,
+		Materials: { [string]: SharedTypes.MaterialDef },
+		Consumables: { [string]: SharedTypes.ConsumableDef },
+	},
+	Remotes: SharedTypes.Network,
+	Services: Services,
+}
+export type Service = {
+	Init: (Context) -> (),
+	Start: () -> (),
+	Stop: () -> (),
+}
+
+return {}

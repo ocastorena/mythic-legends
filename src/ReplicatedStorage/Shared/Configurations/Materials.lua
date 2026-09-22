@@ -1,6 +1,9 @@
 --!strict
 -- ReplicatedStorage/Shared/Configurations/Materials
-return {
+
+local FreezeUtil = require(script.Parent.Parent.FreezeUtil)
+local Types = require(script.Parent.Parent.Types)
+local Materials: { [string]: Types.MaterialDef } = {
 	essence = {
 		displayName = "Essence",
 		category = "material",
@@ -23,3 +26,5 @@ return {
 		description = "An eerie residue shed by Shadow Satyrs when they move between light and darkness. These elusive Mythlings exist partially out of phase with reality, leaving behind a fine, obsidian-like powder wherever their bodies slip through shadow. The dust absorbs light naturally, and when stirred, it behaves almost like liquid night.",
 	},
 }
+
+return FreezeUtil.DeepFreeze(Materials)

@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Motion
 
 local TweenService = game:GetService("TweenService")
@@ -31,7 +32,7 @@ export type MenuTransition = {
 	Destroy: () -> (),
 }
 
-local activeTweens: { [Instance]: Tween } = setmetatable({}, { __mode = "k" })
+local activeTweens = setmetatable({} :: { [Instance]: Tween }, { __mode = "k" })
 
 function Motion.IsReduced(): boolean
 	local ok, reducedMotion = pcall(function()
@@ -45,14 +46,23 @@ local function cancelTween(instance: Instance)
 	if tween then
 		activeTweens[instance] = nil
 		tween:Cancel()
+		tween:Destroy()
 	end
 end
 
-local function playTween(instance: Instance, tweenInfo: TweenInfo, goal: { [string]: any }): Tween
+local function playTween(
+	instance: Instance,
+	tweenInfo: TweenInfo,
+	goal: { [string]: UDim2 | number }
+): Tween
 	cancelTween(instance)
 	local tween = TweenService:Create(instance, tweenInfo, goal)
 	activeTweens[instance] = tween
+	local destroyConnection = instance.Destroying:Once(function()
+		cancelTween(instance)
+	end)
 	tween.Completed:Once(function()
+		destroyConnection:Disconnect()
 		if activeTweens[instance] == tween then
 			activeTweens[instance] = nil
 		end
@@ -65,6 +75,7 @@ function Motion.CreateMenuTransition(config: MenuTransitionConfig): MenuTransiti
 	local screenGui = config.screenGui
 	local motionRoot = config.motionRoot
 	local isOpen = false
+	local isDestroyed = false
 	local generation = 0
 
 	screenGui.Enabled = false
@@ -72,7 +83,7 @@ function Motion.CreateMenuTransition(config: MenuTransitionConfig): MenuTransiti
 	motionRoot.GroupTransparency = 0
 
 	local function finishClose(closeGeneration: number)
-		if generation ~= closeGeneration or isOpen then
+		if isDestroyed or generation ~= closeGeneration or isOpen then
 			return
 		end
 		screenGui.Enabled = false
@@ -85,19 +96,20 @@ function Motion.CreateMenuTransition(config: MenuTransitionConfig): MenuTransiti
 	end
 
 	local function open(skipAnimation: boolean?)
-		if isOpen then
+		if isDestroyed or isOpen then
 			return
 		end
 
 		local wasVisible = screenGui.Enabled
 		isOpen = true
 		generation += 1
+		local openGeneration = generation
 		cancelTween(motionRoot)
 
 		if config.onOpen then
 			config.onOpen()
 		end
-		if not isOpen then
+		if isDestroyed or not isOpen or generation ~= openGeneration then
 			return
 		end
 
@@ -127,6 +139,9 @@ function Motion.CreateMenuTransition(config: MenuTransitionConfig): MenuTransiti
 	end
 
 	local function close(skipAnimation: boolean?)
+		if isDestroyed then
+			return
+		end
 		if not isOpen and not screenGui.Enabled then
 			return
 		end
@@ -148,7 +163,8 @@ function Motion.CreateMenuTransition(config: MenuTransitionConfig): MenuTransiti
 		local tween
 		if Motion.IsReduced() then
 			motionRoot.Position = UDim2.new()
-			tween = playTween(motionRoot, TweenInfo.new(REDUCED_MOTION_TIME), { GroupTransparency = 1 })
+			tween =
+				playTween(motionRoot, TweenInfo.new(REDUCED_MOTION_TIME), { GroupTransparency = 1 })
 		else
 			motionRoot.GroupTransparency = 0
 			tween = playTween(
@@ -166,6 +182,10 @@ function Motion.CreateMenuTransition(config: MenuTransitionConfig): MenuTransiti
 	end
 
 	local function destroy()
+		if isDestroyed then
+			return
+		end
+		isDestroyed = true
 		generation += 1
 		isOpen = false
 		cancelTween(motionRoot)
@@ -199,12 +219,37 @@ function Motion.TransitionTab(
 	nextPage: { GuiObject },
 	direction: number,
 	onComplete: (() -> ())?
-)
+): () -> ()
+	local isAlive = true
+	local connections: { RBXScriptConnection } = {}
+	local function cancel()
+		if not isAlive then
+			return
+		end
+		isAlive = false
+		for _, connection in connections do
+			connection:Disconnect()
+		end
+		table.clear(connections)
+		for _, object in previous do
+			cancelTween(object)
+		end
+		for _, object in nextPage do
+			cancelTween(object)
+		end
+	end
+	local function complete()
+		if isAlive and onComplete then
+			onComplete()
+		end
+	end
 	for _, object in previous do
+		table.insert(connections, object.Destroying:Once(cancel))
 		prepareTabObject(object)
 		object.Visible = true
 	end
 	for _, object in nextPage do
+		table.insert(connections, object.Destroying:Once(cancel))
 		prepareTabObject(object)
 		object.Visible = true
 	end
@@ -213,8 +258,8 @@ function Motion.TransitionTab(
 		local pending = #previous
 		local function completePrevious()
 			pending -= 1
-			if pending == 0 and onComplete then
-				onComplete()
+			if pending == 0 then
+				complete()
 			end
 		end
 
@@ -226,9 +271,10 @@ function Motion.TransitionTab(
 
 		for _, object in previous do
 			if object:IsA("CanvasGroup") then
-				local tween = playTween(object, TweenInfo.new(REDUCED_MOTION_TIME), { GroupTransparency = 1 })
+				local tween =
+					playTween(object, TweenInfo.new(REDUCED_MOTION_TIME), { GroupTransparency = 1 })
 				tween.Completed:Once(function(playbackState)
-					if playbackState == Enum.PlaybackState.Completed then
+					if isAlive and playbackState == Enum.PlaybackState.Completed then
 						object.Visible = false
 						object.GroupTransparency = 0
 						completePrevious()
@@ -244,10 +290,10 @@ function Motion.TransitionTab(
 				playTween(object, TweenInfo.new(REDUCED_MOTION_TIME), { GroupTransparency = 0 })
 			end
 		end
-		if #previous == 0 and onComplete then
-			onComplete()
+		if #previous == 0 then
+			complete()
 		end
-		return
+		return cancel
 	end
 
 	for _, object in nextPage do
@@ -266,19 +312,20 @@ function Motion.TransitionTab(
 			{ Position = UDim2.fromScale(-direction, 0) }
 		)
 		tween.Completed:Once(function(playbackState)
-			if playbackState == Enum.PlaybackState.Completed then
+			if isAlive and playbackState == Enum.PlaybackState.Completed then
 				object.Visible = false
 				object.Position = UDim2.new()
 				pending -= 1
-				if pending == 0 and onComplete then
-					onComplete()
+				if pending == 0 then
+					complete()
 				end
 			end
 		end)
 	end
-	if #previous == 0 and onComplete then
-		onComplete()
+	if #previous == 0 then
+		complete()
 	end
+	return cancel
 end
 
 return Motion

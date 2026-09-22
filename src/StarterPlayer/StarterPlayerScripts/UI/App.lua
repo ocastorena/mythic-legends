@@ -1,8 +1,9 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/App
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Fusion = require(game:GetService("ReplicatedStorage").Packages.Fusion)
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Types = require(script.Parent.Parent.Types)
 local HUD = require(script.Parent:WaitForChild("Screens"):WaitForChild("HUD"))
 local Hotbar = require(script.Parent:WaitForChild("Screens"):WaitForChild("Hotbar"))
 local CombatActions = require(script.Parent:WaitForChild("Screens"):WaitForChild("CombatActions"))
@@ -20,7 +21,7 @@ export type Props = {
 	combatController: Types.CombatControllerApi,
 }
 
-local function App(scope: any, props: Props): { ScreenGui }
+local function App(scope: Fusion.Scope<typeof(Fusion)>, props: Props): { ScreenGui }
 	local modalBackdrop = ModalBackdrop(scope)
 	local toast = Toast(scope)
 	local inventory = Inventory(scope, props)

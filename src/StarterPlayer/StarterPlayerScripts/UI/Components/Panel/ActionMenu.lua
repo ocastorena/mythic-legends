@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Components/Panel/ActionMenu
 
 local UserInputService = game:GetService("UserInputService")
@@ -7,10 +8,10 @@ local Primitives = require(script.Parent.Primitives)
 
 local ActionMenu = {}
 
-local Metric = Theme.Metric
-local Radius = Theme.Radius
-local Surface = Theme.Surface
-local Em = Theme.Em
+local metric = Theme.metric
+local radius = Theme.radius
+local surfaces = Theme.surface
+local em = Theme.em
 
 export type Item = {
 	id: string,
@@ -45,31 +46,31 @@ end
 
 function ActionMenu.Create(config: Config): Menu
 	local itemCount = #config.items
-	local menuHeight = 2 * Metric.actionMenuPadding
-		+ itemCount * Metric.actionMenuItemHeight
-		+ math.max(0, itemCount - 1) * Metric.actionMenuGap
+	local menuHeight = 2 * metric.actionMenuPadding
+		+ itemCount * metric.actionMenuItemHeight
+		+ math.max(0, itemCount - 1) * metric.actionMenuGap
 
 	local popup = Primitives.NewFrame("ActionMenu", config.parent)
 	popup.AnchorPoint = Vector2.new(1, 1)
-	popup.Position = UDim2.new(1, 0, 1, -(Metric.buttonHeight + Metric.actionMenuOffset))
-	popup.Size = UDim2.fromOffset(Metric.actionMenuWidth, menuHeight)
-	popup.BackgroundColor3 = Surface.modal.color
-	popup.BackgroundTransparency = Surface.modal.transparency
+	popup.Position = UDim2.new(1, 0, 1, -(metric.buttonHeight + metric.actionMenuOffset))
+	popup.Size = UDim2.fromOffset(metric.actionMenuWidth, menuHeight)
+	popup.BackgroundColor3 = surfaces.modal.color
+	popup.BackgroundTransparency = surfaces.modal.transparency
 	popup.ClipsDescendants = true
 	popup.Visible = false
 	popup.ZIndex = 20
-	Theme.corner(popup, Radius.button)
-	Theme.padding(
+	Theme.Corner(popup, radius.button)
+	Theme.Padding(
 		popup,
-		Metric.actionMenuPadding,
-		Metric.actionMenuPadding,
-		Metric.actionMenuPadding,
-		Metric.actionMenuPadding
+		metric.actionMenuPadding,
+		metric.actionMenuPadding,
+		metric.actionMenuPadding,
+		metric.actionMenuPadding
 	)
-	local stroke = Theme.ring(popup, Theme.Text.strong, 1)
+	local stroke = Theme.Ring(popup, Theme.textColors.strong, 1)
 	stroke.Transparency = 0.82
 
-	local layout = Primitives.NewList(popup, Enum.FillDirection.Vertical, Metric.actionMenuGap)
+	local layout = Primitives.NewList(popup, Enum.FillDirection.Vertical, metric.actionMenuGap)
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.VerticalAlignment = Enum.VerticalAlignment.Top
 
@@ -78,35 +79,35 @@ function ActionMenu.Create(config: Config): Menu
 		local enabled = item.enabled ~= false
 		local button = Instance.new("TextButton")
 		button.Name = item.id
-		button.Size = UDim2.new(1, 0, 0, Metric.actionMenuItemHeight)
+		button.Size = UDim2.new(1, 0, 0, metric.actionMenuItemHeight)
 		button.AutoButtonColor = false
 		button.Active = enabled
 		button.Selectable = enabled
 		button.BorderSizePixel = 0
-		button.BackgroundColor3 = Surface.chipStrong.color
+		button.BackgroundColor3 = surfaces.chipStrong.color
 		button.BackgroundTransparency = 1
 		button.Text = ""
 		button.LayoutOrder = index
 		button.ZIndex = 21
 		button.Parent = popup
-		Theme.corner(button, Radius.buttonSmall)
+		Theme.Corner(button, radius.buttonSmall)
 
 		local row = Primitives.NewFrame("Content", button)
 		row.Size = UDim2.fromScale(1, 1)
 		row.ZIndex = 22
-		Theme.padding(row, 0, 12, 0, 12)
+		Theme.Padding(row, 0, 12, 0, 12)
 		local rowLayout = Primitives.NewList(row, Enum.FillDirection.Horizontal, 10)
 		rowLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 
 		if item.icon then
 			local icon = Instance.new("ImageLabel")
 			icon.Name = "Icon"
-			icon.Size = UDim2.fromOffset(Metric.actionMenuIconSize, Metric.actionMenuIconSize)
+			icon.Size = UDim2.fromOffset(metric.actionMenuIconSize, metric.actionMenuIconSize)
 			icon.BackgroundTransparency = 1
 			icon.BorderSizePixel = 0
 			icon.Image = item.icon
-			icon.ImageColor3 = item.iconColor or Theme.Text.strong
-			icon.ImageTransparency = if enabled then 0 else Theme.Text.dimTransparency
+			icon.ImageColor3 = item.iconColor or Theme.textColors.strong
+			icon.ImageTransparency = if enabled then 0 else Theme.textColors.dimTransparency
 			icon.ScaleType = Enum.ScaleType.Fit
 			icon.LayoutOrder = 1
 			icon.ZIndex = 22
@@ -115,18 +116,18 @@ function ActionMenu.Create(config: Config): Menu
 
 		local label = Primitives.NewLabel("Label", row)
 		label.AutomaticSize = Enum.AutomaticSize.XY
-		label.Size = UDim2.new(1, -(Metric.actionMenuIconSize + 10), 1, 0)
-		label.FontFace = Theme.Font.bold
+		label.Size = UDim2.new(1, -(metric.actionMenuIconSize + 10), 1, 0)
+		label.FontFace = Theme.font.bold
 		label.Text = item.label
-		label.TextColor3 = if enabled then Theme.Text.strong else Theme.Text.dim
-		label.TextTransparency = if enabled then 0 else Theme.Text.dimTransparency
+		label.TextColor3 = if enabled then Theme.textColors.strong else Theme.textColors.dim
+		label.TextTransparency = if enabled then 0 else Theme.textColors.dimTransparency
 		label.LayoutOrder = 2
 		label.ZIndex = 22
-		Primitives.SetText(label, Em.body, config.root)
+		Primitives.SetText(label, em.body, config.root)
 
 		if enabled then
 			button.MouseEnter:Connect(function()
-				button.BackgroundTransparency = Surface.chipStrong.transparency
+				button.BackgroundTransparency = surfaces.chipStrong.transparency
 			end)
 			button.MouseLeave:Connect(function()
 				button.BackgroundTransparency = 1

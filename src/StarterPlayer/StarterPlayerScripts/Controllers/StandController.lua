@@ -1,3 +1,4 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/StandController
 
 local CollectionService = game:GetService("CollectionService")
@@ -5,14 +6,17 @@ local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Types = require(script.Parent.Parent.Types)
+local Trove = require(ReplicatedStorage.Packages.Trove)
 
 local StandController = {}
 
-local initialized = false
-local running = false
-local promptConnection: RBXScriptConnection?
-local promptAddedConnection: RBXScriptConnection?
+local isInitialized = false
+local isRunning = false
+local lifetime = Trove.new()
+local hasStopped = false
+local generation = 0
+local promptStates: { [ProximityPrompt]: boolean } = {}
 local standRequested: BindableEvent
 local getStatus: RemoteFunction
 local collect: RemoteFunction
@@ -21,8 +25,28 @@ local removeMythling: RemoteFunction
 local TAG = "StandPrompt"
 
 local function enableOwnedPrompt(instance: Instance)
-	if instance:IsA("ProximityPrompt") and instance:GetAttribute("OwnerId") == Players.LocalPlayer.UserId then
+	if
+		instance:IsA("ProximityPrompt")
+		and instance:GetAttribute("OwnerId") == Players.LocalPlayer.UserId
+	then
+		if promptStates[instance] == nil then
+			promptStates[instance] = instance.Enabled
+		end
 		instance.Enabled = true
+	end
+end
+
+local function releasePrompt(instance: Instance)
+	if not instance:IsA("ProximityPrompt") then
+		return
+	end
+	local wasEnabled = promptStates[instance]
+	if wasEnabled == nil then
+		return
+	end
+	promptStates[instance] = nil
+	if instance.Enabled then
+		instance.Enabled = wasEnabled
 	end
 end
 
@@ -35,7 +59,11 @@ local function validMythlingId(value: unknown): boolean
 end
 
 local function invokeAction(remote: RemoteFunction, payload: unknown, actionName: string): boolean
+	local requestGeneration = generation
 	local ok, response = pcall(remote.InvokeServer, remote, payload)
+	if hasStopped or requestGeneration ~= generation then
+		return false
+	end
 	if not ok then
 		warn(`[StandController] {actionName} request failed`)
 		return false
@@ -44,10 +72,10 @@ local function invokeAction(remote: RemoteFunction, payload: unknown, actionName
 end
 
 function StandController.Init(_context: Types.ClientContext)
-	if initialized then
+	if isInitialized then
 		return
 	end
-	initialized = true
+	isInitialized = true
 	standRequested = Instance.new("BindableEvent")
 	StandController.OnStandRequested = standRequested.Event
 
@@ -61,17 +89,19 @@ function StandController.Init(_context: Types.ClientContext)
 end
 
 function StandController.Start()
-	assert(initialized, "[StandController] Init must run before Start")
-	if running then
+	assert(isInitialized, "[StandController] Init must run before Start")
+	assert(not hasStopped, "[StandController] Stop ends this controller's signal lifetime")
+	if isRunning then
 		return
 	end
-	running = true
+	isRunning = true
 	for _, instance in CollectionService:GetTagged(TAG) do
 		enableOwnedPrompt(instance)
 	end
-	promptAddedConnection = CollectionService:GetInstanceAddedSignal(TAG):Connect(enableOwnedPrompt)
+	lifetime:Connect(CollectionService:GetInstanceAddedSignal(TAG), enableOwnedPrompt)
+	lifetime:Connect(CollectionService:GetInstanceRemovedSignal(TAG), releasePrompt)
 
-	promptConnection = ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
+	lifetime:Connect(ProximityPromptService.PromptTriggered, function(prompt: ProximityPrompt)
 		if not CollectionService:HasTag(prompt, TAG) then
 			return
 		end
@@ -89,11 +119,15 @@ function StandController.Start()
 end
 
 function StandController.GetProductionStatus(standId: number): Types.ProductionStatus?
-	assert(initialized, "[StandController] Init must run before GetProductionStatus")
+	assert(isInitialized, "[StandController] Init must run before GetProductionStatus")
 	if not validStandId(standId) then
 		return nil
 	end
+	local requestGeneration = generation
 	local ok, response = pcall(getStatus.InvokeServer, getStatus, standId)
+	if hasStopped or requestGeneration ~= generation then
+		return nil
+	end
 	if not ok then
 		warn("[StandController] Production status request failed")
 		return nil
@@ -117,11 +151,15 @@ function StandController.GetProductionStatus(standId: number): Types.ProductionS
 end
 
 function StandController.Collect(standId: number): Types.ProductionCollection?
-	assert(initialized, "[StandController] Init must run before Collect")
+	assert(isInitialized, "[StandController] Init must run before Collect")
 	if not validStandId(standId) then
 		return nil
 	end
+	local requestGeneration = generation
 	local ok, response = pcall(collect.InvokeServer, collect, standId)
+	if hasStopped or requestGeneration ~= generation then
+		return nil
+	end
 	if not ok then
 		warn("[StandController] Collect request failed")
 		return nil
@@ -130,14 +168,18 @@ function StandController.Collect(standId: number): Types.ProductionCollection?
 		return nil
 	end
 	local value = response.value
-	if type(value.collected) ~= "number" or type(value.remaining) ~= "number" or type(value.materials) ~= "table" then
+	if
+		type(value.collected) ~= "number"
+		or type(value.remaining) ~= "number"
+		or type(value.materials) ~= "table"
+	then
 		return nil
 	end
 	return value
 end
 
 function StandController.Place(standId: number, mythlingId: string): boolean
-	assert(initialized, "[StandController] Init must run before Place")
+	assert(isInitialized, "[StandController] Init must run before Place")
 	if not validStandId(standId) or not validMythlingId(mythlingId) then
 		return false
 	end
@@ -145,22 +187,173 @@ function StandController.Place(standId: number, mythlingId: string): boolean
 end
 
 function StandController.Remove(standId: number, mythlingId: string): boolean
-	assert(initialized, "[StandController] Init must run before Remove")
+	assert(isInitialized, "[StandController] Init must run before Remove")
 	if not validStandId(standId) or not validMythlingId(mythlingId) then
 		return false
 	end
 	return invokeAction(removeMythling, { standId = standId, mythlingId = mythlingId }, "Remove")
 end
 
-function StandController.Stop()
-	running = false
-	if promptConnection then
-		promptConnection:Disconnect()
-		promptConnection = nil
+function StandController.BindSession(props: Types.StandSessionProps): Types.StandSession
+	assert(isInitialized and not hasStopped, "[StandController] A live controller is required")
+	local sessionLifetime = lifetime:Extend()
+	local requests = sessionLifetime:Extend()
+	local selectedStand: number? = nil
+	local sessionGeneration = 0
+	local isDestroyed = false
+	local isPending = false
+	local isRequesting = false
+	local isQueued = false
+	local needsRefresh = false
+	local function isCurrent(expected: number, standId: number): boolean
+		return not isDestroyed and expected == sessionGeneration and selectedStand == standId
 	end
-	if promptAddedConnection then
-		promptAddedConnection:Disconnect()
-		promptAddedConnection = nil
+	local function close()
+		sessionGeneration += 1
+		selectedStand = nil
+		requests:Clean()
+		isPending = false
+		isRequesting = false
+		isQueued = false
+		needsRefresh = false
+	end
+	local function refresh()
+		local standId = selectedStand
+		if isDestroyed or standId == nil then
+			return
+		end
+		if isPending or isRequesting then
+			needsRefresh = true
+			return
+		end
+		if isQueued then
+			return
+		end
+		isQueued = true
+		local expected = sessionGeneration
+		requests:Add(task.defer(function()
+			isQueued = false
+			if not isCurrent(expected, standId) then
+				return
+			end
+			isRequesting = true
+			local status = StandController.GetProductionStatus(standId)
+			if not isCurrent(expected, standId) then
+				return
+			end
+			isRequesting = false
+			props.onStatus(status)
+			if needsRefresh then
+				needsRefresh = false
+				refresh()
+			end
+			requests:Pop(coroutine.running())
+		end))
+	end
+	local function perform(action: (number, () -> boolean) -> ())
+		local standId = selectedStand
+		if isDestroyed or standId == nil or isPending then
+			return
+		end
+		-- Replies started before a mutation cannot describe its new state.
+		sessionGeneration += 1
+		requests:Clean()
+		isRequesting = false
+		isQueued = false
+		needsRefresh = false
+		isPending = true
+		props.onPending(true)
+		local expected = sessionGeneration
+		requests:Add(task.defer(function()
+			local function current(): boolean
+				return isCurrent(expected, standId)
+			end
+			if not current() then
+				return
+			end
+			action(standId, current)
+			if not current() then
+				return
+			end
+			isPending = false
+			props.onPending(false)
+			refresh()
+			requests:Pop(coroutine.running())
+		end))
+	end
+	sessionLifetime:Add(function()
+		isDestroyed = true
+		sessionGeneration += 1
+	end)
+	return {
+		Open = function(standId: number)
+			if isDestroyed then
+				return
+			end
+			close()
+			selectedStand = standId
+			props.onPending(false)
+			refresh()
+		end,
+		Close = close,
+		Refresh = refresh,
+		Collect = function()
+			perform(function(standId, current)
+				local result = StandController.Collect(standId)
+				if current() then
+					props.onCollection(result)
+				end
+			end)
+		end,
+		Assign = function(selectedId: string, activeId: string?)
+			perform(function(standId, current)
+				if activeId then
+					local removed = StandController.Remove(standId, activeId)
+					if not current() or not removed then
+						return
+					end
+					props.onAssigned(nil)
+				end
+				local placed = StandController.Place(standId, selectedId)
+				if current() and placed then
+					props.onAssigned(selectedId)
+				end
+			end)
+		end,
+		Remove = function(activeId: string)
+			perform(function(standId, current)
+				local removed = StandController.Remove(standId, activeId)
+				if current() and removed then
+					props.onAssigned(nil)
+				end
+			end)
+		end,
+		Destroy = function()
+			if isDestroyed then
+				return
+			end
+			close()
+			isDestroyed = true
+			lifetime:Remove(sessionLifetime)
+		end,
+	}
+end
+
+-- Stop is terminal: UI consumers hold the one signal created during Init.
+function StandController.Stop()
+	if hasStopped then
+		return
+	end
+	hasStopped = true
+	isRunning = false
+	generation += 1
+	lifetime:Destroy()
+	for prompt in promptStates do
+		releasePrompt(prompt)
+	end
+	table.clear(promptStates)
+	if isInitialized then
+		standRequested:Destroy()
 	end
 end
 

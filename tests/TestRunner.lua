@@ -6,7 +6,17 @@ local Jest = require(script.Parent.DevPackages.Jest)
 
 local TestRunner = {}
 
-function TestRunner.Run(): any
+export type TestSummary = {
+	numTotalTestSuites: number,
+	numPassedTestSuites: number,
+	numFailedTestSuites: number,
+	numTotalTests: number,
+	numPassedTests: number,
+	numFailedTests: number,
+	numPendingTests: number,
+}
+
+function TestRunner.Run(): TestSummary
 	local status, result = Jest.runCLI(script.Parent, {
 		ci = false,
 		verbose = true,
@@ -16,7 +26,8 @@ function TestRunner.Run(): any
 		error(string.format("Jest Roblox failed to run: %s", tostring(result)), 2)
 	end
 
-	local results = result.results
+	-- Jest's promise boundary is dynamic; expose the runner's stable summary contract.
+	local results: TestSummary = result.results
 	if results.numFailedTestSuites > 0 or results.numFailedTests > 0 then
 		error(
 			string.format(

@@ -1,10 +1,14 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/UI/Screens/Stand
+
+local Fusion = require(game:GetService("ReplicatedStorage").Packages.Fusion)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local Types = require(script.Parent.Parent.Parent.Types)
+local SharedTypes = require(ReplicatedStorage.Shared.Types)
 local Ui = script.Parent.Parent
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local CardList = require(Ui:WaitForChild("Components"):WaitForChild("CardList"))
@@ -13,10 +17,16 @@ local Motion = require(Ui:WaitForChild("Motion"))
 local ToastBus = require(Ui:WaitForChild("State"):WaitForChild("ToastBus"))
 local Theme = require(Ui:WaitForChild("Theme"))
 local Panel = require(Ui:WaitForChild("Components"):WaitForChild("Panel"))
-local MythlingsMeta =
-	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Configurations"):WaitForChild("Mythlings"))
-local MaterialsMeta =
-	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Configurations"):WaitForChild("Materials"))
+local MythlingsMeta = require(
+	ReplicatedStorage:WaitForChild("Shared")
+		:WaitForChild("Configurations")
+		:WaitForChild("Mythlings")
+)
+local MaterialsMeta = require(
+	ReplicatedStorage:WaitForChild("Shared")
+		:WaitForChild("Configurations")
+		:WaitForChild("Materials")
+)
 
 export type Props = {
 	localData: Types.LocalDataApi,
@@ -25,16 +35,15 @@ export type Props = {
 
 local PANEL_NAME = "Stand"
 
-local function Stand(scope: any, props: Props): ScreenGui
-	local connections: { RBXScriptConnection } = scope
-	local alive = true
+local function Stand(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenGui
+	local connections = scope
 	-- Storage belongs to the stand and remains accessible independently of its worker.
 
 	local LocalData = props.localData
 	local standGui = scope:New("ScreenGui")({
 		Name = "StandGui",
 		Enabled = false,
-		DisplayOrder = Theme.Layer.panel,
+		DisplayOrder = Theme.layer.panel,
 		ResetOnSpawn = false,
 		IgnoreGuiInset = false,
 		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,
@@ -51,7 +60,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 	local panel = Panel.Create({
 		parent = standGui,
 		title = "Stand",
-		accent = Theme.Accent.gold,
+		accent = Theme.accent.gold,
 	})
 	local standLabel = panel.TitleLabel
 
@@ -61,10 +70,10 @@ local function Stand(scope: any, props: Props): ScreenGui
 	rosterLabel.Size = UDim2.new(1, 0, 0, 18)
 	rosterLabel.BackgroundTransparency = 1
 	rosterLabel.BorderSizePixel = 0
-	rosterLabel.FontFace = Theme.Font.extraBold
-	rosterLabel:SetAttribute("Em", Theme.Em.sectionLabel)
-	rosterLabel.TextSize = Theme.text(Theme.Em.sectionLabel, panel.Root)
-	rosterLabel.TextColor3 = Theme.Text.strong
+	rosterLabel.FontFace = Theme.font.extraBold
+	rosterLabel:SetAttribute("Em", Theme.em.sectionLabel)
+	rosterLabel.TextSize = Theme.Text(Theme.em.sectionLabel, panel.rootScale)
+	rosterLabel.TextColor3 = Theme.textColors.strong
 	rosterLabel.TextTransparency = 0.4
 	rosterLabel.TextXAlignment = Enum.TextXAlignment.Left
 	rosterLabel.Text = "Available Mythlings"
@@ -82,7 +91,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 	local mythlingCardTemplate = Panel.CreateCellTemplate({
 		parent = mythlingScrollFrame,
 		check = true,
-		root = panel.Root,
+		root = panel.rootScale,
 	})
 
 	local storage = Instance.new("Frame")
@@ -99,10 +108,10 @@ local function Stand(scope: any, props: Props): ScreenGui
 		label.Position = UDim2.fromOffset(0, y)
 		label.Size = UDim2.new(1, -6, 0, height)
 		label.BackgroundTransparency = 1
-		label.FontFace = Theme.Font.bold
-		label:SetAttribute("Em", Theme.Em.caption)
-		label.TextSize = Theme.text(Theme.Em.caption, panel.Root)
-		label.TextColor3 = Theme.Text.strong
+		label.FontFace = Theme.font.bold
+		label:SetAttribute("Em", Theme.em.caption)
+		label.TextSize = Theme.Text(Theme.em.caption, panel.rootScale)
+		label.TextColor3 = Theme.textColors.strong
 		label.TextXAlignment = Enum.TextXAlignment.Left
 		label.TextYAlignment = Enum.TextYAlignment.Top
 		label.Text = ""
@@ -127,14 +136,15 @@ local function Stand(scope: any, props: Props): ScreenGui
 	materialSummary.AutomaticSize = Enum.AutomaticSize.Y
 	materialSummary.TextWrapped = true
 	local productionLabel = storageText("ProductionState", storage, 68, 22)
-	local storageCollectButton = Panel.PrimaryButton(storage, "Collect", panel.Root, Theme.Accent.green)
+	local storageCollectButton =
+		Panel.PrimaryButton(storage, "Collect", panel.rootScale, Theme.accent.green)
 	storageCollectButton.Name = "CollectStoredMaterials"
 	storageCollectButton.Position = UDim2.fromOffset(0, 98)
 
 	local details = Panel.CreateDetails({
 		parent = panel.Details,
-		root = panel.Root,
-		accent = Theme.Accent.gold,
+		root = panel.rootScale,
+		accent = Theme.accent.gold,
 		stats = 2,
 		progress = true,
 		info = true,
@@ -143,7 +153,8 @@ local function Stand(scope: any, props: Props): ScreenGui
 	details.Root.Visible = true
 
 	local collectButton = details.PrimaryButton :: TextButton
-	local removeButton = Panel.SquareTextButton(details.Footer :: Frame, "−", panel.Root, Theme.Accent.red)
+	local removeButton =
+		Panel.SquareTextButton(details.Footer :: Frame, "−", panel.rootScale, Theme.accent.red)
 	removeButton.LayoutOrder = 2
 
 	--------------------------------------------------------------------------------
@@ -155,7 +166,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 	-- Instance so it survives the card list being rebuilt from the server.
 	local activeId: string? = nil
 	-- Populated below, once the card template and frame are known.
-	local mythlingList
+	local mythlingList: CardList.List<SharedTypes.MythlingEntry>
 
 	local productionTween: Tween? = nil
 	local progressValue = Instance.new("NumberValue")
@@ -163,9 +174,6 @@ local function Stand(scope: any, props: Props): ScreenGui
 	local productionStatus: Types.ProductionStatus? = nil
 	local productionUnavailable = false
 	local actionPending = false
-	local refreshQueued = false
-	local refreshInFlight = false
-	local viewGeneration = 0
 
 	--------------------------------------------------------------------------------
 	-- Helpers
@@ -188,7 +196,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 		Panel.SetButtonEnabled(
 			storageCollectButton,
 			not actionPending and (productionUnavailable or canCollect()),
-			Theme.Accent.green
+			Theme.accent.green
 		)
 		if not status then
 			storageTitle.Text = "Stored Materials"
@@ -226,11 +234,13 @@ local function Stand(scope: any, props: Props): ScreenGui
 			details.ProgressLabel.Text = "Unfinished"
 		end
 		if details.ProgressDetail then
-			details.ProgressDetail.Text = if status.active then `{math.floor(progressValue.Value * 100)}%` else "Paused"
+			details.ProgressDetail.Text = if status.active
+				then `{math.floor(progressValue.Value * 100)}%`
+				else "Paused"
 		end
 		Panel.SetProgress(details, progressValue.Value)
 		if activeId and mythlingList and mythlingList:GetSelectedId() == activeId then
-			Panel.SetButtonEnabled(collectButton, canCollect(), Theme.Accent.green)
+			Panel.SetButtonEnabled(collectButton, canCollect(), Theme.accent.green)
 		end
 	end
 
@@ -244,7 +254,9 @@ local function Stand(scope: any, props: Props): ScreenGui
 		for materialId, bucket in pairs(status.materials) do
 			local metadata = MaterialsMeta[materialId]
 			local name = metadata and metadata.displayName or materialId
-			local unfinished = if bucket.progress > 0 then ` · {math.floor(bucket.progress * 100)}% unfinished` else ""
+			local unfinished = if bucket.progress > 0
+				then ` · {math.floor(bucket.progress * 100)}% unfinished`
+				else ""
 			table.insert(lines, `{name}: {bucket.stored} ready{unfinished}`)
 		end
 		table.sort(lines)
@@ -253,17 +265,26 @@ local function Stand(scope: any, props: Props): ScreenGui
 			else "No stored Materials or unfinished work."
 		local elapsed = math.max(workspace:GetServerTimeNow() - status.sampledAt, 0)
 		local isWorking = status.active and status.rate > 0 and status.production < status.capacity
-		local progress = if isWorking then status.progress + elapsed * status.rate / 60 else status.progress
+		local progress = if isWorking
+			then status.progress + elapsed * status.rate / 60
+			else status.progress
 		progressValue.Value = math.clamp(progress, 0, 1)
 		renderProduction()
 		local duration = if isWorking then (1 - progressValue.Value) * 60 / status.rate else 0
 		if duration > 0 then
-			productionTween =
-				TweenService:Create(progressValue, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Value = 1 })
-			productionTween:Play()
+			local tween = TweenService:Create(
+				progressValue,
+				TweenInfo.new(duration, Enum.EasingStyle.Linear),
+				{ Value = 1 }
+			)
+			productionTween = tween
+			tween:Play()
 		end
 	end
-	table.insert(connections, progressValue:GetPropertyChangedSignal("Value"):Connect(renderProduction))
+	table.insert(
+		connections,
+		progressValue:GetPropertyChangedSignal("Value"):Connect(renderProduction)
+	)
 
 	--- Resets the details column to its empty state.
 	local function clearInfo(): ()
@@ -271,7 +292,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 		details.Art.Image = ""
 		details.RarityLabel.Text = ""
 		details.ElementIcon.Image = ""
-		details.ElementIcon.BackgroundColor3 = Theme.Accent.gold
+		details.ElementIcon.BackgroundColor3 = Theme.accent.gold
 		for _, stat in ipairs(details.Stats) do
 			stat.Value.Text = "—"
 			stat.Label.Text = ""
@@ -282,9 +303,10 @@ local function Stand(scope: any, props: Props): ScreenGui
 	--- Card styling has three states, and "active" outranks "selected": the mythling on this
 	--- stand keeps its green ✓ even while another card carries the selection ring.
 	local function paintCard(card: GuiObject, selected: boolean)
-		Panel.SetCellRing(card, card:GetAttribute("Rarity"), selected)
+		local rarity = card:GetAttribute("Rarity")
+		Panel.SetCellRing(card, if type(rarity) == "string" then rarity else nil, selected)
 		local check = card:FindFirstChild("EquippedCheck")
-		if check then
+		if check and check:IsA("GuiObject") then
 			check.Visible = card.Name == activeId
 		end
 	end
@@ -298,7 +320,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 		end
 	end
 
-	--- Collapses the old four buttons onto §07's primary + secondary pair. The primary's verb
+	--- Uses one primary and one secondary button. The primary's verb
 	--- depends on what is selected relative to what is stationed.
 	local function updateButtons(): ()
 		local selectedId = mythlingList:GetSelectedId()
@@ -306,23 +328,23 @@ local function Stand(scope: any, props: Props): ScreenGui
 		if selectedId and selectedId == activeId then
 			-- Collection remains available separately even when this worker is removed.
 			collectButton.Text = "Collect"
-			Panel.SetButtonEnabled(collectButton, canCollect(), Theme.Accent.green)
+			Panel.SetButtonEnabled(collectButton, canCollect(), Theme.accent.green)
 			removeButton.Visible = true
 		elseif selectedId and activeId then
 			-- Another mythling is stationed, so this one has to displace it.
 			collectButton.Text = "Swap In"
-			Panel.SetButtonEnabled(collectButton, not actionPending, Theme.Accent.gold)
+			Panel.SetButtonEnabled(collectButton, not actionPending, Theme.accent.gold)
 			removeButton.Visible = false
 		elseif selectedId then
 			collectButton.Text = "Station"
-			Panel.SetButtonEnabled(collectButton, not actionPending, Theme.Accent.gold)
+			Panel.SetButtonEnabled(collectButton, not actionPending, Theme.accent.gold)
 			removeButton.Visible = false
 		else
 			collectButton.Text = "Collect"
-			Panel.SetButtonEnabled(collectButton, false, Theme.Accent.green)
+			Panel.SetButtonEnabled(collectButton, false, Theme.accent.green)
 			removeButton.Visible = false
 		end
-		Panel.SetButtonEnabled(removeButton, not actionPending, Theme.Accent.red)
+		Panel.SetButtonEnabled(removeButton, not actionPending, Theme.accent.red)
 	end
 
 	--- Fills the details column from the mythling on this stand.
@@ -362,12 +384,13 @@ local function Stand(scope: any, props: Props): ScreenGui
 		parent = mythlingScrollFrame,
 		setHighlight = paintCard,
 		-- Only mythlings that are unplaced or already on THIS stand belong in the list.
-		filter = function(_id, data)
+		filter = function(_id: string, data: SharedTypes.MythlingEntry)
 			return not data.standId or data.standId == standId
 		end,
-		decorate = function(card, id, data)
-			local metadata = MythlingsMeta[data.typeId]
-			card:WaitForChild("2dPreview").Image = metadata.variants[data.variantId].thumbnail
+		decorate = function(card: GuiButton, id: string, data: SharedTypes.MythlingEntry)
+			local metadata = MythlingsMeta[data.typeId];
+			(card:WaitForChild("2dPreview") :: ImageLabel).Image =
+				metadata.variants[data.variantId].thumbnail
 			-- Read back by paintCard, which only receives the card.
 			card:SetAttribute("Rarity", metadata.rarity)
 
@@ -382,111 +405,88 @@ local function Stand(scope: any, props: Props): ScreenGui
 	})
 
 	--- Rebuilds the card list from a server-provided table.
-	local function addMythlingCards(list: { any }): ()
+	local function addMythlingCards(list: { [string]: SharedTypes.MythlingEntry }): ()
 		activeId = nil
 		mythlingList:Replace(list)
 		refreshCards()
 	end
 
-	local function refreshProduction()
-		local requestedStandId = standId
-		if not requestedStandId or refreshInFlight then
-			return
-		end
-		local generation = viewGeneration
-		refreshInFlight = true
-		local status = props.standController.GetProductionStatus(requestedStandId)
-		if not alive or generation ~= viewGeneration then
-			return
-		end
-		refreshInFlight = false
-		if status then
-			applyProductionStatus(status)
-		else
-			productionUnavailable = true
-			if productionTween then
+	local session = props.standController.BindSession({
+		onPending = function(isPending)
+			actionPending = isPending
+			if isPending and productionTween then
 				productionTween:Cancel()
 			end
-			renderProduction()
-		end
-		showMythlingInfo()
-		updateButtons()
-	end
-
-	local function queueProductionRefresh()
-		-- A status request may itself settle work and replicate the base. Do not turn that
-		-- acknowledgement into a status-request loop.
-		if refreshQueued or refreshInFlight or actionPending then
-			return
-		end
-		refreshQueued = true
-		local generation = viewGeneration
-		task.defer(function()
-			if not alive or generation ~= viewGeneration then
-				return
+			if not isPending then
+				refreshCards()
+				showMythlingInfo()
 			end
-			refreshQueued = false
-			refreshProduction()
-		end)
-	end
-
-	local function beginAction(): number
-		viewGeneration += 1
-		refreshInFlight = false
-		refreshQueued = false
-		actionPending = true
-		if productionTween then
-			productionTween:Cancel()
-		end
-		renderProduction()
-		updateButtons()
-		return viewGeneration
-	end
+			renderProduction()
+			updateButtons()
+		end,
+		onStatus = function(status)
+			if status then
+				applyProductionStatus(status)
+			else
+				productionUnavailable = true
+				if productionTween then
+					productionTween:Cancel()
+				end
+				renderProduction()
+			end
+			showMythlingInfo()
+			updateButtons()
+		end,
+		onAssigned = function(id)
+			activeId = id
+			if not actionPending then
+				refreshCards()
+				showMythlingInfo()
+				updateButtons()
+				renderProduction()
+			end
+		end,
+		onCollection = function(result)
+			if result then
+				if result.collected > 0 then
+					ToastBus.Show(
+						`Collected {result.collected} Materials. {result.remaining} remain in storage.`
+					)
+				elseif result.remaining > 0 then
+					ToastBus.Show(
+						`No Materials fit in Inventory. {result.remaining} remain in storage.`
+					)
+				else
+					ToastBus.Show("No whole Materials are ready yet. Unfinished work is retained.")
+				end
+			else
+				ToastBus.Show("Collection could not be confirmed. Refreshing storage.")
+			end
+		end,
+	})
+	table.insert(scope, session.Destroy)
 
 	local function collectStorage()
 		if productionUnavailable then
-			queueProductionRefresh()
-			return
+			session.Refresh()
+		elseif standId and canCollect() then
+			session.Collect()
 		end
-		if not standId or not canCollect() then
-			return
-		end
-		local generation = beginAction()
-		local result = props.standController.Collect(standId)
-		if not alive or generation ~= viewGeneration then
-			return
-		end
-		actionPending = false
-		if result then
-			if result.collected > 0 then
-				ToastBus.Show(`Collected {result.collected} Materials. {result.remaining} remain in storage.`)
-			elseif result.remaining > 0 then
-				ToastBus.Show(`No Materials fit in Inventory. {result.remaining} remain in storage.`)
-			else
-				ToastBus.Show("No whole Materials are ready yet. Unfinished work is retained.")
-			end
-		else
-			ToastBus.Show("Collection could not be confirmed. Refreshing storage.")
-		end
-		renderProduction()
-		updateButtons()
-		queueProductionRefresh()
 	end
-
 	--------------------------------------------------------------------------------
-	-- Lore modal (§08)
+	-- Lore modal
 	--------------------------------------------------------------------------------
 
 	local loreModal = Panel.CreateModal({
 		parent = standGui,
-		root = panel.Root,
+		root = panel.rootScale,
 		name = "LoreModal",
 		subtitle = true,
 		body = true,
 	})
 
 	if details.InfoButton then
-		ButtonUtil.hookClick(details.InfoButton, function()
+		ButtonUtil.HookClick(details.InfoButton, function()
 			local id = activeId
 			local data = id and mythlingList:GetData(id)
 			if not data then
@@ -499,8 +499,9 @@ local function Stand(scope: any, props: Props): ScreenGui
 			loreModal.IconDisc.Image = metadata.variants[data.variantId].thumbnail
 			loreModal.IconDisc.BackgroundColor3 = Color3.fromHex(materialMeta.guiColor)
 			if loreModal.SubtitleLabel then
-				loreModal.SubtitleLabel.Text = `{Theme.tier(metadata.rarity)} · {materialMeta.displayName}`
-				loreModal.SubtitleLabel.TextColor3 = Theme.rarityColor(metadata.rarity)
+				loreModal.SubtitleLabel.Text =
+					`{Theme.Tier(metadata.rarity)} · {materialMeta.displayName}`
+				loreModal.SubtitleLabel.TextColor3 = Theme.RarityColor(metadata.rarity)
 			end
 			if loreModal.BodyLabel then
 				loreModal.BodyLabel.Text = metadata.description
@@ -514,7 +515,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 	--------------------------------------------------------------------------------
 
 	-- The primary button carries whichever verb updateButtons settled on.
-	ButtonUtil.hookClick(collectButton, function()
+	ButtonUtil.HookClick(collectButton, function()
 		if actionPending or not standId then
 			return
 		end
@@ -529,57 +530,16 @@ local function Stand(scope: any, props: Props): ScreenGui
 			return
 		end
 
-		local generation = beginAction()
-		if activeId then
-			-- Swap In: remove the current occupant, then place the selection.
-			local removed = props.standController.Remove(standId, activeId)
-			if not alive or generation ~= viewGeneration then
-				return
-			end
-			if not removed then
-				actionPending = false
-				updateButtons()
-				renderProduction()
-				queueProductionRefresh()
-				return
-			end
-			activeId = nil
-		end
-		local placed = props.standController.Place(standId, selectedId)
-		if not alive or generation ~= viewGeneration then
-			return
-		end
-		actionPending = false
-		if placed then
-			activeId = selectedId
-		end
-		refreshCards()
-		updateButtons()
-		showMythlingInfo()
-		renderProduction()
-		queueProductionRefresh()
+		session.Assign(selectedId, activeId)
 	end)
-	ButtonUtil.hookClick(storageCollectButton, collectStorage)
+	ButtonUtil.HookClick(storageCollectButton, collectStorage)
 
 	-- Square secondary: take the stationed mythling off this stand.
-	ButtonUtil.hookClick(removeButton, function()
+	ButtonUtil.HookClick(removeButton, function()
 		if not activeId or not standId or actionPending then
 			return
 		end
-		local generation = beginAction()
-		local removed = props.standController.Remove(standId, activeId)
-		if not alive or generation ~= viewGeneration then
-			return
-		end
-		actionPending = false
-		if removed then
-			activeId = nil
-		end
-		refreshCards()
-		updateButtons()
-		showMythlingInfo()
-		renderProduction()
-		queueProductionRefresh()
+		session.Remove(activeId)
 	end)
 
 	-- The replicated private state cache keeps this view current without polling.
@@ -595,7 +555,7 @@ local function Stand(scope: any, props: Props): ScreenGui
 				updateButtons()
 			end
 			if key == "base" or key == "materials" or key == "mythlings" then
-				queueProductionRefresh()
+				session.Refresh()
 			end
 		end)
 	)
@@ -606,9 +566,6 @@ local function Stand(scope: any, props: Props): ScreenGui
 	table.insert(
 		connections,
 		props.standController.OnStandRequested:Connect(function(requestedStandId: number)
-			viewGeneration += 1
-			refreshInFlight = false
-			refreshQueued = false
 			actionPending = false
 			if standId ~= requestedStandId then
 				productionStatus = nil
@@ -628,27 +585,26 @@ local function Stand(scope: any, props: Props): ScreenGui
 			renderProduction()
 
 			MenuState.Open(PANEL_NAME)
-			queueProductionRefresh()
+			session.Open(requestedStandId)
 		end)
 	)
 
-	Panel.ApplyTextScale(standGui, panel.Root, Theme.MenuTextScale)
+	Panel.ApplyTextScale(standGui, panel.rootScale, Theme.menuTextScale)
 
 	local menuTransition = Motion.CreateMenuTransition({
 		screenGui = standGui,
 		motionRoot = panel.MotionRoot,
 		panelName = PANEL_NAME,
 		onCloseStart = function()
+			session.Close()
 			loreModal:Close()
 		end,
 		onClosed = function()
 			-- The roster is rebuilt from the server every time a prompt opens the panel, so
 			-- dropping it on close keeps a stale stand's cards from flashing up on the next.
+			session.Close()
 			mythlingList:Clear()
 			clearInfo()
-			viewGeneration += 1
-			refreshInFlight = false
-			refreshQueued = false
 			actionPending = false
 			if productionTween then
 				productionTween:Cancel()
@@ -660,7 +616,6 @@ local function Stand(scope: any, props: Props): ScreenGui
 	table.insert(scope, unregisterMenu)
 	table.insert(scope, menuTransition.Destroy)
 	table.insert(scope, function()
-		alive = false
 		if productionTween then
 			productionTween:Cancel()
 		end

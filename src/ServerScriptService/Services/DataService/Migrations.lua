@@ -1,7 +1,9 @@
 --!strict
+-- ServerScriptService/Services/DataService/Migrations
 -- Forward-only profile migrations. Stage changes before touching the loaded document.
 
-local ProductionLedger = require(script.Parent.Parent.ProductionService.ProductionLedger)
+local ProductionLedger =
+	require(game:GetService("ServerScriptService").Domain.Production.ProductionLedger)
 
 local Migrations = {}
 
@@ -21,12 +23,14 @@ local function standKey(value: any): string?
 	return key
 end
 
+-- This compatibility boundary accepts multiple historical shapes and preserves unknown fields.
+-- Keep dynamic access here; validate every field used to calculate or commit migrated work.
 function Migrations.Apply(data: any, mythlingsData: any, now: number): (boolean, string?)
 	if type(data) ~= "table" then
 		return false, "InvalidProfile"
 	end
 	if data.version == 3 then
-		return true
+		return true, nil
 	end
 	if data.version ~= nil and data.version ~= 2 then
 		return false, "UnsupportedProfileVersion"
@@ -62,10 +66,12 @@ function Migrations.Apply(data: any, mythlingsData: any, now: number): (boolean,
 
 	local assigned: { [string]: boolean } = {}
 	local consumedEntries: { any } = {}
-	for _, entry in pairs(data.mythlings or {}) do
-		if type(entry) ~= "table" then
+	for _, savedEntry in pairs(data.mythlings or {}) do
+		if type(savedEntry) ~= "table" then
 			return false, "InvalidMythlingRecord"
 		end
+		-- Legacy records are validated field by field before their staged changes commit.
+		local entry = savedEntry :: { [string]: any }
 		if entry.standId == nil then
 			if entry.lastCollectionAt ~= nil then
 				return false, "OrphanLegacyProduction"
@@ -89,7 +95,7 @@ function Migrations.Apply(data: any, mythlingsData: any, now: number): (boolean,
 			type(production) ~= "table"
 			or type(production.materialId) ~= "string"
 			or production.materialId == ""
-			or not finiteNonnegative(production.baseRate)
+			or not finiteNonnegative(production.materialsPerMinute)
 			or not finiteNonnegative(production.baseCapacity)
 		then
 			return false, "UnknownLegacyProductionDefinition"
@@ -103,8 +109,13 @@ function Migrations.Apply(data: any, mythlingsData: any, now: number): (boolean,
 			lastAccruedAt = legacyTime or now,
 			materials = {},
 		}
-		local migratedLedger =
-			ProductionLedger.Accrue(ledger, now, production.materialId, production.baseRate, production.baseCapacity)
+		local migratedLedger = ProductionLedger.Accrue(
+			ledger,
+			now,
+			production.materialId,
+			production.materialsPerMinute,
+			production.baseCapacity
+		)
 		local stand = stagedStands[key] or {}
 		stand.production = migratedLedger
 		stagedStands[key] = stand
@@ -118,7 +129,7 @@ function Migrations.Apply(data: any, mythlingsData: any, now: number): (boolean,
 		entry.lastCollectionAt = nil
 	end
 	data.version = 3
-	return true
+	return true, nil
 end
 
 return table.freeze(Migrations)

@@ -1,16 +1,30 @@
+--!strict
 -- StarterPlayer/StarterPlayerScripts/Controllers/MythlingTimerController
 
 local MythlingTimerController = {}
 local stopImpl: (() -> ())?
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Trove = require(ReplicatedStorage.Packages.Trove)
+local lifetime = Trove.new()
+local isRunning = false
+local generation = 0
 
 function MythlingTimerController.Init(_context: unknown) end
 
 function MythlingTimerController.Start()
-	local connections: { RBXScriptConnection } = {}
+	if isRunning then
+		return
+	end
+	isRunning = true
+	generation += 1
+	local currentGeneration = generation
 	local RunService = game:GetService("RunService")
 
 	local runtimeFolder = workspace:WaitForChild("Runtime")
 	local mythlingsFolder = runtimeFolder:WaitForChild("Mythlings")
+	if not isRunning or generation ~= currentGeneration then
+		return
+	end
 
 	-- -- Helpers ---------------------------------------------------------------
 
@@ -27,7 +41,15 @@ function MythlingTimerController.Start()
 	end
 
 	-- tracked entries: { model = Model, gui = BillboardGui, label = TextLabel }
-	local tracked: { [Model]: { model: Model, gui: BillboardGui, label: TextLabel } } = {}
+	type Timer = {
+		gui: BillboardGui,
+		label: TextLabel,
+		originalText: string,
+		originalEnabled: boolean,
+		lastText: string?,
+		lastEnabled: boolean?,
+	}
+	local tracked: { [Model]: Timer } = {}
 
 	local function tryAttach(model: Instance)
 		if not model:IsA("Model") then
@@ -52,11 +74,22 @@ function MythlingTimerController.Start()
 			return
 		end
 
-		tracked[model] = { model = model, gui = gui, label = label }
+		tracked[model] =
+			{ gui = gui, label = label, originalText = label.Text, originalEnabled = gui.Enabled }
 	end
 
 	local function detach(model: Instance)
-		if tracked[model] then
+		if not model:IsA("Model") then
+			return
+		end
+		local entry = tracked[model]
+		if entry then
+			if entry.gui.Parent and entry.gui.Enabled == entry.lastEnabled then
+				entry.gui.Enabled = entry.originalEnabled
+			end
+			if entry.label.Parent and entry.label.Text == entry.lastText then
+				entry.label.Text = entry.originalText
+			end
 			tracked[model] = nil
 		end
 	end
@@ -67,30 +100,21 @@ function MythlingTimerController.Start()
 		tryAttach(child)
 	end
 
-	table.insert(
-		connections,
-		mythlingsFolder.ChildAdded:Connect(function(child)
-			tryAttach(child)
-		end)
-	)
+	lifetime:Add(mythlingsFolder.ChildAdded:Connect(function(child)
+		tryAttach(child)
+	end))
 
-	table.insert(
-		connections,
-		mythlingsFolder.ChildRemoved:Connect(function(child)
-			detach(child)
-		end)
-	)
+	lifetime:Add(mythlingsFolder.ChildRemoved:Connect(function(child)
+		detach(child)
+	end))
 
 	-- If server edits ExpireAt later (rare), catch it:
-	table.insert(
-		connections,
-		mythlingsFolder.DescendantAdded:Connect(function(desc)
-			local model = desc:FindFirstAncestorOfClass("Model")
-			if model and model.Parent == mythlingsFolder then
-				tryAttach(model)
-			end
-		end)
-	)
+	lifetime:Add(mythlingsFolder.DescendantAdded:Connect(function(desc)
+		local model = desc:FindFirstAncestorOfClass("Model")
+		if model and model.Parent == mythlingsFolder then
+			tryAttach(model)
+		end
+	end))
 
 	-- -- Update loop (throttled) ----------------------------------------------
 
@@ -98,46 +122,44 @@ function MythlingTimerController.Start()
 	local UPDATE_HZ = 5 -- 5 times per second is plenty for a timer
 	local UPDATE_DT = 1 / UPDATE_HZ
 
-	table.insert(
-		connections,
-		RunService.RenderStepped:Connect(function(dt)
-			accumulator += dt
-			if accumulator < UPDATE_DT then
-				return
-			end
-			accumulator -= UPDATE_DT
-
-			local now = serverNow()
-
-			for model, entry in pairs(tracked) do
-				if not model.Parent then
-					tracked[model] = nil
-				else
-					local expireAt = model:GetAttribute("ExpireAt")
-					if typeof(expireAt) ~= "number" then
-						entry.gui.Enabled = false
-					else
-						local remain = expireAt - now
-						entry.label.Text = fmtSeconds(remain)
-						entry.gui.Enabled = (remain > 0)
-					end
-				end
-			end
-		end)
-	)
-	stopImpl = function()
-		for _, connection in connections do
-			connection:Disconnect()
+	lifetime:Add(RunService.RenderStepped:Connect(function(dt)
+		accumulator += dt
+		if accumulator < UPDATE_DT then
+			return
 		end
-		table.clear(connections)
-		for _, entry in tracked do
-			entry.gui:Destroy()
+		accumulator -= UPDATE_DT
+
+		local now = serverNow()
+
+		for model, entry in pairs(tracked) do
+			if not model.Parent then
+				tracked[model] = nil
+			else
+				local expireAt = model:GetAttribute("ExpireAt")
+				if typeof(expireAt) ~= "number" then
+					entry.gui.Enabled = false
+				else
+					local remain = expireAt - now
+					entry.label.Text = fmtSeconds(remain)
+					entry.gui.Enabled = (remain > 0)
+				end
+				entry.lastEnabled = entry.gui.Enabled
+				entry.lastText = entry.label.Text
+			end
+		end
+	end))
+	stopImpl = function()
+		lifetime:Clean()
+		for model in tracked do
+			detach(model)
 		end
 		table.clear(tracked)
 	end
 end
 
 function MythlingTimerController.Stop()
+	isRunning = false
+	generation += 1
 	if stopImpl then
 		stopImpl()
 		stopImpl = nil

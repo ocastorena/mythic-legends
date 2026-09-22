@@ -1,27 +1,35 @@
+--!strict
 -- ServerScriptService/Services/ProductionService
 -- Coordinates saved stand production and collection into the loaded player's inventory.
 
 local ServerScriptService = game:GetService("ServerScriptService")
+local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 local Players = game:GetService("Players")
 
-local Infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
+local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
+local RateLimiter = require(infrastructure:WaitForChild("RateLimiter"))
 
 local Accrual = require(script.Accrual)
-local accrual
+local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
+local lifecycle = ServiceLifecycle.new("ProductionService")
+local accrual: Accrual.Accrual
 
 local ProductionService = {}
 local getStatus: RemoteFunction
 local collect: RemoteFunction
 local requestLimiter = RateLimiter.new(8, 3)
-local removingConnection: RBXScriptConnection?
 
-function ProductionService.Init(context)
-	accrual = Accrual.new(context.Services.DataService, context.Configurations.Mythlings, function(player, standId)
-		return context.Services.BaseService.HasStand(player, standId)
-	end)
-	getStatus = context.Remotes.Production.GetStatus
-	collect = context.Remotes.Production.Collect
+function ProductionService.Init(serviceContext: ServerTypes.Context)
+	accrual = Accrual.new(
+		serviceContext.Services.DataService,
+		serviceContext.Configurations.Mythlings,
+		function(player, standId)
+			return serviceContext.Services.BaseService.HasStand(player, standId)
+		end
+	)
+	getStatus = serviceContext.Remotes.Production.GetStatus
+	collect = serviceContext.Remotes.Production.Collect
 end
 
 local function validStandId(standId: unknown): boolean
@@ -29,11 +37,21 @@ local function validStandId(standId: unknown): boolean
 end
 
 function ProductionService.Start()
-	getStatus.OnServerInvoke = function(player: Player, standId: unknown)
+	if not lifecycle:Start() then
+		return
+	end
+	getStatus.OnServerInvoke = function(
+		player: Player,
+		standId: unknown
+	): {
+		ok: boolean,
+		code: string?,
+		value: Accrual.ProductionStatus?,
+	}
 		if not requestLimiter:Allow(player) then
 			return { ok = false, code = "RateLimited" }
 		end
-		if not validStandId(standId) then
+		if type(standId) ~= "number" or not validStandId(standId) then
 			return { ok = false, code = "InvalidStandId" }
 		end
 		local status = ProductionService.GetProduction(player, standId)
@@ -42,28 +60,36 @@ function ProductionService.Start()
 		end
 		return { ok = true, value = status }
 	end
-	collect.OnServerInvoke = function(player: Player, standId: unknown)
+	collect.OnServerInvoke = function(
+		player: Player,
+		standId: unknown
+	): {
+		ok: boolean,
+		code: string?,
+		value: Accrual.ProductionCollection?,
+	}
 		if not requestLimiter:Allow(player) then
 			return { ok = false, code = "RateLimited" }
 		end
-		if not validStandId(standId) then
+		if type(standId) ~= "number" or not validStandId(standId) then
 			return { ok = false, code = "InvalidStandId" }
 		end
 		local collected, code, value = ProductionService.CollectProduction(player, standId)
-		return if collected then { ok = true, value = value } else { ok = false, code = code or "CollectFailed" }
+		return if collected
+			then { ok = true, value = value }
+			else { ok = false, code = code or "CollectFailed" }
 	end
-	removingConnection = Players.PlayerRemoving:Connect(function(player)
+	lifecycle.trove:Connect(Players.PlayerRemoving, function(player: Player)
 		requestLimiter:Forget(player)
 	end)
 end
 
 function ProductionService.Stop()
-	getStatus.OnServerInvoke = nil
-	collect.OnServerInvoke = nil
-	if removingConnection then
-		removingConnection:Disconnect()
-		removingConnection = nil
+	if not lifecycle:Stop() then
+		return
 	end
+	RemoteUtil.ClearServerHandler(getStatus)
+	RemoteUtil.ClearServerHandler(collect)
 	requestLimiter:Clear()
 end
 
@@ -71,7 +97,10 @@ function ProductionService.GetProduction(player: Player, standId: number): Accru
 	return accrual.Get(player, standId)
 end
 
-function ProductionService.CollectProduction(player: Player, standId: number): (boolean, string?, Accrual.ProductionCollection?)
+function ProductionService.CollectProduction(
+	player: Player,
+	standId: number
+): (boolean, string?, Accrual.ProductionCollection?)
 	return accrual.Collect(player, standId)
 end
 
