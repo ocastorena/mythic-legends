@@ -96,9 +96,8 @@ function Equipment.Create(config: Config): CardList.List<ClientTypes.InventoryEq
 			end
 
 			if profile.kind == "Shield" then
-				config.details.Stats[1].Value.Text =
-					string.format("%.2fs", profile.activationCooldownSeconds or 0)
-				config.details.Stats[1].Label.Text = "Raise Cooldown"
+				config.details.Stats[1].Value.Text = tostring(profile.minimumGuardStamina or 0)
+				config.details.Stats[1].Label.Text = "Guard Stamina"
 				config.details.Stats[2].Value.Text =
 					string.format("%.0f°", profile.blockArcDegrees or 0)
 				config.details.Stats[2].Label.Text = "Block Arc"

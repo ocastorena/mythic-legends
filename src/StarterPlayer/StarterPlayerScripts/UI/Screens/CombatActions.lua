@@ -7,6 +7,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 
 local Types = require(script.Parent.Parent.Parent.Types)
+local Theme = require(script.Parent.Parent.Theme)
 
 local NORMAL_BUTTON_COLOR = Color3.fromRGB(60, 60, 64)
 local FALLBACK_JUMP_SIZE = 70
@@ -70,6 +71,19 @@ local function CombatActions(scope: Fusion.Scope<typeof(Fusion)>, props: Props):
 	root.Parent = screenGui
 	local attackButton, attackIcon = createButton(root, "PrimaryAttackButton")
 	local shieldButton, shieldIcon = createButton(root, "SecondaryShieldButton")
+	local shieldStatus = Instance.new("TextLabel")
+	shieldStatus.Name = "GuardStatus"
+	shieldStatus.AnchorPoint = Vector2.new(0.5, 0)
+	shieldStatus.Position = UDim2.fromScale(0.5, 1)
+	shieldStatus.Size = UDim2.new(1.7, 0, 0, 18)
+	shieldStatus.BackgroundTransparency = 1
+	shieldStatus.FontFace = Theme.font.bold
+	shieldStatus.TextSize = 12
+	shieldStatus.TextColor3 = Theme.textColors.strong
+	shieldStatus.TextStrokeTransparency = 0.35
+	shieldStatus.Text = ""
+	shieldStatus.ZIndex = shieldButton.ZIndex + 2
+	shieldStatus.Parent = shieldButton
 
 	local function getJumpButton(): GuiButton?
 		local touchGui = playerGui:FindFirstChild("TouchGui")
@@ -115,6 +129,7 @@ local function CombatActions(scope: Fusion.Scope<typeof(Fusion)>, props: Props):
 		attackIcon = attackIcon,
 		shieldButton = shieldButton,
 		shieldIcon = shieldIcon,
+		shieldStatus = shieldStatus,
 		relayout = relayout,
 	})
 	table.insert(scope, unbind)

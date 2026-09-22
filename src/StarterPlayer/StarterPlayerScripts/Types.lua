@@ -80,6 +80,7 @@ export type CombatActionView = {
 	attackIcon: Frame,
 	shieldButton: ImageButton,
 	shieldIcon: Frame,
+	shieldStatus: TextLabel,
 	relayout: () -> (),
 }
 export type CombatControllerApi = {

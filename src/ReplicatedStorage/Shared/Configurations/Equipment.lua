@@ -7,7 +7,12 @@ local Types = require(script.Parent.Parent.Types)
 
 -- Client fallbacks and the prototype wooden profiles share one set of tuning values.
 local PRESENTATION_DEFAULTS = {
-	cooldownSeconds = 0.72,
+	cooldownSeconds = 1,
+	swingDurationSeconds = 0.72,
+	raiseSeconds = 0.2,
+	raiseTimeoutSeconds = 0.8,
+	lowerSeconds = 0.2,
+	lowerTimeoutSeconds = 0.8,
 	hitStartFallbackSeconds = 0.22,
 	contactWindowSeconds = 0.22,
 	slideDurationSeconds = 0.32,
@@ -21,7 +26,8 @@ local Equipment: Types.EquipmentConfiguration = {
 	presentationDefaults = PRESENTATION_DEFAULTS,
 	combat = {
 		staminaMaximum = 100,
-		staminaRegenPerSecond = 18,
+		staminaSpawn = 100,
+		staminaRegenPerSecond = 10,
 		knockbackImmunitySeconds = 0.65,
 		arenaHeightAllowanceStuds = 20,
 	},
@@ -37,6 +43,7 @@ local Equipment: Types.EquipmentConfiguration = {
 
 			staminaCost = 20,
 			cooldownSeconds = PRESENTATION_DEFAULTS.cooldownSeconds,
+			swingDurationSeconds = PRESENTATION_DEFAULTS.swingDurationSeconds,
 			animationId = "rbxassetid://126682224103556",
 			hitStartFallbackSeconds = PRESENTATION_DEFAULTS.hitStartFallbackSeconds,
 			contactWindowSeconds = PRESENTATION_DEFAULTS.contactWindowSeconds,
@@ -62,8 +69,12 @@ local Equipment: Types.EquipmentConfiguration = {
 			modelName = "WoodenShield",
 			thumbnail = "",
 
-			activationCooldownSeconds = 0.2,
 			impactStaminaCost = 30,
+			minimumGuardStamina = 30,
+			raiseSeconds = PRESENTATION_DEFAULTS.raiseSeconds,
+			raiseTimeoutSeconds = PRESENTATION_DEFAULTS.raiseTimeoutSeconds,
+			lowerSeconds = PRESENTATION_DEFAULTS.lowerSeconds,
+			lowerTimeoutSeconds = PRESENTATION_DEFAULTS.lowerTimeoutSeconds,
 			blockArcDegrees = 360,
 			slideKnockback = 40,
 			slideDurationSeconds = PRESENTATION_DEFAULTS.slideDurationSeconds,

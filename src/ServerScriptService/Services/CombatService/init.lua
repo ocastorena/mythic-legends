@@ -22,6 +22,7 @@ local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifec
 local EquipmentPresentation = require(script.EquipmentPresentation)
 local ArenaBounds = require(script.ArenaBounds)
 local CombatMath = require(script.CombatMath)
+local CombatState = require(script.CombatState)
 local lifecycle = ServiceLifecycle.new("CombatService")
 local presentation: { Clear: (Model) -> (), Rebuild: (Model) -> () }
 local Equipment: Types.EquipmentConfiguration
@@ -62,14 +63,12 @@ type AuthorizedSwing = {
 	expiresAt: number,
 }
 
-type ImpactReactionType = "Launch" | "ShieldSlide"
+type ImpactReactionType = Types.CombatReactionType
 
 type CombatRuntime = {
-	stamina: number,
-	lastStaminaUpdate: number,
+	accounting: CombatState.State,
 	immunityUntil: number,
-	nextAttackAt: number,
-	nextGuardAt: number,
+	guardShieldId: string?,
 	lastSwingSequence: number,
 	lastHitSequence: number,
 	authorizedSwing: AuthorizedSwing?,
@@ -144,11 +143,13 @@ local function getRuntime(player: Player): CombatRuntime
 		return runtime
 	end
 	local created: CombatRuntime = {
-		stamina = getNumber(Equipment.combat.staminaMaximum, 100, 1, 10_000),
-		lastStaminaUpdate = os.clock(),
+		accounting = CombatState.New(os.clock(), {
+			maximum = Equipment.combat.staminaMaximum,
+			spawn = Equipment.combat.staminaSpawn,
+			recoveryPerSecond = Equipment.combat.staminaRegenPerSecond,
+		}),
 		immunityUntil = 0,
-		nextAttackAt = 0,
-		nextGuardAt = 0,
+		guardShieldId = nil,
 		lastSwingSequence = 0,
 		lastHitSequence = 0,
 		authorizedSwing = nil,
@@ -156,39 +157,6 @@ local function getRuntime(player: Player): CombatRuntime
 	}
 	runtimes[player] = created
 	return created
-end
-
-local function refreshRuntime(player: Player, now: number): CombatRuntime
-	local runtime = getRuntime(player)
-	local maximum = getNumber(Equipment.combat.staminaMaximum, 100, 1, 10_000)
-	local regen = getNumber(Equipment.combat.staminaRegenPerSecond, 18, 0, 1_000)
-	local elapsed = math.max(0, now - runtime.lastStaminaUpdate)
-	runtime.lastStaminaUpdate = now
-	runtime.stamina = math.min(maximum, runtime.stamina + elapsed * regen)
-	if runtime.authorizedSwing and now > runtime.authorizedSwing.expiresAt then
-		runtime.authorizedSwing = nil
-	end
-	player:SetAttribute("CombatStamina", runtime.stamina)
-	player:SetAttribute("MaxCombatStamina", maximum)
-	player:SetAttribute("KnockbackImmune", now < runtime.immunityUntil)
-	return runtime
-end
-
-local function spendStamina(player: Player, amount: number, now: number): boolean
-	local runtime = refreshRuntime(player, now)
-	if runtime.stamina + 0.001 < amount then
-		return false
-	end
-	runtime.stamina = math.max(0, runtime.stamina - amount)
-	player:SetAttribute("CombatStamina", runtime.stamina)
-	return true
-end
-
-local function spendStaminaUpTo(player: Player, amount: number, now: number): number
-	local runtime = refreshRuntime(player, now)
-	runtime.stamina = math.max(0, runtime.stamina - math.min(runtime.stamina, amount))
-	player:SetAttribute("CombatStamina", runtime.stamina)
-	return runtime.stamina
 end
 
 local function restoreMovement(runtime: CombatRuntime)
@@ -343,6 +311,114 @@ local function snapshotLoadout(player: Player): LoadoutSnapshot
 	}
 end
 
+local function getGuardProfile(player: Player): (string?, Types.EquipmentProfile?)
+	local character = getAliveR15Character(player)
+	local data = DataService.GetLoadedData(player)
+	if not character or not data or not isCharacterInArena(character) then
+		return nil, nil
+	end
+	local definitionId =
+		getOwnedDefinition(data.equipment, data.combatLoadout.shieldInstanceId, "Shield")
+	if not definitionId or character:GetAttribute("LeftEquipped") ~= definitionId then
+		return nil, nil
+	end
+	local motor = character:FindFirstChild("LeftHandMotor", true)
+	if not motor or not motor:IsA("Motor6D") then
+		return nil, nil
+	end
+	return definitionId, getProfile(definitionId)
+end
+
+local function shieldTuning(profile: Types.EquipmentProfile): CombatState.ShieldTuning?
+	local cost, minimum = profile.impactStaminaCost, profile.minimumGuardStamina
+	local raise, raiseTimeout = profile.raiseSeconds, profile.raiseTimeoutSeconds
+	local lower, lowerTimeout = profile.lowerSeconds, profile.lowerTimeoutSeconds
+	if
+		not cost
+		or not minimum
+		or not raise
+		or not raiseTimeout
+		or not lower
+		or not lowerTimeout
+	then
+		return nil
+	end
+	return {
+		cost = cost,
+		minimum = minimum,
+		raiseSeconds = raise,
+		raiseTimeoutSeconds = raiseTimeout,
+		lowerSeconds = lower,
+		lowerTimeoutSeconds = lowerTimeout,
+	}
+end
+
+local function publishRuntime(player: Player, runtime: CombatRuntime, now: number)
+	local state = runtime.accounting
+	local character, humanoid, root = getAliveR15Character(player)
+	if state.phase ~= "Lowered" and character and humanoid then
+		if not runtime.movement then
+			runtime.movement = {
+				character = character,
+				humanoid = humanoid,
+				walkSpeed = humanoid.WalkSpeed,
+				jumpPower = humanoid.JumpPower,
+				jumpHeight = humanoid.JumpHeight,
+				autoRotate = humanoid.AutoRotate,
+			}
+		end
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		humanoid.JumpHeight = 0
+		humanoid.AutoRotate = false
+	else
+		restoreMovement(runtime)
+	end
+	local currentCharacter = player.Character
+	if currentCharacter then
+		currentCharacter:SetAttribute("GuardSequence", state.guardSequence)
+		currentCharacter:SetAttribute("GuardPhase", state.phase)
+		currentCharacter:SetAttribute("SwingLocked", now < state.swingEndsAt)
+		currentCharacter:SetAttribute("ShieldGuarding", state.protecting)
+		if state.protecting and character and root then
+			if not character:FindFirstChild(SHIELD_BUBBLE_NAME) then
+				createShieldBubble(character, root)
+			end
+		else
+			clearShieldBubble(currentCharacter)
+		end
+	end
+	player:SetAttribute("CombatStamina", state.stamina)
+	player:SetAttribute("MaxCombatStamina", state.maximum)
+	player:SetAttribute("KnockbackImmune", now < runtime.immunityUntil)
+end
+
+local function refreshRuntime(player: Player, now: number): CombatRuntime
+	local runtime = getRuntime(player)
+	CombatState.Advance(runtime.accounting, now)
+	if runtime.accounting.phase ~= "Lowered" then
+		local shieldId = getGuardProfile(player)
+		if not shieldId or shieldId ~= runtime.guardShieldId then
+			CombatState.ReleaseGuard(runtime.accounting, now, nil, true)
+		end
+	else
+		runtime.guardShieldId = nil
+	end
+	if runtime.authorizedSwing and now > runtime.authorizedSwing.expiresAt then
+		runtime.authorizedSwing = nil
+	end
+	publishRuntime(player, runtime, now)
+	return runtime
+end
+
+local function forceLowerGuard(player: Player)
+	local now = os.clock()
+	local runtime = refreshRuntime(player, now)
+	CombatState.ReleaseGuard(runtime.accounting, now, nil, true)
+	runtime.authorizedSwing = nil
+	publishRuntime(player, runtime, now)
+end
+
 local function applyResolvedLoadout(player: Player, character: Model)
 	local primaryId, shieldId = resolveLoadout(player)
 	character:SetAttribute("RightEquipped", primaryId)
@@ -351,65 +427,52 @@ local function applyResolvedLoadout(player: Player, character: Model)
 	presentation.Rebuild(character)
 end
 
-local function setShieldGuard(player: Player, enabled: boolean): boolean
-	local runtime = getRuntime(player)
-	if not enabled then
-		local character = player.Character
-		if character then
-			character:SetAttribute("ShieldGuarding", false)
-			clearShieldBubble(character)
-		end
-		restoreMovement(runtime)
-		return true
+local function handleGuardRequest(player: Player, input: unknown)
+	if type(input) ~= "table" then
+		return
 	end
-	local character, humanoid, root = getAliveR15Character(player)
+	local payload = input :: { [string]: unknown }
+	local sequence = payload.sequence
+	local action = payload.action
+	local character = player.Character
 	if
 		not character
-		or not humanoid
-		or not root
-		or character:GetAttribute("CombatReady") ~= true
-		or not isCharacterInArena(character)
+		or payload.character ~= character
+		or type(sequence) ~= "number"
+		or not CombatMath.IsValidSequence(sequence, MAX_SEQUENCE)
 	then
-		return false
+		return
 	end
-	local profile = getProfile(character:GetAttribute("LeftEquipped"))
-	local shieldMotor = character:FindFirstChild("LeftHandMotor", true)
-	if
-		not profile
-		or profile.kind ~= "Shield"
-		or not shieldMotor
-		or not shieldMotor:IsA("Motor6D")
-	then
-		return false
+	if action ~= "Begin" and action ~= "Raised" and action ~= "Release" and action ~= "Lowered" then
+		return
 	end
-	if runtime.movement then
-		character:SetAttribute("ShieldGuarding", true)
-		if not character:FindFirstChild(SHIELD_BUBBLE_NAME) then
-			createShieldBubble(character, root)
-		end
-		return true
+	-- Release/finish are idempotent cleanup, including when other guard messages are limited.
+	if (action == "Begin" or action == "Raised") and not guardLimiter:Allow(player) then
+		return
 	end
 	local now = os.clock()
-	if now < runtime.nextGuardAt then
-		return false
+	local runtime = refreshRuntime(player, now)
+	if action == "Begin" then
+		local shieldId, profile = getGuardProfile(player)
+		local tuning = profile and shieldTuning(profile)
+		local accepted = false
+		if shieldId and tuning and character:GetAttribute("CombatReady") == true then
+			accepted = CombatState.BeginGuard(runtime.accounting, now, sequence, tuning)
+		end
+		if accepted then
+			runtime.guardShieldId = shieldId
+			runtime.authorizedSwing = nil
+		end
+		if not accepted then
+			character:SetAttribute("GuardRejectedSequence", sequence)
+		end
+		character:SetAttribute("GuardRequestSequence", sequence)
+	elseif action == "Release" then
+		CombatState.ReleaseGuard(runtime.accounting, now, sequence, false)
+	else
+		CombatState.Marker(runtime.accounting, now, sequence, action)
 	end
-	runtime.nextGuardAt = now + getNumber(profile.activationCooldownSeconds, 0.2, 0, 5)
-	runtime.authorizedSwing = nil
-	runtime.movement = {
-		character = character,
-		humanoid = humanoid,
-		walkSpeed = humanoid.WalkSpeed,
-		jumpPower = humanoid.JumpPower,
-		jumpHeight = humanoid.JumpHeight,
-		autoRotate = humanoid.AutoRotate,
-	}
-	humanoid.WalkSpeed = 0
-	humanoid.JumpPower = 0
-	humanoid.JumpHeight = 0
-	humanoid.AutoRotate = false
-	character:SetAttribute("ShieldGuarding", true)
-	createShieldBubble(character, root)
-	return true
+	publishRuntime(player, runtime, now)
 end
 
 local function updateArenaCombatState(player: Player)
@@ -421,7 +484,7 @@ local function updateArenaCombatState(player: Player)
 	if character:GetAttribute("CombatReady") == shouldBeReady then
 		return
 	end
-	setShieldGuard(player, false)
+	forceLowerGuard(player)
 	local runtime = getRuntime(player)
 	runtime.authorizedSwing = nil
 	character:SetAttribute("CombatReady", shouldBeReady)
@@ -484,8 +547,8 @@ local function handleMeleeSwing(player: Player, input: unknown)
 	local character = getAliveR15Character(player)
 	if
 		not character
+		or payload.character ~= character
 		or character:GetAttribute("CombatReady") ~= true
-		or character:GetAttribute("ShieldGuarding") == true
 		or not isCharacterInArena(character)
 	then
 		return
@@ -496,27 +559,45 @@ local function handleMeleeSwing(player: Player, input: unknown)
 	end
 	local now = os.clock()
 	local runtime = refreshRuntime(player, now)
-	if payload.sequence <= runtime.lastSwingSequence or now < runtime.nextAttackAt then
+	if payload.sequence <= runtime.lastSwingSequence then
 		return
 	end
 	local staminaCost = getNumber(profile.staminaCost, 0, 0, 1_000)
-	if not spendStamina(player, staminaCost, now) then
+	local cooldown = getNumber(
+		profile.cooldownSeconds,
+		Equipment.presentationDefaults.cooldownSeconds,
+		0.05,
+		MAX_COOLDOWN
+	)
+	local duration = getNumber(
+		profile.swingDurationSeconds,
+		Equipment.presentationDefaults.swingDurationSeconds,
+		0.05,
+		MAX_COOLDOWN
+	)
+	if
+		not CombatState.TryAttack(runtime.accounting, now, {
+			cost = staminaCost,
+			cooldownSeconds = cooldown,
+			durationSeconds = duration,
+		})
+	then
 		return
 	end
-	local cooldown = getNumber(profile.cooldownSeconds, 0.72, 0.05, MAX_COOLDOWN)
 	local window = getNumber(profile.contactWindowSeconds, 0.22, 0.05, 2)
 	runtime.lastSwingSequence = payload.sequence
-	runtime.nextAttackAt = now + cooldown
 	runtime.authorizedSwing = {
 		sequence = payload.sequence,
 		weaponId = weaponId,
 		expiresAt = now + window + 0.75,
 	}
+	publishRuntime(player, runtime, now)
 end
 
 local function sendImpact(
 	attacker: Player,
 	target: Player,
+	targetCharacter: Model,
 	launchVelocity: Vector3,
 	angularVelocity: Vector3,
 	controlSeconds: number,
@@ -531,8 +612,9 @@ local function sendImpact(
 )
 	nextHitId += 1
 	local hitId = nextHitId
-	combatReaction:FireClient(target, {
+	local reaction: Types.CombatReaction = {
 		hitId = hitId,
+		character = targetCharacter,
 		launchVelocity = launchVelocity,
 		angularVelocity = angularVelocity,
 		controlSeconds = controlSeconds,
@@ -540,7 +622,8 @@ local function sendImpact(
 		slideDurationSeconds = slideDurationSeconds,
 		maximumReactionSeconds = maximumReactionSeconds,
 		landingRecoverySeconds = landingRecoverySeconds,
-	})
+	}
+	combatReaction:FireClient(target, reaction)
 	combatImpact:FireAllClients({
 		hitId = hitId,
 		targetUserId = target.UserId,
@@ -573,8 +656,10 @@ local function handleHitReport(player: Player, input: unknown)
 	local targetCharacter, _, targetRoot = getAliveR15Character(target)
 	if
 		not attackerCharacter
+		or payload.character ~= attackerCharacter
 		or not attackerRoot
 		or not targetCharacter
+		or payload.targetCharacter ~= targetCharacter
 		or not targetRoot
 		or not isCharacterInArena(attackerCharacter)
 		or not isCharacterInArena(targetCharacter)
@@ -638,11 +723,9 @@ local function handleHitReport(player: Player, input: unknown)
 	local maximumReactionSeconds = 0
 	local landingRecoverySeconds = 0
 	local airTrailSeconds = 0
-	local shieldDepleted = false
 	local shieldProfile = getProfile(targetCharacter:GetAttribute("LeftEquipped"))
 	if
-		targetCharacter:GetAttribute("ShieldGuarding") == true
-		and targetCharacter:FindFirstChild(SHIELD_BUBBLE_NAME) ~= nil
+		targetRuntime.accounting.protecting
 		and shieldProfile
 		and shieldProfile.kind == "Shield"
 		and CombatMath.IsWithinGuardArc(
@@ -651,13 +734,9 @@ local function handleHitReport(player: Player, input: unknown)
 			targetRoot.CFrame.LookVector,
 			getNumber(shieldProfile.blockArcDegrees, 110, 0, 360)
 		)
+		and CombatState.Block(targetRuntime.accounting, now)
 	then
 		blocked = true
-		shieldDepleted = spendStaminaUpTo(
-			target,
-			getNumber(shieldProfile.impactStaminaCost, 30, 0, 1_000),
-			now
-		) <= 0.001
 		reactionType = "ShieldSlide"
 		launchVelocity = direction * getNumber(shieldProfile.slideKnockback, 28, 0, 100)
 		controlSeconds = 0
@@ -676,10 +755,13 @@ local function handleHitReport(player: Player, input: unknown)
 	end
 	local immunity = getNumber(Equipment.combat.knockbackImmunitySeconds, 0.65, 0, 5)
 	targetRuntime.immunityUntil = now + immunity
-	target:SetAttribute("KnockbackImmune", immunity > 0)
+	-- The final paid block still slides and grants immunity even though its cost has
+	-- already removed protection. Publishing immediately prevents any extra free block.
+	publishRuntime(target, targetRuntime, now)
 	sendImpact(
 		player,
 		target,
+		targetCharacter,
 		launchVelocity,
 		angularVelocity,
 		controlSeconds,
@@ -692,22 +774,6 @@ local function handleHitReport(player: Player, input: unknown)
 		blocked,
 		profile
 	)
-	if blocked and shieldDepleted then
-		-- Let the final bubble spark finish, then lower the depleted guard automatically.
-		local trove = serviceTrove
-		if not trove then
-			return
-		end
-		trove:Add(task.delay(0.5, function()
-			trove:Pop(coroutine.running())
-			if
-				target.Character == targetCharacter
-				and targetCharacter:GetAttribute("ShieldGuarding") == true
-			then
-				setShieldGuard(target, false)
-			end
-		end))
-	end
 end
 
 local function cleanCharacterLifecycle(player: Player)
@@ -739,6 +805,11 @@ local function onCharacterAdded(player: Player, character: Model)
 	cleanCharacterLifecycle(player)
 	character:SetAttribute("CombatReady", false)
 	character:SetAttribute("ShieldGuarding", false)
+	character:SetAttribute("GuardPhase", "Lowered")
+	character:SetAttribute("GuardSequence", 0)
+	character:SetAttribute("GuardRequestSequence", 0)
+	character:SetAttribute("GuardRejectedSequence", 0)
+	character:SetAttribute("SwingLocked", false)
 	playerLifetime.characterTrove:Add(function()
 		clearShieldBubble(character)
 		presentation.Clear(character)
@@ -759,13 +830,16 @@ local function onCharacterAdded(player: Player, character: Model)
 	refreshRuntime(player, os.clock())
 	applyResolvedLoadout(player, character)
 	playerLifetime.characterTrove:Connect(humanoid.Died, function()
-		setShieldGuard(player, false)
+		if not isCurrent() then
+			return
+		end
+		forceLowerGuard(player)
 		getRuntime(player).authorizedSwing = nil
 		presentation.Clear(character)
 	end)
 	playerLifetime.characterTrove:Connect(character.AncestryChanged, function(_, parent)
-		if not parent then
-			setShieldGuard(player, false)
+		if not parent and isCurrent() then
+			forceLowerGuard(player)
 			getRuntime(player).authorizedSwing = nil
 		end
 	end)
@@ -792,7 +866,7 @@ local function equipOwnedInstance(player: Player, instanceId: unknown): (boolean
 	DataService.MarkDirty(player)
 	local character = player.Character
 	if character then
-		setShieldGuard(player, false)
+		forceLowerGuard(player)
 		applyResolvedLoadout(player, character)
 	end
 	return true, nil
@@ -917,16 +991,7 @@ function CombatService.Start()
 		return { ok = ok, code = reason, snapshot = snapshotLoadout(player) }
 	end
 
-	trove:Connect(setShieldGuardRemote.OnServerEvent, function(player: Player, enabled: unknown)
-		if type(enabled) ~= "boolean" then
-			return
-		end
-		-- Releasing guard is idempotent cleanup and must always succeed. Applying the limiter
-		-- to false messages can leave a rate-limited player frozen until another request arrives.
-		if not enabled or guardLimiter:Allow(player) then
-			setShieldGuard(player, enabled)
-		end
-	end)
+	trove:Connect(setShieldGuardRemote.OnServerEvent, handleGuardRequest)
 	trove:Connect(startAttack.OnServerEvent, function(player: Player, payload: unknown)
 		if startAttackLimiter:Allow(player) then
 			handleMeleeSwing(player, payload)
@@ -948,24 +1013,7 @@ function CombatService.Start()
 		local now = os.clock()
 		for _, player in Players:GetPlayers() do
 			updateArenaCombatState(player)
-			local runtime = refreshRuntime(player, now)
-			local movement = runtime.movement
-			if movement then
-				if
-					player.Character ~= movement.character
-					or not movement.character.Parent
-					or movement.humanoid.Health <= 0
-					or movement.character:GetAttribute("CombatReady") ~= true
-					or movement.character:GetAttribute("ShieldGuarding") ~= true
-				then
-					setShieldGuard(player, false)
-				else
-					movement.humanoid.WalkSpeed = 0
-					movement.humanoid.JumpPower = 0
-					movement.humanoid.JumpHeight = 0
-					movement.humanoid.AutoRotate = false
-				end
-			end
+			refreshRuntime(player, now)
 		end
 	end)
 

@@ -85,6 +85,7 @@ export type EquipmentProfile = {
 	modelName: string,
 	staminaCost: number?,
 	cooldownSeconds: number?,
+	swingDurationSeconds: number?,
 	animationId: string?,
 	hitStartFallbackSeconds: number?,
 	contactWindowSeconds: number?,
@@ -100,8 +101,12 @@ export type EquipmentProfile = {
 	landingRecoverySeconds: number?,
 	airTrailSeconds: number?,
 	impactSoundId: string?,
-	activationCooldownSeconds: number?,
 	impactStaminaCost: number?,
+	minimumGuardStamina: number?,
+	raiseSeconds: number?,
+	raiseTimeoutSeconds: number?,
+	lowerSeconds: number?,
+	lowerTimeoutSeconds: number?,
 	blockArcDegrees: number?,
 	slideKnockback: number?,
 	slideDurationSeconds: number?,
@@ -113,6 +118,11 @@ export type EquipmentProfile = {
 export type EquipmentConfiguration = {
 	presentationDefaults: {
 		cooldownSeconds: number,
+		swingDurationSeconds: number,
+		raiseSeconds: number,
+		raiseTimeoutSeconds: number,
+		lowerSeconds: number,
+		lowerTimeoutSeconds: number,
 		hitStartFallbackSeconds: number,
 		contactWindowSeconds: number,
 		slideDurationSeconds: number,
@@ -123,6 +133,7 @@ export type EquipmentConfiguration = {
 	},
 	combat: {
 		staminaMaximum: number,
+		staminaSpawn: number,
 		staminaRegenPerSecond: number,
 		knockbackImmunitySeconds: number,
 		arenaHeightAllowanceStuds: number,
@@ -181,6 +192,35 @@ export type ProductionCollection = {
 	collected: number,
 	remaining: number,
 	materials: { [string]: number },
+}
+
+export type CombatGuardRequest = {
+	action: "Begin" | "Raised" | "Release" | "Lowered",
+	sequence: number,
+	character: Model,
+}
+
+export type CombatAttackRequest = { sequence: number, character: Model }
+
+export type CombatHitReport = {
+	sequence: number,
+	character: Model,
+	targetUserId: number,
+	targetCharacter: Model,
+}
+
+export type CombatReactionType = "Launch" | "ShieldSlide"
+
+export type CombatReaction = {
+	hitId: number,
+	character: Model,
+	launchVelocity: Vector3,
+	angularVelocity: Vector3,
+	controlSeconds: number,
+	reactionType: CombatReactionType,
+	slideDurationSeconds: number,
+	maximumReactionSeconds: number,
+	landingRecoverySeconds: number,
 }
 
 export type Network = {

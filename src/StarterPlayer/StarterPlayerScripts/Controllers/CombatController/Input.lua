@@ -76,12 +76,18 @@ function Input.Start()
 	local TRANSITION_ANIMATIONS = table.freeze({ sheath = "", unsheath = "" })
 
 	local animationCache: { [string]: Animation } = {}
-	local lastAttackAt = 0
+	local lastAttackAt = -math.huge
+	local attackLockedUntil = 0
 	local nextSwingSequence = 0
 	local activeTransitionTrack: AnimationTrack? = nil
 	local activeAttackTrack: AnimationTrack? = nil
 	local attackToken = 0
 	local isGuardRequested = false
+	local guardPhase = "Lowered"
+	local nextGuardSequence = 0
+	local activeGuardSequence: number? = nil
+	local hasGuardAcknowledgement = false
+	local isKeyboardGuardHeld = false
 	local guardToken = 0
 	local activeGuardRaiseTrack: AnimationTrack? = nil
 	local activeGuardHoldTrack: AnimationTrack? = nil
@@ -222,6 +228,38 @@ function Input.Start()
 		return if profile and profile.kind == "Shield" then profile else nil
 	end
 
+	local function isSwingLocked(character: Model): boolean
+		return os.clock() < attackLockedUntil
+			or (activeAttackTrack ~= nil and activeAttackTrack.IsPlaying)
+			or character:GetAttribute("SwingLocked") == true
+	end
+
+	local function isFullyLowered(character: Model): boolean
+		local serverPhase = character:GetAttribute("GuardPhase")
+		return guardPhase == "Lowered"
+			and (serverPhase == nil or serverPhase == "Lowered")
+			and character:GetAttribute("ShieldGuarding") ~= true
+	end
+
+	local function hasGuardStamina(profile: SharedTypes.EquipmentProfile): boolean
+		local stamina = localPlayer:GetAttribute("CombatStamina")
+		local minimum = profile.minimumGuardStamina or profile.impactStaminaCost
+		return type(stamina) == "number"
+			and type(minimum) == "number"
+			and minimum > 0
+			and stamina >= minimum
+	end
+
+	local function delayGuard(seconds: number, callback: () -> ())
+		local pending = task.delay(seconds, callback)
+		-- A transition may clean its own phase from inside this callback.
+		activeGuardTrove:Add(function()
+			if coroutine.status(pending) == "suspended" then
+				task.cancel(pending)
+			end
+		end)
+	end
+
 	local function startGuardHold(character: Model, expectedToken: number)
 		if
 			not isGuardRequested
@@ -248,33 +286,162 @@ function Input.Start()
 		end
 	end
 
-	local function beginGuard(character: Model)
-		if isGuardRequested or character:GetAttribute("CombatReady") ~= true then
+	local function endGuard(character: Model?, shouldPlayLower: boolean)
+		if guardPhase == "Lowered" or guardPhase == "Lowering" then
+			return
+		end
+		local sequence = activeGuardSequence
+		isGuardRequested = false
+		guardPhase = "Lowering"
+		guardToken += 1
+		local expectedToken = guardToken
+		stopGuardTracks(0.08)
+		if sequence and character then
+			-- Release ends held intent immediately, independently of the later visual marker.
+			local request: SharedTypes.CombatGuardRequest = {
+				action = "Release",
+				sequence = sequence,
+				character = character,
+			}
+			setShieldGuard:FireServer(request)
+		end
+
+		if not shouldPlayLower or not character or localPlayer.Character ~= character then
+			guardPhase = "Lowered"
 			return
 		end
 		local profile = getShieldProfile(character)
-		if not profile or not getEquipmentModel(character, "Left") then
+		local minimumSeconds = if profile then profile.lowerSeconds else nil
+		local timeoutSeconds = if profile then profile.lowerTimeoutSeconds else nil
+		local lowerSeconds = minimumSeconds or Equipment.presentationDefaults.lowerSeconds
+		local lowerTimeout = timeoutSeconds or Equipment.presentationDefaults.lowerTimeoutSeconds
+		local lowerStartedAt = os.clock()
+		local hasLowered = false
+		local isFinishScheduled = false
+		local function finishLower()
+			if
+				hasLowered
+				or guardToken ~= expectedToken
+				or localPlayer.Character ~= character
+				or not isRunning
+			then
+				return
+			end
+			local remaining = lowerSeconds - (os.clock() - lowerStartedAt)
+			if remaining > 0 then
+				if not isFinishScheduled then
+					isFinishScheduled = true
+					delayGuard(remaining, function()
+						isFinishScheduled = false
+						finishLower()
+					end)
+				end
+				return
+			end
+			hasLowered = true
+			if sequence then
+				local request: SharedTypes.CombatGuardRequest = {
+					action = "Lowered",
+					sequence = sequence,
+					character = character,
+				}
+				setShieldGuard:FireServer(request)
+			end
+			guardPhase = "Lowered"
+			stopGuardTracks(0.05)
+		end
+		delayGuard(lowerTimeout, finishLower)
+		local track = profile
+			and playAnimation(character, profile.lowerAnimationId, Enum.AnimationPriority.Action4)
+		if
+			guardToken ~= expectedToken
+			or hasLowered
+			or localPlayer.Character ~= character
+			or not isRunning
+		then
+			if track then
+				track:Stop(0)
+			end
+			return
+		end
+		activeGuardLowerTrack = track
+		if track then
+			track.Looped = false
+			activeGuardTrove:Connect(track:GetMarkerReachedSignal("GuardLowered"), finishLower)
+			activeGuardTrove:Connect(track.Stopped, finishLower)
+		else
+			delayGuard(math.max(lowerSeconds - (os.clock() - lowerStartedAt), 0), finishLower)
+		end
+	end
+
+	local function beginGuard(character: Model)
+		if
+			isGuardRequested
+			or character:GetAttribute("CombatReady") ~= true
+			or not isFullyLowered(character)
+			or isSwingLocked(character)
+		then
+			return
+		end
+		local profile = getShieldProfile(character)
+		if
+			not profile
+			or not getEquipmentModel(character, "Left")
+			or not hasGuardStamina(profile)
+		then
 			return
 		end
 
-		clearActiveAttack()
 		stopGuardTracks(0.04)
 		isGuardRequested = true
+		guardPhase = "Raising"
+		hasGuardAcknowledgement = false
 		guardToken += 1
 		local expectedToken = guardToken
+		local latestRequest = character:GetAttribute("GuardRequestSequence")
+		if type(latestRequest) == "number" then
+			nextGuardSequence = math.max(nextGuardSequence, latestRequest)
+		end
+		nextGuardSequence += 1
+		local sequence = nextGuardSequence
+		activeGuardSequence = sequence
+		-- Raising stops server recovery immediately, before animation loading can yield.
+		local request: SharedTypes.CombatGuardRequest = {
+			action = "Begin",
+			sequence = sequence,
+			character = character,
+		}
+		setShieldGuard:FireServer(request)
 
 		local hasTransitioned = false
 		local function transitionToHold()
-			if hasTransitioned or not isRunning or generation ~= currentGeneration then
+			if
+				hasTransitioned
+				or not isRunning
+				or generation ~= currentGeneration
+				or guardToken ~= expectedToken
+				or not isGuardRequested
+				or localPlayer.Character ~= character
+			then
 				return
 			end
 			hasTransitioned = true
-			disconnectGuardConnections()
-			-- Protection and the replicated bubble begin at the authored GuardRaised frame.
-			setShieldGuard:FireServer(true)
+			local raisedRequest: SharedTypes.CombatGuardRequest = {
+				action = "Raised",
+				sequence = sequence,
+				character = character,
+			}
+			setShieldGuard:FireServer(raisedRequest)
 			startGuardHold(character, expectedToken)
 		end
-
+		local raiseSeconds = profile.raiseSeconds or Equipment.presentationDefaults.raiseSeconds
+		local raiseTimeout = profile.raiseTimeoutSeconds
+			or Equipment.presentationDefaults.raiseTimeoutSeconds
+		delayGuard(raiseTimeout, function()
+			if guardToken == expectedToken and guardPhase == "Raising" then
+				endGuard(character, true)
+			end
+		end)
 		local track =
 			playAnimation(character, profile.raiseAnimationId, Enum.AnimationPriority.Action4)
 		if not isGuardRequested or guardToken ~= expectedToken or not isRunning then
@@ -284,49 +451,12 @@ function Input.Start()
 			return
 		end
 		activeGuardRaiseTrack = track
-		if not track then
-			transitionToHold()
-			return
-		end
-		track.Looped = false
-		activeGuardTrove:Connect(track:GetMarkerReachedSignal("GuardRaised"), transitionToHold)
-		activeGuardTrove:Connect(track.Stopped, transitionToHold)
-	end
-
-	local function endGuard(character: Model?, shouldPlayLower: boolean)
-		if not isGuardRequested then
-			return
-		end
-		isGuardRequested = false
-		guardToken += 1
-		stopGuardTracks(0.08)
-
-		if not shouldPlayLower or not character or localPlayer.Character ~= character then
-			setShieldGuard:FireServer(false)
-			return
-		end
-		local profile = getShieldProfile(character)
-		local track = profile
-			and playAnimation(character, profile.lowerAnimationId, Enum.AnimationPriority.Action4)
-		activeGuardLowerTrack = track
 		if track then
 			track.Looped = false
-			local hasLowered = false
-			local function finishLower()
-				if hasLowered then
-					return
-				end
-				hasLowered = true
-				-- Keep protection active through the lowering motion, then remove the bubble.
-				setShieldGuard:FireServer(false)
-				if activeGuardLowerTrack == track then
-					activeGuardLowerTrack = nil
-				end
-			end
-			activeGuardTrove:Connect(track:GetMarkerReachedSignal("GuardLowered"), finishLower)
-			activeGuardTrove:Connect(track.Stopped, finishLower)
+			activeGuardTrove:Connect(track:GetMarkerReachedSignal("GuardRaised"), transitionToHold)
+			activeGuardTrove:Connect(track.Stopped, transitionToHold)
 		else
-			setShieldGuard:FireServer(false)
+			delayGuard(raiseSeconds, transitionToHold)
 		end
 	end
 
@@ -368,8 +498,8 @@ function Input.Start()
 	local function attack(character: Model)
 		if
 			character:GetAttribute("CombatReady") ~= true
-			or character:GetAttribute("ShieldGuarding") == true
-			or isGuardRequested
+			or not isFullyLowered(character)
+			or isSwingLocked(character)
 		then
 			return
 		end
@@ -391,6 +521,8 @@ function Input.Start()
 			return
 		end
 		lastAttackAt = now
+		attackLockedUntil = now
+			+ (profile.swingDurationSeconds or Equipment.presentationDefaults.swingDurationSeconds)
 		clearActiveAttack()
 		activeAttackTrove:Add(function()
 			setWeaponTrail(weapon, false)
@@ -459,20 +591,21 @@ function Input.Start()
 						requireLineOfSight = profile.requireLineOfSight == true,
 					})
 					previousCFrame = hitbox.CFrame
-					if target and target.Character then
+					local targetCharacter = target and target.Character
+					if target and targetCharacter then
 						hasReportedHit = true
 						local blockingShield = getPredictedBlockingShield(target)
 						if blockingShield then
 							PresentationBus.Fire(
 								"LocalShieldImpact",
-								target.Character,
+								targetCharacter,
 								blockingShield,
 								sequence
 							)
 						else
 							PresentationBus.Fire(
 								"LocalImpact",
-								target.Character,
+								targetCharacter,
 								profile.impactSoundId,
 								sequence
 							)
@@ -491,10 +624,13 @@ function Input.Start()
 								)
 							)
 						end
-						reportHit:FireServer({
+						local hitReport: SharedTypes.CombatHitReport = {
 							sequence = sequence,
+							character = character,
 							targetUserId = target.UserId,
-						})
+							targetCharacter = targetCharacter,
+						}
+						reportHit:FireServer(hitReport)
 					end
 				end
 				closeContactWindow()
@@ -502,7 +638,11 @@ function Input.Start()
 		end
 
 		-- Activation is charged by the server immediately, including a swing that misses.
-		startAttack:FireServer({ sequence = sequence })
+		local attackRequest: SharedTypes.CombatAttackRequest = {
+			sequence = sequence,
+			character = character,
+		}
+		startAttack:FireServer(attackRequest)
 		local track = playAnimation(character, profile.animationId, Enum.AnimationPriority.Action)
 		if not isCurrentAttack() then
 			if track then
@@ -569,7 +709,7 @@ function Input.Start()
 			return
 		end
 		local character = getCharacter()
-		if not character then
+		if not character or payload.character ~= character then
 			return
 		end
 		if payload.reactionType == "ShieldSlide" then
@@ -626,6 +766,8 @@ function Input.Start()
 		local attackIcon = view.attackIcon :: Frame
 		local shieldButton = view.shieldButton :: ImageButton
 		local shieldIcon = view.shieldIcon :: Frame
+		local isShieldButtonHeld = false
+		local shieldPress: InputObject? = nil
 		local renderedRightEquipment = ""
 		local renderedLeftEquipment = ""
 		local function renderEquipment(icon: Frame, definitionId: string)
@@ -645,10 +787,22 @@ function Input.Start()
 				and rightProfile
 				and rightProfile.kind == "PrimaryWeapon"
 				and getEquipmentModel(character :: Model, "Right") ~= nil
+				and isFullyLowered(character :: Model)
+				and not isSwingLocked(character :: Model)
+				and os.clock() - lastAttackAt
+					>= (rightProfile.cooldownSeconds or Equipment.presentationDefaults.cooldownSeconds)
+			local stamina = localPlayer:GetAttribute("CombatStamina")
+			if canAttack and rightProfile then
+				canAttack = type(stamina) == "number" and stamina >= (rightProfile.staminaCost or 0)
+			end
 			local canGuard = isReady
 				and leftProfile
 				and leftProfile.kind == "Shield"
 				and getEquipmentModel(character :: Model, "Left") ~= nil
+				and isFullyLowered(character :: Model)
+				and not isSwingLocked(character :: Model)
+				and hasGuardStamina(leftProfile)
+				and not isShieldButtonHeld
 			return isReady, canAttack == true, canGuard == true
 		end
 
@@ -661,17 +815,21 @@ function Input.Start()
 				end
 			end
 		end)
-		local isShieldButtonHeld = false
 		local function lowerShieldButton()
 			if not isShieldButtonHeld then
 				return
 			end
 			isShieldButtonHeld = false
-			if isGuardRequested then
-				endGuard(getCharacter(), true)
-			end
+			shieldPress = nil
+			endGuard(getCharacter(), true)
 		end
-		lifecycleTrove:Connect(shieldButton.MouseButton1Down, function()
+		lifecycleTrove:Connect(shieldButton.InputBegan, function(input: InputObject)
+			if
+				input.UserInputType ~= Enum.UserInputType.Touch
+				and input.UserInputType ~= Enum.UserInputType.MouseButton1
+			then
+				return
+			end
 			if isShieldButtonHeld or ModalState.AnyOpen() then
 				return
 			end
@@ -679,15 +837,16 @@ function Input.Start()
 			local _, _, canGuard = getButtonAvailability()
 			if character and canGuard then
 				isShieldButtonHeld = true
+				shieldPress = input
 				beginGuard(character)
 			end
 		end)
-		lifecycleTrove:Connect(shieldButton.MouseButton1Up, lowerShieldButton)
 		lifecycleTrove:Connect(UserInputService.InputEnded, function(input: InputObject)
-			if input.UserInputType == Enum.UserInputType.Touch then
+			if input == shieldPress then
 				lowerShieldButton()
 			end
 		end)
+		lifecycleTrove:Connect(UserInputService.WindowFocusReleased, lowerShieldButton)
 		local isModalOpen = ModalState.AnyOpen()
 		local disconnectModal = ModalState.OnChanged(function(isOpen: boolean)
 			isModalOpen = isOpen
@@ -719,12 +878,20 @@ function Input.Start()
 			end
 			root.Visible = isReady and not isModalOpen
 			attackButton.Interactable = canAttack and not isModalOpen
-			shieldButton.Interactable = canGuard and not isModalOpen
+			shieldButton.Interactable = (canGuard or isShieldButtonHeld) and not isModalOpen
 			attackButton.BackgroundTransparency = if canAttack then 0.12 else 0.5
-			shieldButton.BackgroundTransparency = if canGuard then 0.12 else 0.5
+			shieldButton.BackgroundTransparency = if canGuard or isGuardRequested then 0.12 else 0.5
 			shieldButton.BackgroundColor3 = if isGuardRequested
 				then PRESSED_BUTTON_COLOR
 				else NORMAL_BUTTON_COLOR
+			local shieldProfile = character and getShieldProfile(character)
+			view.shieldStatus.Text = if not shieldProfile
+				then ""
+				elseif not hasGuardStamina(shieldProfile) then "Low Stamina"
+				elseif guardPhase ~= "Lowered" then guardPhase
+				elseif isShieldButtonHeld then "Release to retry"
+				elseif character and isSwingLocked(character) then "Swing in progress"
+				else "Hold to guard"
 			view.relayout()
 		end)
 		view.relayout()
@@ -742,8 +909,9 @@ function Input.Start()
 			end
 			if input.UserInputType == Enum.UserInputType.MouseButton1 then
 				attack(character)
-			elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-				if not isGuardRequested then
+			elseif input.KeyCode == Enum.KeyCode.F then
+				if not isKeyboardGuardHeld then
+					isKeyboardGuardHeld = true
 					beginGuard(character)
 				end
 			end
@@ -751,17 +919,33 @@ function Input.Start()
 	)
 
 	lifecycleTrove:Connect(UserInputService.InputEnded, function(input: InputObject)
-		if input.UserInputType == Enum.UserInputType.MouseButton2 and isGuardRequested then
+		if input.KeyCode == Enum.KeyCode.F then
+			isKeyboardGuardHeld = false
 			endGuard(getCharacter(), true)
 		end
+	end)
+	lifecycleTrove:Connect(UserInputService.WindowFocusReleased, function()
+		endGuard(getCharacter(), true)
+	end)
+	lifecycleTrove:Connect(UserInputService.WindowFocused, function()
+		isKeyboardGuardHeld = UserInputService:IsKeyDown(Enum.KeyCode.F)
+	end)
+	local disconnectGuardModal = ModalState.OnChanged(function(isOpen: boolean)
+		if isOpen then
+			endGuard(getCharacter(), true)
+		end
+	end)
+	lifecycleTrove:Add(function()
+		disconnectGuardModal()
 	end)
 
 	local function bindCharacter(character: Model)
 		characterTrove:Clean()
-		if isGuardRequested then
-			setShieldGuard:FireServer(false)
-		end
 		isGuardRequested = false
+		guardPhase = "Lowered"
+		activeGuardSequence = nil
+		hasGuardAcknowledgement = false
+		isKeyboardGuardHeld = UserInputService:IsKeyDown(Enum.KeyCode.F)
 		guardToken += 1
 		stopGuardTracks(0)
 		clearActiveAttack()
@@ -769,7 +953,8 @@ function Input.Start()
 			activeTransitionTrack:Stop(0)
 		end
 		activeTransitionTrack = nil
-		lastAttackAt = 0
+		lastAttackAt = -math.huge
+		attackLockedUntil = 0
 		local wasCombatReady = character:GetAttribute("CombatReady") == true
 		characterTrove:Connect(character:GetAttributeChangedSignal("CombatReady"), function()
 			local isCombatReady = character:GetAttribute("CombatReady") == true
@@ -786,6 +971,43 @@ function Input.Start()
 			end
 			wasShieldGuarding = isShieldGuarding
 		end)
+		local function synchronizeGuard()
+			local sequence = activeGuardSequence
+			if not sequence or localPlayer.Character ~= character then
+				return
+			end
+			if character:GetAttribute("GuardRejectedSequence") == sequence then
+				endGuard(character, true)
+				return
+			end
+			if character:GetAttribute("GuardSequence") ~= sequence then
+				return
+			end
+			local serverPhase = character:GetAttribute("GuardPhase")
+			if serverPhase == "Raising" or serverPhase == "Guarding" then
+				hasGuardAcknowledgement = true
+				if serverPhase == "Guarding" and isGuardRequested then
+					guardPhase = "Guarding"
+				end
+			elseif serverPhase == "Lowering" then
+				hasGuardAcknowledgement = true
+				endGuard(character, true)
+			elseif serverPhase == "Lowered" and hasGuardAcknowledgement then
+				isGuardRequested = false
+				guardPhase = "Lowered"
+				guardToken += 1
+				stopGuardTracks(0.05)
+				hasGuardAcknowledgement = false
+			end
+		end
+		for _, attribute in { "GuardPhase", "GuardSequence", "GuardRejectedSequence" } do
+			characterTrove:Connect(character:GetAttributeChangedSignal(attribute), synchronizeGuard)
+		end
+		for _, attribute in { "LeftEquipped", "RightEquipped" } do
+			characterTrove:Connect(character:GetAttributeChangedSignal(attribute), function()
+				endGuard(character, true)
+			end)
+		end
 	end
 
 	lifecycleTrove:Connect(localPlayer.CharacterAdded, bindCharacter)
@@ -795,9 +1017,7 @@ function Input.Start()
 	lifecycleTrove:Add(task.defer(createCombatButtons))
 
 	stopImpl = function()
-		if isGuardRequested then
-			setShieldGuard:FireServer(false)
-		end
+		endGuard(getCharacter(), false)
 		isGuardRequested = false
 		guardToken += 1
 		Knockback.ClearAll()
