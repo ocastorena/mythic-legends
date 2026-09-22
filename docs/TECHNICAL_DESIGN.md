@@ -51,6 +51,19 @@ descendants are preserved only at explicitly mixed-ownership containers.
   combat](#client-reported-sword-combat). This architecture must not be changed by the general UI
   synchronization rule below.
 
+## Initial loading
+
+`ReplicatedFirst.LoadingScreen` owns the early loading presentation and its private `Assets` helper.
+Preload only the initial view: visible startup UI, the current character, and nearby spawn geometry
+selected from explicit map and owned-base roots. Do not scan all of Workspace/ReplicatedStorage or
+preload catalogues, unopened menus, other players' bases, or every island at join.
+
+Request streaming once around the actual character position, with the player's own Base Spawn as a
+fallback. Bounded readiness checks re-resolve the character root, owned Base Spawn, and HUD as they
+arrive; an empty container or global descendant count is not a readiness signal. Preserve the loading
+timeout, minimum display, fade, and owned input/camera cleanup. Later content loads when needed.
+Validate cold joins on target devices before claiming a load-time improvement.
+
 ## Project structure and coding conventions
 
 `ServerScriptService.Domain.Production.ProductionLedger` is the shared server-domain accounting
@@ -85,6 +98,11 @@ Network
   ranges, ownership, permissions, world state, and cooldowns before mutating anything.
 - Every client-triggered endpoint must have an appropriate server-side rate limit. Client-side
   debounce exists only for responsiveness and is never a security boundary.
+- Apply request admission before profile access or other protected work. Rejections must remain
+  small and must not construct full state snapshots or start profile loads. `Combat.GetLoadout` and
+  `Combat.Equip` use already-loaded profiles; while bootstrap is loading, return `NotReady`.
+  Failed loadout responses omit `snapshot`; clients keep their last confirmed view. Successful
+  responses retain the existing snapshot shape, including a valid empty Equipment collection.
 - Use a `RemoteEvent` when no immediate response is required. Use a client-to-server
   `RemoteFunction` only when the caller needs an explicit success or error result. Never invoke a
   client synchronously from the server.
@@ -177,6 +195,24 @@ The logical message names used below are mapped to the existing endpoints:
 | Confirmed impact | `Network.Combat.Impact` | Server to observing clients |
 
 The logical names are explanatory labels, not additional remotes to create.
+
+`StartAttack` carries `{ sequence, character }`; `ReportHit` carries
+`{ sequence, character, targetUserId, targetCharacter }`. Both character references must match the
+current characters when the server validates the request. `Reaction` includes the target character,
+and the receiving client rejects reactions for a replaced character.
+
+`SetShieldGuard` carries `{ action, sequence, character }`. `action` is `Begin`, `Raised`,
+`Release`, or `Lowered`; `sequence` increases for each new press, and `character` must match the
+sender's current character. Send `Begin` at press time and `Release` at release time, independently
+of animation loading. `Raised`/`Lowered` report animation markers for the same attempt. Old-character
+messages and stale markers cannot affect a later attempt. Release and lowering cleanup bypass the
+activation rate limit. Keyboard guard uses `F`; right mouse remains camera input.
+
+The server publishes character `GuardPhase` (`Lowered`, `Raising`, `Guarding`, `Lowering`),
+`GuardSequence`, `ShieldGuarding` (actual protection), and `SwingLocked`. `GuardRequestSequence`
+records a processed Begin request; `GuardRejectedSequence` identifies a rejected press in one
+attribute, avoiding a split sequence/boolean acknowledgment. Client prediction grants no protection.
+The client reflects insufficient Stamina and requires a fresh press after rejection or guard break.
 
 ### Combat Loadout presentation
 
@@ -351,6 +387,15 @@ The GDD's [Shield actions](GDD.md#shield-actions) define the guard threshold, fu
 blocks, action exclusion, and the rule that Stamina does not regenerate while the Shield is raised.
 Server runtime state owns Stamina and guard eligibility; animation, client input, and displayed
 values cannot authorize protection.
+
+The current implementation isolates deterministic accounting in
+[CombatState](../src/ServerScriptService/Services/CombatService/CombatState.lua). A completed hit
+does not shorten its independent swing deadline. Equipment defines the initial 0.72-second swing
+lock and 1-second start interval separately. Initial guard transitions use a 0.2-second minimum
+and a 0.8-second timeout for each direction. Early markers wait for the minimum; missing raise
+markers force an unprotected lowering, and missing lower markers finish cleanup at the timeout.
+Lazy settlement splits at those deadlines before adding any lowered-time recovery. These transition
+values remain trial tuning; they do not change the approved Stamina costs or recovery rate.
 
 - Initialize maximum Stamina and character-spawn Stamina to 100 and eligible regeneration to
   10 Stamina per second. A new character after reset receives the configured spawn value;
@@ -1435,7 +1480,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) is version 3 with legacy `consumables`, `base.stands`, and Equipment `definitionId` records. Forward-only migration preserves earned legacy work in stand-owned production ledgers. The complete target Shrine/job/finish schema is still pending. | Introduce remaining target fields with forward-only migrations. Keep `definitionId` for base Equipment references, add optional `finishId` for Stage 1 element variants, and preserve existing player data when retiring prototype-facing features. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) reconciles defaults, runs explicit forward-only migrations, and exposes typed `GetData`/`GetLoadedData`, `MarkDirty`, and `SaveNow`. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Implement the remaining per-profile atomic mutations and bounded request resolution. Publishing state or returning `SaveNow == true` does not prove durable persistence. Keep store/key namespaces stable during schema upgrades. |
 | Mythling production | [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) uses the [shared server production ledger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua), preserving stored output and unfinished work by stand and Material ID. The v3 migration removes the consumed legacy `lastCollectionAt` cursor. Prototype rates are explicitly named `materialsPerMinute`. | Complete the target Shrine/form/level/batch/XP model and storage configuration. Existing stand-owned accounting is partial implementation, not the full target schema; Luck/Traits remain inactive. |
-| Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) currently regenerates on refresh without excluding guarded time and uses partial-cost block spending with delayed depletion cleanup. | Apply [Stamina and guard accounting](#stamina-and-guard-accounting), full-cost eligibility, immediate protection removal, and action exclusion in both directions. |
+| Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) serially spawns without initial fill, counts non-despawned claimed presentations, and despawns at the timer deadline regardless of occupancy. [MythlingSpawns](../src/ReplicatedStorage/Shared/Configurations/MythlingSpawns.lua) still contains the obsolete `Secret` rarity; its `Legendary` label is valid but refers to deferred content. | Maintain the 12-contest target in quiet and full servers, prefill before capture opens, replace each ended contest within three seconds independently of model cleanup, implement the overtime lifecycle, and align rarity IDs with the GDD's Common/Rare/Epic/Legendary/Mythical order while limiting new launch spawns to Common/Rare/Epic. A configured active cap of 12 alone does not satisfy the population contract. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) currently stores one active meter per player and resets it when switching contests. | Maintain independent per-player/per-contest meters; a previous contest's progress decays when the player moves to another ring. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |

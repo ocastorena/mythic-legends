@@ -37,7 +37,9 @@ mythic-legends/
     UI_GUIDELINES.md              # player-facing UI rules
   src/
     ReplicatedFirst/
-      LoadingScreen.client.lua    # intentional early self-running entry point
+      LoadingScreen/
+        init.client.lua           # intentional early self-running entry point
+        Assets.lua                # private initial-view asset selection
     ReplicatedStorage/
       Shared/
         Configurations/           # static content and balance definitions
@@ -110,9 +112,10 @@ for deferred systems. Generated dependencies, API definitions, and verification 
 follow the README to regenerate them.
 
 `MainServer` owns server startup and shutdown. `MainClient` owns bootstrapped client features.
-`LoadingScreen.client.lua` is the intentional early-loading exception. Keep service helpers private
-to their service, character helpers client-side, and UI state adapters distinct from the authoritative
-client cache. Runtime responsibilities follow [Technical Design](TECHNICAL_DESIGN.md#runtime-architecture).
+`LoadingScreen/init.client.lua` is the intentional early-loading exception; its asset selection follows
+[initial loading](TECHNICAL_DESIGN.md#initial-loading). Keep service helpers private to their service,
+character helpers client-side, and UI state adapters distinct from the authoritative client cache.
+Runtime responsibilities follow [Technical Design](TECHNICAL_DESIGN.md#runtime-architecture).
 
 ## Roblox Explorer hierarchy
 
@@ -318,6 +321,12 @@ adding the directive. Vendored/generated dependencies retain their upstream chec
 - Connections to long-lived objects such as `Camera`, `Players`, or `RunService` must be disconnected
   when their owning feature/view ends. Destroying a GUI does not clean up a listener attached to
   the camera. Destroying the actual signal source may supply cleanup for that source's listeners.
+- Responsive UI uses scoped `ViewportUtil.Observe` so it follows `Workspace.CurrentCamera`
+  replacement. Camera locks follow the same replacement signal, release the old camera, and restore
+  only properties they changed and still own when the final lock closes.
+- Instance-indexed caches release references when a descendant leaves their owned hierarchy,
+  including streaming removal. Restore owned overrides before forgetting the instance; a returning
+  instance gets a fresh baseline from its current properties.
 - Prevent an old yielding request, deferred callback, or tween completion from changing a stopped
   feature or a replacement view. Use cancellation or generation checks as appropriate, combining
   them when needed. Restore only temporary state the feature still owns.
