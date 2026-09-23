@@ -20,9 +20,21 @@ function Quality.Start()
 	-- Scales cosmetic world effects to the player's saved graphics quality and device profile.
 
 	local UserInputService = game:GetService("UserInputService")
+	local RunService = game:GetService("RunService")
 
 	local AUTOMATIC_MOBILE_MULTIPLIER = 0.65
 	local SMALL_MOBILE_MAX_EDGE = 1280
+	local DISTANCE_UPDATE_INTERVAL = 0.25
+
+	type DistanceEffect = ParticleEmitter | Beam | Light
+	type DistanceState = {
+		fadeStart: number,
+		fadeEnd: number,
+		fade: number,
+		isInRange: boolean,
+		baseEnabled: boolean,
+		appliedEnabled: boolean?,
+	}
 
 	local baseParticleRates: { [ParticleEmitter]: number } = {}
 	local baseBeamSegments: { [Beam]: number } = {}
@@ -30,15 +42,34 @@ function Quality.Start()
 	local appliedParticleRates: { [ParticleEmitter]: number } = {}
 	local appliedBeamSegments: { [Beam]: number } = {}
 	local appliedRenderFidelity: { [MeshPart]: Enum.RenderFidelity } = {}
+	local distanceEffects: { [DistanceEffect]: DistanceState } = {}
+	local effectObservers: { [DistanceEffect]: { RBXScriptConnection } } = {}
 	local environment = workspace:WaitForChild("Visuals"):WaitForChild("Environment")
 	if not isRunning or generation ~= currentGeneration then
 		return
 	end
 	local originalMultiplier = script:GetAttribute("AppliedMultiplier")
 	local appliedMultiplier: number?
+	local function releaseDistanceEffect(effect: DistanceEffect)
+		local state = distanceEffects[effect]
+		if state and state.appliedEnabled ~= nil and effect.Enabled == state.appliedEnabled then
+			effect.Enabled = state.baseEnabled
+		end
+		distanceEffects[effect] = nil
+	end
 	local function releaseInstance(instance: Instance)
 		-- Streaming removes descendants without destroying them. Drop both references even
 		-- when a later owner changed the property, and capture a fresh baseline on re-entry.
+		if instance:IsA("ParticleEmitter") or instance:IsA("Beam") or instance:IsA("Light") then
+			releaseDistanceEffect(instance)
+			local observers = effectObservers[instance]
+			if observers then
+				for _, connection in observers do
+					connection:Disconnect()
+				end
+				effectObservers[instance] = nil
+			end
+		end
 		if instance:IsA("ParticleEmitter") then
 			local rate = baseParticleRates[instance]
 			local appliedRate = appliedParticleRates[instance]
@@ -68,6 +99,9 @@ function Quality.Start()
 		end
 	end
 	lifetime:Add(function()
+		for effect in effectObservers do
+			releaseInstance(effect)
+		end
 		for emitter in baseParticleRates do
 			releaseInstance(emitter)
 		end
@@ -123,8 +157,109 @@ function Quality.Start()
 			baseRate = emitter.Rate
 			baseParticleRates[emitter] = baseRate
 		end
-		emitter.Rate = baseRate * multiplier
+		local distanceState = distanceEffects[emitter]
+		emitter.Rate = baseRate * multiplier * (if distanceState then distanceState.fade else 1)
 		appliedParticleRates[emitter] = emitter.Rate
+	end
+
+	local function effectDistance(effect: DistanceEffect, cameraPosition: Vector3): number?
+		if effect:IsA("Beam") then
+			local startAttachment, endAttachment = effect.Attachment0, effect.Attachment1
+			if startAttachment and endAttachment then
+				local startPosition = startAttachment.WorldPosition
+				local segment = endAttachment.WorldPosition - startPosition
+				local lengthSquared = segment:Dot(segment)
+				local alpha = if lengthSquared > 0
+					then math.clamp(
+						(cameraPosition - startPosition):Dot(segment) / lengthSquared,
+						0,
+						1
+					)
+					else 0
+				-- A long lavafall must remain visible near either end, not just its midpoint.
+				return (cameraPosition - (startPosition + segment * alpha)).Magnitude
+			end
+		end
+		local parent = effect.Parent
+		if parent and parent:IsA("Attachment") then
+			return (cameraPosition - parent.WorldPosition).Magnitude
+		elseif parent and parent:IsA("BasePart") then
+			return (cameraPosition - parent.Position).Magnitude
+		end
+		return nil
+	end
+
+	local function updateDistanceEffect(effect: DistanceEffect, state: DistanceState)
+		local camera = workspace.CurrentCamera
+		local distance = if camera then effectDistance(effect, camera.CFrame.Position) else nil
+		if distance == nil then
+			return
+		end
+		state.fade =
+			math.clamp((state.fadeEnd - distance) / (state.fadeEnd - state.fadeStart), 0, 1)
+		if effect:IsA("ParticleEmitter") then
+			-- Leave Enabled untouched so authored disabled emitters never begin emitting.
+			applyParticleQuality(effect, appliedMultiplier or 1)
+		else
+			local reentryBand = math.min(16, (state.fadeEnd - state.fadeStart) * 0.1)
+			if distance >= state.fadeEnd then
+				state.isInRange = false
+			elseif distance <= state.fadeEnd - reentryBand then
+				state.isInRange = true
+			end
+			effect.Enabled = state.baseEnabled and state.isInRange
+			state.appliedEnabled = effect.Enabled
+		end
+	end
+
+	local function observeDistanceEffect(effect: DistanceEffect)
+		if effectObservers[effect] then
+			return
+		end
+		local function refresh()
+			if
+				not isRunning
+				or generation ~= currentGeneration
+				or not effect:IsDescendantOf(environment)
+			then
+				return
+			end
+			local fadeStart = effect:GetAttribute("EffectFadeStart")
+			local fadeEnd = effect:GetAttribute("EffectFadeEnd")
+			if
+				typeof(fadeStart) == "number"
+				and typeof(fadeEnd) == "number"
+				and fadeStart >= 0
+				and fadeEnd > fadeStart
+				and fadeEnd < math.huge
+			then
+				local state = distanceEffects[effect]
+				if not state then
+					local initialState: DistanceState = {
+						fadeStart = fadeStart,
+						fadeEnd = fadeEnd,
+						fade = 1,
+						isInRange = true,
+						baseEnabled = effect.Enabled,
+					}
+					state = initialState
+					distanceEffects[effect] = state
+				else
+					state.fadeStart, state.fadeEnd = fadeStart, fadeEnd
+				end
+				updateDistanceEffect(effect, state)
+			else
+				releaseDistanceEffect(effect)
+				if effect:IsA("ParticleEmitter") then
+					applyParticleQuality(effect, appliedMultiplier or 1)
+				end
+			end
+		end
+		effectObservers[effect] = {
+			effect:GetAttributeChangedSignal("EffectFadeStart"):Connect(refresh),
+			effect:GetAttributeChangedSignal("EffectFadeEnd"):Connect(refresh),
+		}
+		refresh()
 	end
 
 	local function applyBeamQuality(beam: Beam, multiplier: number)
@@ -160,6 +295,9 @@ function Quality.Start()
 	end
 
 	local function applyInstance(instance: Instance, multiplier: number)
+		if instance:IsA("ParticleEmitter") or instance:IsA("Beam") or instance:IsA("Light") then
+			observeDistanceEffect(instance)
+		end
 		if instance:IsA("ParticleEmitter") then
 			applyParticleQuality(instance, multiplier)
 		elseif instance:IsA("Beam") then
@@ -193,6 +331,21 @@ function Quality.Start()
 	end))
 	lifetime:Add(environment.DescendantRemoving:Connect(releaseInstance))
 	applyEnvironmentQuality()
+	local distanceAccumulator = 0
+	lifetime:Add(RunService.Heartbeat:Connect(function(deltaTime)
+		if not isRunning or generation ~= currentGeneration then
+			return
+		end
+		distanceAccumulator += deltaTime
+		if distanceAccumulator < DISTANCE_UPDATE_INTERVAL then
+			return
+		end
+		distanceAccumulator %= DISTANCE_UPDATE_INTERVAL
+		-- Only opted-in effects are visited here; meshes retain event-driven quality updates.
+		for effect, state in distanceEffects do
+			updateDistanceEffect(effect, state)
+		end
+	end))
 
 	local ok, gameSettings = pcall(function()
 		return UserSettings().GameSettings
