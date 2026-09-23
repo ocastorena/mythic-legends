@@ -27,6 +27,7 @@ export type ProductionApi = {
 	SettleProduction: (Player, number) -> (boolean, string?),
 }
 export type InventoryApi = {
+	GetMythlingCapacity: (Player) -> SharedTypes.InventoryCapacity?,
 	SaveWonMythling: (Player, { typeId: string, variantId: string }) -> string?,
 	GetMythling: (Player, string) -> SharedTypes.MythlingEntry?,
 	MarkDirty: (Player) -> boolean,
@@ -47,14 +48,19 @@ export type SpawnEntry = {
 	radius: number,
 	fillRate: number,
 	drainRate: number,
+	startedAt: number,
+	lifetimeSeconds: number,
 	expireAt: number,
-	state: "SPAWNED" | "CONTEST" | "CLAIMED" | "ESCORT" | "DESPAWNED",
+	state: "PREFILL" | "SPAWNED" | "OVERTIME" | "CLAIMED" | "ESCORT" | "DESPAWNED",
 	ownerUserId: number?,
 	claimed: boolean?,
 	claiming: boolean?,
 }
 export type SpawnApi = {
 	GetActiveMythlings: () -> { [string]: SpawnEntry },
+	IsCaptureReady: () -> boolean,
+	EndContest: (string, string?) -> (),
+	SetOvertime: (string) -> (),
 	OnClaimed: (string, Player) -> (),
 }
 export type Services = {

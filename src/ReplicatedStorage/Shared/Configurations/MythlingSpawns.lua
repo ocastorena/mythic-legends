@@ -5,26 +5,30 @@ local FreezeUtil = require(script.Parent.Parent.FreezeUtil)
 local Types = require(script.Parent.Parent.Types)
 
 local MythlingSpawns: Types.MythlingSpawnConfiguration = {
-	targetActive = 10, -- how many Mythlings should be alive at once
-	spawnIntervalMin = 10, -- min seconds between spawns
-	spawnIntervalMax = 15, -- max seconds between spawns
-	zonePadding = 2, -- extra space to prevent overlap
-	maxPlacementTries = 16, -- tries to find valid spawn point
-	rarityWeights = { -- spawn chances
+	targetActive = 12,
+	refillDeadlineSeconds = 3,
+	refillRetrySeconds = 0.1,
+	captureTickSeconds = 0.1,
+	ringVerticalAllowanceStuds = 12,
+	zonePadding = 2,
+	boundaryClearance = 12,
+	maxPlacementTries = 32,
+	fallbackStepStuds = 4,
+	-- Preserve the three existing prototype forms and their effective distribution.
+	-- The approved 75/20/5 launch pool requires the missing six-element, 18-form catalogue.
+	rarityWeights = {
 		Common = 100,
 		Rare = 50,
-		Epic = 30,
 		Legendary = 15,
-		Secret = 5,
 	},
-	expireSeconds = { -- lifetime per rarity
-		Common = 120,
-		Rare = 120,
-		Epic = 120,
-		Legendary = 120,
-		Secret = 120,
+	expireSeconds = {
+		Common = 240,
+		Rare = 240,
+		Epic = 240,
+		Legendary = 240,
 	},
-	defaultExpireSeconds = 60, -- fallback if rarity missing
+	formExpireSeconds = {},
+	defaultExpireSeconds = 240,
 }
 
 return FreezeUtil.DeepFreeze(MythlingSpawns)

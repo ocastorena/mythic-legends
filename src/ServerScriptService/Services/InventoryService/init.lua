@@ -59,6 +59,10 @@ function InventoryService.Stop()
 end
 
 -- Mythling inventory API used by claiming, base placement, and production.
+function InventoryService.GetMythlingCapacity(player: Player): Types.InventoryCapacity?
+	return Mythlings.GetCapacity(player)
+end
+
 function InventoryService.SaveWonMythling(
 	player: Player,
 	params: { typeId: string, variantId: string }

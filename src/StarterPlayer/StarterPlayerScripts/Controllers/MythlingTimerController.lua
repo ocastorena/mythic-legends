@@ -44,6 +44,7 @@ function MythlingTimerController.Start()
 	type Timer = {
 		gui: BillboardGui,
 		label: TextLabel,
+		lifetime: Trove.Trove,
 		originalText: string,
 		originalEnabled: boolean,
 		lastText: string?,
@@ -51,16 +52,28 @@ function MythlingTimerController.Start()
 	}
 	local tracked: { [Model]: Timer } = {}
 
+	local function updateTimer(model: Model, entry: Timer, now: number)
+		local state = model:GetAttribute("State")
+		local expireAt = model:GetAttribute("ExpireAt")
+		if state == "OVERTIME" then
+			entry.label.Text = "Overtime"
+			entry.gui.Enabled = true
+		elseif state == "SPAWNED" and typeof(expireAt) == "number" then
+			entry.label.Text = fmtSeconds(expireAt - now)
+			entry.gui.Enabled = true
+		else
+			-- Prefill has not started its lifetime; ended contests have no timer.
+			entry.gui.Enabled = false
+		end
+		entry.lastEnabled = entry.gui.Enabled
+		entry.lastText = entry.label.Text
+	end
+
 	local function tryAttach(model: Instance)
 		if not model:IsA("Model") then
 			return
 		end
 		if tracked[model] then
-			return
-		end
-
-		local expireAt = model:GetAttribute("ExpireAt")
-		if typeof(expireAt) ~= "number" then
 			return
 		end
 
@@ -74,8 +87,20 @@ function MythlingTimerController.Start()
 			return
 		end
 
-		tracked[model] =
-			{ gui = gui, label = label, originalText = label.Text, originalEnabled = gui.Enabled }
+		local entry: Timer = {
+			gui = gui,
+			label = label,
+			lifetime = lifetime:Extend(),
+			originalText = label.Text,
+			originalEnabled = gui.Enabled,
+		}
+		tracked[model] = entry
+		local function refresh()
+			updateTimer(model, entry, serverNow())
+		end
+		entry.lifetime:Connect(model:GetAttributeChangedSignal("State"), refresh)
+		entry.lifetime:Connect(model:GetAttributeChangedSignal("ExpireAt"), refresh)
+		refresh()
 	end
 
 	local function detach(model: Instance)
@@ -84,6 +109,7 @@ function MythlingTimerController.Start()
 		end
 		local entry = tracked[model]
 		if entry then
+			lifetime:Remove(entry.lifetime)
 			if entry.gui.Parent and entry.gui.Enabled == entry.lastEnabled then
 				entry.gui.Enabled = entry.originalEnabled
 			end
@@ -108,7 +134,7 @@ function MythlingTimerController.Start()
 		detach(child)
 	end))
 
-	-- If server edits ExpireAt later (rare), catch it:
+	-- Descendants and attributes may replicate after the model itself.
 	lifetime:Add(mythlingsFolder.DescendantAdded:Connect(function(desc)
 		local model = desc:FindFirstAncestorOfClass("Model")
 		if model and model.Parent == mythlingsFolder then
@@ -132,19 +158,10 @@ function MythlingTimerController.Start()
 		local now = serverNow()
 
 		for model, entry in pairs(tracked) do
-			if not model.Parent then
-				tracked[model] = nil
+			if model.Parent ~= mythlingsFolder then
+				detach(model)
 			else
-				local expireAt = model:GetAttribute("ExpireAt")
-				if typeof(expireAt) ~= "number" then
-					entry.gui.Enabled = false
-				else
-					local remain = expireAt - now
-					entry.label.Text = fmtSeconds(remain)
-					entry.gui.Enabled = (remain > 0)
-				end
-				entry.lastEnabled = entry.gui.Enabled
-				entry.lastText = entry.label.Text
+				updateTimer(model, entry, now)
 			end
 		end
 	end))

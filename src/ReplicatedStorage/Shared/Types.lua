@@ -33,12 +33,17 @@ export type ConsumableEntry = {
 
 export type MythlingSpawnConfiguration = {
 	targetActive: number,
-	spawnIntervalMin: number, -- seconds
-	spawnIntervalMax: number, -- seconds
+	refillDeadlineSeconds: number,
+	refillRetrySeconds: number,
+	captureTickSeconds: number,
+	ringVerticalAllowanceStuds: number,
 	zonePadding: number, -- studs
+	boundaryClearance: number,
 	maxPlacementTries: number,
+	fallbackStepStuds: number,
 	rarityWeights: { [string]: number },
 	expireSeconds: { [string]: number },
+	formExpireSeconds: { [string]: number },
 	defaultExpireSeconds: number,
 }
 
@@ -47,6 +52,8 @@ export type MythlingEntry = {
 	typeId: string,
 	variantId: string,
 	claimedAt: number,
+	level: number?,
+	xp: number?,
 	standId: number?,
 	-- Legacy v2 cursor, consumed by the v3 migration. New work belongs to the stand.
 	lastCollectionAt: number?,
@@ -150,6 +157,7 @@ export type PlayerDoc = {
 		lastLoginAt: number,
 	},
 	mythlings: { [string]: MythlingEntry },
+	inventoryUpgrades: { [string]: number }?,
 	materials: { [string]: MaterialEntry },
 	-- Legacy values are preserved opaquely; this cleanup does not activate Consumables.
 	consumables: { [string]: unknown },
@@ -221,6 +229,21 @@ export type CombatReaction = {
 	slideDurationSeconds: number,
 	maximumReactionSeconds: number,
 	landingRecoverySeconds: number,
+}
+
+export type InventoryCapacity = { used: number, limit: number }
+
+export type ClaimMode = "Idle" | "Filling" | "Draining" | "Full"
+
+export type ClaimUpdate = {
+	userId: number,
+	mythlingId: string?,
+	mode: ClaimMode,
+	progress: number,
+	fillRate: number?,
+	drainRate: number?,
+	character: Model?,
+	sampledAt: number,
 }
 
 export type Network = {

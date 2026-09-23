@@ -12,6 +12,7 @@ local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Typ
 local log = LogUtil.For("InventoryService.Mythlings")
 
 local ServerTypes = require(game:GetService("ServerScriptService").Domain.Types)
+local Capacity = require(script.Parent.Capacity)
 
 local Mythlings = {}
 
@@ -48,13 +49,27 @@ function Mythlings.LoadPlayer(player: Player)
 	session.mythlings = DataService.GetData(player).mythlings
 end
 
+function Mythlings.GetCapacity(player: Player): Types.InventoryCapacity?
+	local data = DataService.GetLoadedData(player)
+	local owned = getOwned(player)
+	if not data or not owned or owned ~= data.mythlings then
+		return nil
+	end
+	local used = 0
+	for _ in owned do
+		used += 1
+	end
+	local purchasedLevel = data.inventoryUpgrades and data.inventoryUpgrades.mythlings
+	return { used = used, limit = Capacity.GetMythlingLimit(purchasedLevel) }
+end
+
 function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: string }): string?
 	assert(player and player.UserId, "[InventoryService.Mythlings] invalid player")
 	assert(params, "[InventoryService.Mythlings] params required")
 
 	local list = getOwned(player)
-	if not list then
-		log.warn(`No inventory session for userId {player.UserId}; cannot save won mythling`)
+	local capacity = Mythlings.GetCapacity(player)
+	if not list or not capacity or capacity.used >= capacity.limit then
 		return nil
 	end
 
@@ -63,6 +78,8 @@ function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: 
 		typeId = params.typeId,
 		variantId = params.variantId,
 		claimedAt = os.time(),
+		level = 1,
+		xp = 0,
 	}
 
 	if not DataService.MarkDirty(player) then

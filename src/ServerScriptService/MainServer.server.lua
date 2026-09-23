@@ -33,6 +33,7 @@ local services: ServerTypes.Services = {
 		SaveNow = DataService.SaveNow,
 	},
 	InventoryService = {
+		GetMythlingCapacity = InventoryService.GetMythlingCapacity,
 		SaveWonMythling = InventoryService.SaveWonMythling,
 		GetMythling = InventoryService.GetMythling,
 		MarkDirty = InventoryService.MarkDirty,
@@ -49,6 +50,9 @@ local services: ServerTypes.Services = {
 	},
 	MythlingSpawnService = {
 		GetActiveMythlings = MythlingSpawnService.GetActiveMythlings,
+		IsCaptureReady = MythlingSpawnService.IsCaptureReady,
+		EndContest = MythlingSpawnService.EndContest,
+		SetOvertime = MythlingSpawnService.SetOvertime,
 		OnClaimed = MythlingSpawnService.OnClaimed,
 	},
 }

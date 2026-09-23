@@ -475,6 +475,27 @@ Neither effect may grant recovery during a guard phase or make full-rate attacks
 
 ## Arena population lifecycle
 
+The current services share a server-time clock. `ClaimService/ContestState` settles per-contest,
+per-player meters and returns ordered completion candidates before expiry is finalized; ClaimService
+rechecks character identity, profile availability, and Inventory capacity before granting once.
+The same finite-height ring membership governs progress, uninterrupted visits, and overtime.
+The client receives character-bound `ClaimUpdate` projections for the current ring or a retained
+decaying meter; these projections do not replace the independent server meters. Timers render
+the server's `State` and fixed `ExpireAt`, including an explicit overtime label.
+
+This lifecycle repair preserves the three existing prototype form IDs and their effective spawn
+weights. It does not complete the 18-form launch catalogue or its 75%/20%/5% distribution. Ember Fang
+and Shadow Satyr now use their configured 20/35-second captures; Stream Axolotl retains its prototype
+10-second capture. All three decay one second of earned progress per second absent and use a
+240-second lifetime. Replace the prototype catalogue and validate all six elements per launch
+rarity before release; do not infer catalogue completion from the 12-contest target.
+
+Capture grants now enforce the configured Mythling limits of 24/36/48, derived from optional saved
+`inventoryUpgrades.mythlings` (absent means zero purchases). Existing owned entries, including those
+assigned to Shrines or above capacity, are retained and counted. Upgrade purchasing remains a
+separate feature. New captures alone initialize `level = 1` and `xp = 0`; existing progression is
+not reset or migrated by this change.
+
 Enforce the GDD's [population and availability
 rules](GDD.md#server-population-and-spawn-availability) through server-owned contest state. The
 deployed launch server limit is eight players, and shared configuration specifies a capturable
@@ -1481,8 +1502,8 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) reconciles defaults, runs explicit forward-only migrations, and exposes typed `GetData`/`GetLoadedData`, `MarkDirty`, and `SaveNow`. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Implement the remaining per-profile atomic mutations and bounded request resolution. Publishing state or returning `SaveNow == true` does not prove durable persistence. Keep store/key namespaces stable during schema upgrades. |
 | Mythling production | [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) uses the [shared server production ledger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua), preserving stored output and unfinished work by stand and Material ID. The v3 migration removes the consumed legacy `lastCollectionAt` cursor. Prototype rates are explicitly named `materialsPerMinute`. | Complete the target Shrine/form/level/batch/XP model and storage configuration. Existing stand-owned accounting is partial implementation, not the full target schema; Luck/Traits remain inactive. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
-| Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) serially spawns without initial fill, counts non-despawned claimed presentations, and despawns at the timer deadline regardless of occupancy. [MythlingSpawns](../src/ReplicatedStorage/Shared/Configurations/MythlingSpawns.lua) still contains the obsolete `Secret` rarity; its `Legendary` label is valid but refers to deferred content. | Maintain the 12-contest target in quiet and full servers, prefill before capture opens, replace each ended contest within three seconds independently of model cleanup, implement the overtime lifecycle, and align rarity IDs with the GDD's Common/Rare/Epic/Legendary/Mythical order while limiting new launch spawns to Common/Rare/Epic. A configured active cap of 12 alone does not satisfy the population contract. |
-| Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) currently stores one active meter per player and resets it when switching contests. | Maintain independent per-player/per-contest meters; a previous contest's progress decays when the player moves to another ring. |
+| Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. | Replace the three-form prototype catalogue with the 18 launch forms and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
+| Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
 | Feature endpoints and transactions | [default.project.json](../default.project.json) exposes the network domains listed above, but does not declare crafting/sale/evolution/build/upgrade, Shrine dismantling, or Material discard endpoints. | Add typed, domain-specific contracts as the approved features ship; target transactional guarantees are requirements, not claims of existing implementations. |
 | Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored Arena/BaseIslands and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |
