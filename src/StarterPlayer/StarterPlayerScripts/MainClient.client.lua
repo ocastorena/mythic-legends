@@ -9,6 +9,7 @@ local LocalData = require(script.Parent.State.LocalData)
 local UIController = require(script.Parent.Controllers.UIController)
 
 local CONTROLLER_ORDER = {
+	"AdminCommandController",
 	"EnvironmentController",
 	"NoClimbController",
 	"ClaimController",

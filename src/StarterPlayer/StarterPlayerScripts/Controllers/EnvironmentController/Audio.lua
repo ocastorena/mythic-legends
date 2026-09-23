@@ -29,6 +29,15 @@ function Audio.Start()
 	local ARENA_RADIUS = 245
 	local GUST_HEIGHT_OFFSET = 14
 
+	local runtime = workspace:WaitForChild("Runtime")
+	if not isRunning or generation ~= currentGeneration then
+		return
+	end
+	local audioFolder = Instance.new("Folder")
+	audioFolder.Name = "Audio"
+	audioFolder.Parent = runtime
+	lifetime:Add(audioFolder)
+
 	local function createSoundGroup(): SoundGroup
 		local existing = SoundService:FindFirstChild(AMBIENCE_GROUP_NAME)
 		if existing and existing:IsA("SoundGroup") then
@@ -54,7 +63,7 @@ function Audio.Start()
 		anchor.Size = Vector3.one
 		anchor.Transparency = 1
 		anchor.Position = position
-		anchor.Parent = workspace
+		anchor.Parent = audioFolder
 		lifetime:Add(anchor)
 		return anchor
 	end
@@ -82,27 +91,26 @@ function Audio.Start()
 	wind.PlaybackSpeed = 0.94
 	wind:Play()
 
-	local map = workspace:WaitForChild("Map")
-	local environment = workspace:WaitForChild("Visuals"):WaitForChild("Environment")
-	local landmarks = environment:WaitForChild("ElementalLandmarks")
+	local world = workspace:WaitForChild("World")
+	local islands = world:WaitForChild("ElementalIslands")
 	if not isRunning or generation ~= currentGeneration then
 		return
 	end
 	local volcanoStarted = false
-	local function tryStartVolcano(fireLandmark: Instance?)
+	local function tryStartVolcano(fireIsland: Instance?)
 		if not isRunning or generation ~= currentGeneration or volcanoStarted then
 			return
 		end
 		if
-			not fireLandmark
-			or fireLandmark.Name ~= "FireLandmark"
-			or fireLandmark.Parent ~= landmarks
-			or not (fireLandmark:IsA("Model") or fireLandmark:IsA("BasePart"))
+			not fireIsland
+			or fireIsland.Name ~= "FireIsland"
+			or fireIsland.Parent ~= islands
+			or not (fireIsland:IsA("Model") or fireIsland:IsA("BasePart"))
 		then
 			return
 		end
 		volcanoStarted = true
-		local volcanoAnchor = createAnchor("VolcanoAudioAnchor", fireLandmark:GetPivot().Position)
+		local volcanoAnchor = createAnchor("VolcanoAudioAnchor", fireIsland:GetPivot().Position)
 		local volcano = createSound("VolcanoRumble", VOLCANO_SOUND_ID, volcanoAnchor, ambienceGroup)
 		volcano.Looped = true
 		volcano.Volume = 0.2
@@ -120,18 +128,15 @@ function Audio.Start()
 		volcano:Play()
 	end
 	-- Persistent models can arrive after their parent folder during initial replication.
-	lifetime:Add(landmarks.ChildAdded:Connect(tryStartVolcano))
-	tryStartVolcano(landmarks:FindFirstChild("FireLandmark"))
+	lifetime:Add(islands.ChildAdded:Connect(tryStartVolcano))
+	tryStartVolcano(islands:FindFirstChild("FireIsland"))
 
-	local arenaStructure = map:WaitForChild("ArenaStructure")
+	local arenaModel = world:WaitForChild("Arena")
 	if not isRunning or generation ~= currentGeneration then
 		return
 	end
-	assert(
-		arenaStructure:IsA("PVInstance"),
-		"[EnvironmentController.Audio] ArenaStructure must have a pivot"
-	)
-	local arenaCenter = arenaStructure:GetPivot().Position
+	assert(arenaModel:IsA("Model"), "[EnvironmentController.Audio] Arena must be a Model")
+	local arenaCenter = arenaModel:GetPivot().Position
 	local gustAnchor = createAnchor("BridgeGustAudioAnchor", arenaCenter)
 	local gust = createSound("BridgeWindGust", GUST_SOUND_ID, gustAnchor, ambienceGroup)
 	gust.Volume = 0.12

@@ -56,11 +56,12 @@ local function getPivotAboveStructuralBottom(model: Model): number
 	return model:GetPivot().Position.Y - modelBottomY
 end
 
--- The buildable surface of an island is its flat "Grass" cap. Its centre is the island's
+-- The buildable surface of an island is its flat Collision.Grass cap. Its centre is the island's
 -- true centre, which the island model's own pivot is not (the pivots sit on a clean ring
 -- at radius 400 while the geometry is centred further out).
 local function getIslandSurface(island: Model): (Vector3, number)
-	local grass = island:FindFirstChild("Grass")
+	local collision = island:FindFirstChild("Collision")
+	local grass = collision and collision:FindFirstChild("Grass")
 	if grass and grass:IsA("BasePart") then
 		return grass.Position, grass.Position.Y + grass.Size.Y * 0.5
 	end

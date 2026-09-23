@@ -23,6 +23,8 @@ local BaseService = require(ServerScriptService.Services.BaseService)
 local MythlingSpawnService = require(ServerScriptService.Services.MythlingSpawnService)
 local ClaimService = require(ServerScriptService.Services.ClaimService)
 local CombatService = require(ServerScriptService.Services.CombatService)
+local AdminCommandService = require(ServerScriptService.Services.AdminCommandService)
+local DivineInterventionService = require(ServerScriptService.PostLaunch.DivineInterventionService)
 local services: ServerTypes.Services = {
 	DataService = {
 		Load = DataService.Load,
@@ -45,6 +47,7 @@ local services: ServerTypes.Services = {
 		SettleProduction = ProductionService.SettleProduction,
 	},
 	BaseService = {
+		GetSpawnPoint = BaseService.GetSpawnPoint,
 		HasStand = BaseService.HasStand,
 		RemoveMythlingFromStand = BaseService.RemoveMythlingFromStand,
 	},
@@ -55,8 +58,10 @@ local services: ServerTypes.Services = {
 		SetOvertime = MythlingSpawnService.SetOvertime,
 		OnClaimed = MythlingSpawnService.OnClaimed,
 	},
+	DivineInterventionService = { StartEvent = DivineInterventionService.StartEvent },
 }
 local ordered: { { name: string, service: ServerTypes.Service } } = {
+	{ name = "DivineInterventionService", service = DivineInterventionService },
 	{ name = "DataService", service = DataService },
 	{ name = "CharacterService", service = CharacterService },
 	{ name = "InventoryService", service = InventoryService },
@@ -65,6 +70,7 @@ local ordered: { { name: string, service: ServerTypes.Service } } = {
 	{ name = "MythlingSpawnService", service = MythlingSpawnService },
 	{ name = "ClaimService", service = ClaimService },
 	{ name = "CombatService", service = CombatService },
+	{ name = "AdminCommandService", service = AdminCommandService },
 }
 
 local function folder(parent: Instance, name: string): Folder
@@ -73,30 +79,30 @@ local function folder(parent: Instance, name: string): Folder
 	return value
 end
 
-local map = workspace:WaitForChild("Map")
-local visuals = workspace:WaitForChild("Visuals")
+local world = folder(workspace, "World")
 local runtime = workspace:WaitForChild("Runtime")
 local assets = ReplicatedStorage:WaitForChild("Assets")
 local shared = ReplicatedStorage:WaitForChild("Shared")
 local configurations = shared:WaitForChild("Configurations")
 local serverAssets = ServerStorage:WaitForChild("ServerAssets")
 
-local arena = map:WaitForChild("Arena")
-assert(arena:IsA("BasePart"), "[MainServer] Arena must be a BasePart")
+local arena = world:WaitForChild("Arena"):WaitForChild("Markers"):WaitForChild("Bounds")
+assert(arena:IsA("BasePart"), "[MainServer] Arena.Markers.Bounds must be a BasePart")
 local serviceContext: ServerTypes.Context = {
 	Instances = {
+		World = world,
 		Runtime = runtime,
 		Arena = arena,
 		Mythlings = runtime:WaitForChild("Mythlings"),
 		Bases = folder(runtime, "Bases"),
-		BaseIslands = folder(map, "BaseIslands"),
-		Visuals = visuals,
+		BaseIslands = folder(world, "BaseIslands"),
 		MythlingAssets = folder(serverAssets, "Mythlings"),
 		BaseAssets = serverAssets:WaitForChild("Bases"),
 		EquipmentAssets = folder(assets, "Equipment"),
 		Templates = assets:WaitForChild("Templates"),
 	},
 	Configurations = {
+		AdminCommands = require(configurations:WaitForChild("AdminCommands")),
 		Mythlings = require(configurations:WaitForChild("Mythlings")),
 		Materials = require(configurations:WaitForChild("Materials")),
 		Consumables = require(configurations:WaitForChild("Consumables")),

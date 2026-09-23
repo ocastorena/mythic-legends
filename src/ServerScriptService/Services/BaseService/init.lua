@@ -77,6 +77,15 @@ local function getPlayerBase(player: Player): Model?
 	return nil
 end
 
+function BaseService.GetSpawnPoint(player: Player): BasePart?
+	local base = getPlayerBase(player)
+	if not base or base.Parent ~= basesFolder then
+		return nil
+	end
+	local spawnPart = base:FindFirstChild("Spawn")
+	return if spawnPart and spawnPart:IsA("BasePart") then spawnPart else nil
+end
+
 local function handlePlayerAdded(player: Player, isCurrent: () -> boolean)
 	if not DataService.Load(player) or not isCurrent() then
 		return

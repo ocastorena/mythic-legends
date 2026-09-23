@@ -247,6 +247,7 @@ export type ClaimUpdate = {
 }
 
 export type Network = {
+	Admin: { Feedback: RemoteEvent },
 	State: { Update: RemoteEvent, Request: RemoteFunction },
 	Inventory: { DeleteMythling: RemoteFunction },
 	Production: { GetStatus: RemoteFunction, Collect: RemoteFunction },
@@ -261,6 +262,18 @@ export type Network = {
 		Equip: RemoteFunction,
 	},
 	World: { Spawned: RemoteEvent, ClaimState: RemoteEvent },
+}
+
+export type AdminCommandsConfiguration = {
+	commandBurst: number,
+	commandRefillPerSecond: number,
+	streamTimeoutSeconds: number,
+	arrivalPaddingStuds: number,
+	groundProbeAboveStuds: number,
+	groundProbeBelowStuds: number,
+	minimumGroundNormalY: number,
+	islandMarkerName: string,
+	destinations: { [string]: { displayName: string, islandName: string } },
 }
 
 return {}

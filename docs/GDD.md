@@ -205,6 +205,13 @@ knockback. Resetting returns a player to their assigned spawn point at their Bas
 active capture progress, and retains all owned possessions and progression. Resetting does not
 restart their profile, regrant starter items, or interrupt their Shrine and Crafting Job ownership.
 
+Public prototype chat commands also allow `/admin teleport <element>` and `/admin teleport base`.
+They move only the requesting player to an authored island landing point or their own Base spawn.
+An island without a landing marker is unavailable; initially only Fire Island is authored for this
+route. Teleporting does not respawn the character, refill Stamina, reset action limits, clear active
+or pending effects, or change progression. Leaving a Capture Ring uses ordinary boundary rules.
+The command does not grant new combat actions outside the Arena.
+
 Beginners should progress by choosing less-contested Common captures, building a matching Shrine,
 and selling extra captures for Gold. Every ring remains competitive, but winning a busy contest
 should not be necessary for basic progression. Spawn availability, spacing, and element mix must
@@ -1136,7 +1143,11 @@ reservations still count. Starting Mythling capacity supports 18 assigned worker
 gods or mythological forces visibly affect a server. Examples may include *Thor's Tempest*,
 *Poseidon's Deluge*, or *Hades' Eclipse*.
 
-This system is **not part of the first release and is not ready for implementation**. Its event
+The existing public `/admin event blockstorm` visual prototype is explicitly enabled. It creates only
+temporary, non-colliding falling blocks and does not change combat, rewards, or player state. This
+limited prototype is an exception to the deferred system below.
+
+The full system is **not part of the first release and is not ready for implementation**. Its event
 types, scheduling, permissions, monetization, rewards, server scope, Mythling-spawn controls, pickup
 behavior, presentation, and accessibility rules must be designed and approved in a later GDD
 revision. First-release systems must not depend on Divine Intervention or reserve implementation

@@ -6,17 +6,25 @@
     "Workspace": {
       "$className": "Workspace",
       "$ignoreUnknownInstances": true,
-      "Map": {
+      "World": {
         "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-      "Spawns": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
-      },
-      "Visuals": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true
+        "$ignoreUnknownInstances": true,
+        "BaseIslands": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Bridges": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "ElementalIslands": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Atmosphere": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        }
       },
       "Runtime": {
         "$className": "Folder",
@@ -41,6 +49,10 @@
       "$className": "ReplicatedStorage",
       "Network": {
         "$className": "Folder",
+        "Admin": {
+          "$className": "Folder",
+          "Feedback": { "$className": "RemoteEvent" }
+        },
         "State": {
           "$className": "Folder",
           "Update": { "$className": "RemoteEvent" },
@@ -200,6 +212,19 @@
 
     "StarterGui": {
       "$className": "StarterGui"
+    },
+
+    "TextChatService": {
+      "$className": "TextChatService",
+      "$ignoreUnknownInstances": true,
+      "AdminCommand": {
+        "$className": "TextChatCommand",
+        "$properties": {
+          "PrimaryAlias": "/admin",
+          "Enabled": true,
+          "AutocompleteVisible": true
+        }
+      }
     }
   }
 }

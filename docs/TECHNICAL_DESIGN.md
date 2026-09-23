@@ -10,8 +10,9 @@ the [README](../README.md) owns setup and verification commands. Runtime tuning 
 Requirements below describe the approved launch target unless explicitly labeled as current
 implementation or a future update. Moving a contract into this document does not mean the prototype
 implements it. See [implementation alignment](#implementation-alignment) before treating target schemas or transactions
-as available APIs. Technical work must not add excluded or unapproved gameplay. Divine Intervention
-remains inactive and requires separate design approval; launch systems must not depend on it.
+as available APIs. Technical work must not add excluded or unapproved gameplay. The full Divine
+Intervention system remains deferred and requires separate design approval. The existing public
+`/admin event blockstorm` visual prototype is explicitly enabled; other launch systems must not depend on it.
 Ragdoll requires explicit post-launch approval. The GDD's six [elemental sword
 effects](GDD.md#elemental-sword-effects) are approved for launch: first-crafted swords share the
 wooden sword's base statistics and each adds its configured effect. All first-crafted Shield
@@ -29,7 +30,8 @@ descendants are preserved only at explicitly mixed-ownership containers.
 
 - **MainServer** is the only server bootstrap. It initializes modules under
   `ServerScriptService.Services` in deterministic lifecycle order and owns the player join/leave
-  wiring.
+  wiring. It explicitly starts the existing `PostLaunch.DivineInterventionService` visual prototype
+  through the same lifecycle. No other post-launch services are auto-loaded.
 - **Server services** own validation, authoritative simulation, mutations, persistence requests, and
   grants. No domain service independently loads a profile or writes a Roblox DataStore.
 - **MainClient** is the only client bootstrap. It initializes state/networking before feature
@@ -86,6 +88,7 @@ returns the typed domain structure; it must not silently create or replace missi
 
 ```text
 Network
+  Admin       Feedback
   State       Update, Request
   Inventory   DeleteMythling
   Production  GetStatus, Collect
@@ -118,6 +121,36 @@ purpose-specific contracts as they are implemented. `Inventory.DeleteMythling` m
 as an already implemented sale API.
 Existing remote names stay unchanged unless an explicit migration updates declarations, resolver
 types, server handlers, and client callers together.
+
+### Public admin chat commands
+
+`AdminCommandService` is the single server listener for `TextChatService.AdminCommand`. Its strict
+`/admin <command> <argument>` parser accepts `teleport` with a configured element or `base`, and
+`event blockstorm`. The previous direct `/admin blockstorm` spelling is removed; no `tp` or `help`
+command is registered. All current players have access, preserving the public prototype policy.
+Malformed requests cannot select another player or pass an arbitrary position/Instance path.
+
+`Configurations.AdminCommands` owns request limits, streaming timeout, landing clearance, and the
+element-to-model mapping. Island markers are `Markers.TeleportPoint` children of the configured
+models under `Workspace.World.ElementalIslands`, consistently named `<Element>Island`.
+The configuration's `islandName` selects the model; missing markers remain unavailable.
+`BaseService.GetSpawnPoint` resolves only the requesting player's assigned Base through its server
+slot ownership records. The teleport helper verifies a living, unseated character, an anchored and
+level marker, walkable ground, and overhead clearance before moving the character with `PivotTo`.
+It accounts for avatar height and preserves the model's root-to-pivot offset, then clears existing
+linear/angular velocity without resetting character or player data.
+
+Only one teleport may be pending per player. Streaming is requested with a bounded timeout when
+enabled; character identity, marker identity/transform, destination validity, and service lifecycle
+are checked again after the yield. Reset, disconnect, or shutdown invalidates the pending move.
+Stamina, action deadlines, elemental effects, and capture state stay with their owning services;
+ordinary position-based Arena/ring checks handle the new location.
+
+`DivineInterventionService.StartEvent` exposes only the existing Blockstorm presentation and retains
+its single-event guard and shutdown cleanup. It no longer owns a chat listener.
+`Network.Admin.Feedback` is server-to-client only: the server sends authored messages exclusively to
+the requesting player. `AdminCommandController` displays them in the standard system chat channel,
+with the existing toast system as fallback. Unfiltered command text is never echoed to clients.
 
 ## Client/server state synchronization
 
@@ -1452,6 +1485,32 @@ never search that folder. Keep editor-only model data such as `InitialPoses` and
 `ServerStorage.ServerAssets.RBX_ANIMSAVES` is retained in place as Roblox Animation Clip Editor
 authoring data and is not a production asset or legacy code.
 
+### Environment model interiors
+
+Use the following role folders inside each authored island, individual bridge, Arena structure,
+and other substantial environment model. Create a folder only when it has content:
+
+- `Visuals`: visible geometry, retaining imported model roots and reusable submodels intact.
+- `Collision`: dedicated invisible collision parts. Existing visible meshes that also supply
+  collision may stay in `Visuals`; moving a part into a folder never changes its physics settings.
+- `Effects`: standalone effect carriers, beams, and ambient effect groups. Lights, emitters, and
+  attachments that depend on visible geometry stay attached to that geometry under `Visuals`.
+- `Markers`: invisible authored gameplay reference points, such as `TeleportPoint`.
+
+Folders group roles; Models identify objects that can be moved as a unit. Apply this convention at
+the environment model boundary, not recursively to every imported submodel or single-part prop.
+Preserve model pivots, geometry transforms, attributes, tags, and effect attachment references when
+reorganizing. Character rigs, Equipment, and runtime Base templates retain their own service
+contracts rather than adopting the environment folder layout.
+
+Base placement reads `World.BaseIslands.BaseIsland<N>.Collision.Grass`; loading readiness checks
+the island's `Visuals` separately. The Arena's dedicated surfaces live under
+`World.Arena.Collision`, with its imported geometry under `World.Arena.Visuals.RBX_Arena_Root`
+and its floating foundation under `World.Arena.Visuals.FloatingIsland`. Its non-colliding gameplay
+boundary is `World.Arena.Markers.Bounds`; `MainServer` passes that BasePart as `context.Instances.Arena`
+so gameplay services continue using the same boundary geometry. Elemental islands' teleport helper
+reads `World.ElementalIslands.<Element>Island.Markers.TeleportPoint`.
+
 ### Runtime-only content
 
 - Objects created for a live server session belong under `Workspace.Runtime` and must never be
@@ -1461,10 +1520,15 @@ authoring data and is not a production asset or legacy code.
 - Temporary combat state, cooldowns, capture progress, active effects, and spawned encounters remain
   server-owned memory unless the data contract explicitly marks a client-safe projection.
 
-For mixed Studio/Rojo parents such as `Workspace.Map`, `Workspace.Visuals`, and
+For mixed Studio/Rojo parents such as `Workspace.World`, its mapped collection folders, and
 `ServerStorage.ServerAssets`, use `$ignoreUnknownInstances` deliberately so Rojo preserves
 Studio-authored children. Rojo owns the mapped container and source-backed descendants; Studio owns
 only the explicitly documented unknown descendants.
+
+Rojo owns `TextChatService.AdminCommand`, including its enabled `/admin` alias. The service preserves
+other chat descendants with `$ignoreUnknownInstances` so Roblox's chat configuration and default
+commands remain intact. `AdminCommandService` owns its server handler; island landing markers stay
+with the Studio-authored environment models and are not generated or repositioned by Rojo.
 
 `ReplicatedStorage.Network`, `ReplicatedStorage.Shared`, `ReplicatedStorage.Packages`,
 `ServerScriptService`, and `StarterPlayerScripts` are strict Rojo-owned code boundaries. Unknown

@@ -31,7 +31,7 @@ wally install --project-path tests
 
 For gameplay testing, open the existing Studio-authored development place. This repository does not
 include the complete map and model assets: the current bootstrap requires authored
-`Workspace.Map.Arena` and `Workspace.Map.BaseIslands`, along with the configured model templates. A
+`Workspace.World.Arena.Markers.Bounds` and `Workspace.World.BaseIslands`, along with the configured model templates. A
 clean Rojo build supplies the mapped code and hierarchy, but is not a complete playable place. See
 [Studio/Rojo ownership](docs/TECHNICAL_DESIGN.md#roblox-studio-and-rojo-ownership) for the authored
 containers to preserve.
@@ -117,6 +117,32 @@ mutate Studio-authored content.
 Ordinary Studio sessions use an isolated, ephemeral ProfileStore mock. Restarting Studio does not
 verify live cross-session persistence; persistence validation must explicitly exercise the intended
 store and save lifecycle.
+
+Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:
+
+- `/admin event blockstorm` starts the existing eight-second, non-colliding visual event. Only one
+  Blockstorm runs at a time; it does not change combat, rewards, or player state.
+- `/admin teleport fire` moves the requesting character to Fire Island's authored landing point.
+- `/admin teleport base` returns the requesting character to their own assigned Base's `Spawn` part.
+
+The old `/admin blockstorm` spelling is replaced; there is no `tp` alias or `help` command. Command
+arguments are case-insensitive. Usage errors and results appear privately in chat, with a toast
+fallback if the standard chat channels are unavailable. All current players have access, with
+server-side rate limiting and one pending teleport per player.
+
+For Fire, place an anchored, level Part named `TeleportPoint` under
+`Workspace.World.ElementalIslands.FireIsland.Markers`. Use size `4, 0.2, 4`, disable `CanCollide`,
+`CanTouch`, `CanQuery`, and `CastShadow`, and set `Transparency` to `1` after positioning. Put its top
+just above solid walkable ground, with space for an avatar, and rotate around Y to choose the arrival
+facing. Save these map edits in Studio. No `SpawnLocation` or respawn change is needed.
+
+Water, Earth, Air, Light, and Dark resolve their configured island models the same way and report
+that the island is not ready until its marker exists. Model names and request/landing settings live
+in `src/ReplicatedStorage/Shared/Configurations/AdminCommands.lua`; update those names when replacing
+island models. Missing destinations never fall back to an arbitrary model pivot. Teleports check
+ground and overhead clearance, account for avatar height, request streaming when enabled, and cancel
+if the character or destination changes while waiting. They do not reset Stamina, effects, capture
+state, or progression; ordinary Arena/ring boundary checks continue to apply.
 
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
 

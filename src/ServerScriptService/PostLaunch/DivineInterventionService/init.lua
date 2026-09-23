@@ -5,14 +5,8 @@
 -- is a safe visual test: Blockstorm makes non-colliding blocks fall through the Arena
 -- without changing combat, rewards, or player state.
 
-local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
-local TextChatService = game:GetService("TextChatService")
 local TweenService = game:GetService("TweenService")
-
-local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
-local log = LogUtil.For("DivineInterventionService")
 
 local ServerTypes = require(ServerScriptService.Domain.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -119,24 +113,14 @@ local function startBlockstorm()
 	return true, string.format("%s has begun.", BLOCKSTORM.displayName)
 end
 
-local function getRequestedEvent(unfilteredText: string): string?
-	local command, eventId = string.match(string.lower(unfilteredText), "^%s*(/%S+)%s+(%S+)")
-	if not command then
-		return nil
+function DivineInterventionService.StartEvent(eventId: string): (boolean, string)
+	if not lifecycle:IsRunning() then
+		return false, "Events are not ready yet."
 	end
-	return eventId
-end
-
-local function handleCommand(originTextSource: TextSource, unfilteredText: string)
-	local player = Players:GetPlayerByUserId(originTextSource.UserId)
-	if not player then
-		return
+	if eventId ~= BLOCKSTORM.id then
+		return false, "Use /admin event blockstorm."
 	end
-
-	local requestedEvent = getRequestedEvent(unfilteredText)
-	if requestedEvent == BLOCKSTORM.id then
-		startBlockstorm()
-	end
+	return startBlockstorm()
 end
 
 function DivineInterventionService.Init(context: ServerTypes.Context)
@@ -149,13 +133,6 @@ function DivineInterventionService.Start()
 		return
 	end
 	effectsFolder = getOrCreateEffectsFolder(serviceContext.Instances.Runtime)
-	local command = TextChatService:FindFirstChild("AdminCommand")
-	if not command or not command:IsA("TextChatCommand") then
-		log.warn("AdminCommand is missing from TextChatService")
-		return
-	end
-
-	lifecycle.trove:Connect(command.Triggered, handleCommand)
 end
 
 function DivineInterventionService.Stop()

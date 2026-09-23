@@ -30,7 +30,9 @@ function Quality.Start()
 	local appliedParticleRates: { [ParticleEmitter]: number } = {}
 	local appliedBeamSegments: { [Beam]: number } = {}
 	local appliedRenderFidelity: { [MeshPart]: Enum.RenderFidelity } = {}
-	local environment = workspace:WaitForChild("Visuals"):WaitForChild("Environment")
+	local world = workspace:WaitForChild("World")
+	local elementalIslands = world:WaitForChild("ElementalIslands")
+	local atmosphere = world:WaitForChild("Atmosphere")
 	if not isRunning or generation ~= currentGeneration then
 		return
 	end
@@ -164,7 +166,10 @@ function Quality.Start()
 			applyParticleQuality(instance, multiplier)
 		elseif instance:IsA("Beam") then
 			applyBeamQuality(instance, multiplier)
-		elseif instance:IsA("MeshPart") then
+		elseif
+			instance:IsA("MeshPart")
+			and (instance:IsDescendantOf(elementalIslands) or instance:IsDescendantOf(atmosphere))
+		then
 			applyMeshQuality(instance, multiplier)
 		end
 	end
@@ -177,21 +182,17 @@ function Quality.Start()
 		appliedMultiplier = multiplier
 		script:SetAttribute("AppliedMultiplier", multiplier)
 
-		for _, instance in environment:GetDescendants() do
+		for _, instance in world:GetDescendants() do
 			applyInstance(instance, multiplier)
 		end
 	end
 
-	lifetime:Add(environment.DescendantAdded:Connect(function(instance)
-		if
-			isRunning
-			and generation == currentGeneration
-			and instance:IsDescendantOf(environment)
-		then
+	lifetime:Add(world.DescendantAdded:Connect(function(instance)
+		if isRunning and generation == currentGeneration and instance:IsDescendantOf(world) then
 			applyInstance(instance, qualityMultiplier())
 		end
 	end))
-	lifetime:Add(environment.DescendantRemoving:Connect(releaseInstance))
+	lifetime:Add(world.DescendantRemoving:Connect(releaseInstance))
 	applyEnvironmentQuality()
 
 	local ok, gameSettings = pcall(function()
