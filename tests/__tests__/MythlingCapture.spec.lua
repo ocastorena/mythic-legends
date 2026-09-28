@@ -8,6 +8,7 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Domain.Types)
 local Mythlings = require(ServerScriptService.Services.InventoryService.Mythlings)
 local Capacity = require(ServerScriptService.Services.InventoryService.Capacity)
+local Transactions = require(ServerScriptService.Services.DataService.Transactions)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect
@@ -65,6 +66,28 @@ local function fixture(count: number, upgradeLevel: number?)
 		SaveNow = function(_player)
 			state.saveCalls += 1
 			return true
+		end,
+		Transact = function(_player, request, mutate)
+			return Transactions.Run(state.data, request, mutate, function()
+				return state.isLoaded and state.canMarkDirty
+			end)
+		end,
+		Update = function(_player, operation, mutate)
+			state.dirtyCalls += 1
+			local revision = Transactions.GetRevision(state.data)
+			return Transactions.Run(
+				state.data,
+				{
+					id = `{revision}:test`,
+					expectedRevision = revision,
+					operation = operation,
+					signature = "",
+				},
+				mutate,
+				function()
+					return state.isLoaded and state.canMarkDirty
+				end
+			)
 		end,
 	}
 	-- Init reads only DataService; no live service, profile, or remote is involved.
@@ -198,7 +221,7 @@ describe("Mythling capture inventory", function()
 		end
 	)
 
-	it("rolls back only the new grant if marking the profile dirty fails", function()
+	it("rejects the new grant if the active data session becomes unavailable", function()
 		local f = fixture(23)
 		local before = snapshot(f.data.mythlings)
 		f.canMarkDirty = false

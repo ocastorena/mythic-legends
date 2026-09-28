@@ -4,17 +4,21 @@
 -- sides before publishing so collection cannot expose an intermediate grant.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
-local Ledger = require(game:GetService("ServerScriptService").Domain.Production.ProductionLedger)
+local Ledger = require(ServerScriptService.Domain.Production.ProductionLedger)
+local Capacity = require(ServerScriptService.Services.InventoryService.Capacity)
 
 local Accrual = {}
 export type ProductionStatus = Types.ProductionStatus
 export type ProductionCollection = Types.ProductionCollection
 
 export type ProductionData = Types.PlayerDoc
+export type UpdateDecision = Types.TransactionOutcome
+export type UpdateResult = Types.TransactionResult
 export type DataSource = {
 	GetLoadedData: (Player) -> ProductionData?,
-	MarkDirty: (Player) -> boolean,
+	Update: (Player, string, (ProductionData) -> UpdateDecision) -> UpdateResult,
 }
 export type Definitions = { [string]: Types.MythlingDef }
 type Resolved = {
@@ -43,14 +47,15 @@ function Accrual.new(
 	end
 	local api = {}
 
-	local function resolve(player: Player, standId: number): (Resolved?, string?)
-		local data = DataService.GetLoadedData(player)
-		if not data then
-			return nil, "DataUnavailable"
-		end
+	local function resolve(
+		player: Player,
+		data: ProductionData,
+		standId: number,
+		timestamp: number
+	): (Resolved?, string?)
 		local base, mythlings, materials = data.base, data.mythlings, data.materials
 		local stand = base.stands[tostring(standId)]
-		if not (stand and stand.production) and not ownsStand(player, standId) then
+		if not ownsStand(player, standId) then
 			return nil, "StandUnavailable"
 		end
 		local definition: Types.MythlingProduction? = nil
@@ -66,7 +71,6 @@ function Accrual.new(
 				definition = metadata.production
 			end
 		end
-		local timestamp = now()
 		local state = (stand and stand.production) or { lastAccruedAt = timestamp, materials = {} }
 		local settled = Ledger.Accrue(
 			state,
@@ -94,7 +98,11 @@ function Accrual.new(
 	end
 
 	function api.Get(player: Player, standId: number): ProductionStatus?
-		local resolved = resolve(player, standId)
+		local data = DataService.GetLoadedData(player)
+		if not data then
+			return nil
+		end
+		local resolved = resolve(player, data, standId, now())
 		if not resolved then
 			return nil
 		end
@@ -116,42 +124,84 @@ function Accrual.new(
 	end
 
 	function api.Settle(player: Player, standId: number): (boolean, string?)
-		local resolved, code = resolve(player, standId)
-		if not resolved then
-			return false, code
-		end
-		commit(resolved, resolved.settled)
-		DataService.MarkDirty(player)
-		return true, nil
+		local result = DataService.Update(
+			player,
+			"Production.Settle",
+			function(draft: ProductionData)
+				local resolved, code = resolve(player, draft, standId, now())
+				if not resolved then
+					return { ok = false, code = code }
+				end
+				commit(resolved, resolved.settled)
+				return { ok = true }
+			end
+		)
+		return result.ok, result.code
 	end
 
 	function api.Collect(player: Player, standId: number): (boolean, string?, ProductionCollection?)
-		local resolved, code = resolve(player, standId)
-		if not resolved then
-			return false, code, nil
-		end
-		local remaining, amounts = Ledger.Collect(resolved.settled)
-		local total = 0
-		for _, amount in pairs(amounts) do
-			total += amount
-		end
-		if total == 0 then
-			return false, "NothingToCollect", nil
-		end
+		local collection: ProductionCollection? = nil
+		local result = DataService.Update(
+			player,
+			"Production.Collect",
+			function(draft: ProductionData)
+				local resolved, code = resolve(player, draft, standId, now())
+				if not resolved then
+					return { ok = false, code = code }
+				end
 
-		-- Inventory capacity/reservations are not implemented in the prototype.
-		-- Future partial collection must leave output that cannot fit in this ledger.
-		for materialId, amount in pairs(amounts) do
-			local owned = resolved.materials[materialId]
-			if owned then
-				owned.total += amount
-			else
-				resolved.materials[materialId] = { total = amount }
+				local materialIds = {}
+				local storedTotal = 0
+				for materialId, work in pairs(resolved.settled.materials) do
+					if work.stored > 0 then
+						table.insert(materialIds, materialId)
+						storedTotal += work.stored
+					end
+				end
+				if storedTotal == 0 then
+					return { ok = false, code = "NothingToCollect" }
+				end
+				table.sort(materialIds)
+
+				local amounts = {}
+				local collectedTotal = 0
+				for _, materialId in ipairs(materialIds) do
+					local work = resolved.settled.materials[materialId]
+					local amount =
+						math.min(work.stored, Capacity.GetMaterialRoom(draft, materialId))
+					if amount > 0 then
+						local owned = resolved.materials[materialId]
+						if owned then
+							owned.total += amount
+						else
+							resolved.materials[materialId] = { total = amount }
+						end
+						work.stored -= amount
+						amounts[materialId] = amount
+						collectedTotal += amount
+					end
+				end
+				if collectedTotal == 0 then
+					return { ok = false, code = "InventoryFull" }
+				end
+
+				local remainingTotal = storedTotal - collectedTotal
+				commit(resolved, resolved.settled)
+				collection = {
+					collected = collectedTotal,
+					remaining = remainingTotal,
+					materials = amounts,
+				}
+				return {
+					ok = true,
+					values = { collected = collectedTotal, remaining = remainingTotal },
+				}
 			end
+		)
+		if not result.ok then
+			return false, result.code, nil
 		end
-		commit(resolved, remaining)
-		DataService.MarkDirty(player)
-		return true, nil, { collected = total, remaining = 0, materials = amounts }
+		return true, nil, collection
 	end
 
 	return api

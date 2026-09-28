@@ -10,8 +10,10 @@ the [README](../README.md) owns setup and verification commands. Runtime tuning 
 Requirements below describe the approved launch target unless explicitly labeled as current
 implementation or a future update. Moving a contract into this document does not mean the prototype
 implements it. See [implementation alignment](#implementation-alignment) before treating target schemas or transactions
-as available APIs. Technical work must not add excluded or unapproved gameplay. Divine Intervention
-remains inactive and requires separate design approval; launch systems must not depend on it.
+as available APIs. Technical work must not add excluded or unapproved gameplay. The full Divine
+Intervention system remains deferred and requires separate design approval. The existing public
+`/admin event blockstorm` visual prototype is explicitly enabled; other launch systems must not
+depend on it.
 Ragdoll requires explicit post-launch approval. The GDD's six [elemental sword
 effects](GDD.md#elemental-sword-effects) are approved for launch: first-crafted swords share the
 wooden sword's base statistics and each adds its configured effect. All first-crafted Shield
@@ -29,7 +31,8 @@ descendants are preserved only at explicitly mixed-ownership containers.
 
 - **MainServer** is the only server bootstrap. It initializes modules under
   `ServerScriptService.Services` in deterministic lifecycle order and owns the player join/leave
-  wiring.
+  wiring. It explicitly starts the existing `PostLaunch.DivineInterventionService` visual prototype
+  through the same lifecycle. No other post-launch services are auto-loaded.
 - **Server services** own validation, authoritative simulation, mutations, persistence requests, and
   grants. No domain service independently loads a profile or writes a Roblox DataStore.
 - **MainClient** is the only client bootstrap. It initializes state/networking before feature
@@ -86,6 +89,7 @@ returns the typed domain structure; it must not silently create or replace missi
 
 ```text
 Network
+  Admin       Feedback
   State       Update, Request
   Inventory   DeleteMythling
   Production  GetStatus, Collect
@@ -118,6 +122,36 @@ purpose-specific contracts as they are implemented. `Inventory.DeleteMythling` m
 as an already implemented sale API.
 Existing remote names stay unchanged unless an explicit migration updates declarations, resolver
 types, server handlers, and client callers together.
+
+### Public admin chat commands
+
+`AdminCommandService` is the single server listener for `TextChatService.AdminCommand`. Its strict
+`/admin <command> <argument>` parser accepts `teleport` with a configured element or `base`, and
+`event blockstorm`. The previous direct `/admin blockstorm` spelling is removed; no `tp` or `help`
+command is registered. All current players have access, preserving the public prototype policy.
+Malformed requests cannot select another player or pass an arbitrary position/Instance path.
+
+`Configurations.AdminCommands` owns request limits, streaming timeout, landing clearance, and the
+element-to-model mapping. Island markers are `Markers.TeleportPoint` children of the configured
+models under `Workspace.World.ElementalIslands`, consistently named `<Element>Island`. The
+configuration's `islandName` selects the model; missing markers remain unavailable.
+`BaseService.GetSpawnPoint` resolves only the requesting player's assigned Base through its server
+slot ownership records. The teleport helper verifies a living, unseated character, an anchored and
+level marker, walkable ground, and overhead clearance before moving the character with `PivotTo`.
+It accounts for avatar height and preserves the model's root-to-pivot offset, then clears existing
+linear/angular velocity without resetting character or player data.
+
+Only one teleport may be pending per player. Streaming is requested with a bounded timeout when
+enabled; character identity, marker identity/transform, destination validity, and service lifecycle
+are checked again after the yield. Reset, disconnect, or shutdown invalidates the pending move.
+Stamina, action deadlines, elemental effects, and capture state stay with their owning services;
+ordinary position-based Arena/ring checks handle the new location.
+
+`DivineInterventionService.StartEvent` exposes only the existing Blockstorm presentation and retains
+its single-event guard and shutdown cleanup. It no longer owns a chat listener.
+`Network.Admin.Feedback` is server-to-client only: the server sends authored messages exclusively to
+the requesting player. `AdminCommandController` displays them in the standard system chat channel,
+with the existing toast system as fallback. Unfiltered command text is never echoed to clients.
 
 ## Client/server state synchronization
 
@@ -170,11 +204,34 @@ persistent profiles merely to display them.
   included in the profile's save lifecycle, but requesting a save is not proof it reached durable
   storage. An operation that requires durable acknowledgement must observe its transaction ID in the
   persisted save result before claiming that guarantee.
-- The current `MarkDirty` publishes state, and `SaveNow` requests an asynchronous ProfileStore save.
-  Neither method supplies rollback, idempotency, migration, or durable-commit guarantees. The target
-  transaction layer is still required; see [implementation alignment](#implementation-alignment).
+- `DataService.Transact` uses an already-active profile, stages edits on a detached document, rejects
+  yielding/erroring callbacks, and commits the resolution receipt with the resulting state. Callback
+  code must not perform outside effects or mutate borrowed live records. IDs have the form
+  `<expectedRevision>:<unique token>`; the owning server feature derives the operation/signature from
+  validated input. Retries carry the original ID, revision, operation, and signature. Changed payloads
+  conflict; stale revisions cannot execute after bounded receipt eviction. Successful and domain-rejected
+  decisions retain their original result, without retaining unbounded history. Replication exposes the
+  current transaction revision, never private receipts or request signatures.
+- `DataService.Update` gives server-authored transitions the same atomic path with a fresh request ID.
+  Their source must already prevent duplicate events; retryable purchase/job commands must instead use
+  `Transact` with a stable original request. Existing capture grants/removals, Material grants, and
+  stand production settlement/collection use this path. This is not yet the full Shrine/job economy.
+- The transitional `MarkDirty` path publishes direct prototype Base/Loadout changes and invalidates
+  stale transaction revisions. It supplies no rollback. `SaveNow` still only requests an asynchronous
+  ProfileStore save, not durable acknowledgement. Keep these limitations explicit while remaining
+  prototype writers are replaced.
 - Keep the store name and profile-key namespace stable when increasing the document's schema
   version. Changing a namespace is a separate data migration, not a routine version increment.
+
+**Approved pre-release fresh start (2026-09-28):** no prototype-data migration is required for this
+implementation trial. Schema 4 starts in the separate `MythicLegends_MVP_v1` namespace with configured
+100 Gold, protected starter identities, independently saved Inventory-upgrade levels, empty crafting
+reservation bookkeeping, and private transaction state. The old `MythicLegends_PlayerData_v2` store is
+neither read nor overwritten; its historical migration module/tests remain isolated. Reconnecting to
+the new namespace does not reset balances or ownership. Later versions within it require ordinary
+forward-only migrations. Prototype `base.stands` and Mythling fields remain temporary compatibility
+state until the Shrine/form slice replaces their consumers; this baseline does not declare them MVP
+content or establish the final roster.
 
 ## Client-reported sword combat
 
@@ -1442,8 +1499,8 @@ same instance hierarchy independently in both places and expect Rojo to merge it
 
 Studio-authored production content should still be backed up or exported into version control when
 practical. Reusable models can be checked in as model artifacts; external art source files belong
-under `art/`; published animations, sounds, meshes, and images must have their asset IDs recorded in
-metadata.
+in the separate asset workspace and need their own backup strategy. Published animations, sounds,
+meshes, and images must have their asset IDs recorded in metadata.
 
 Keep production runtime templates under `ServerStorage.ServerAssets`. Put inactive source templates,
 place backups, and future Mythling models under `ServerStorage.Authoring`; runtime services must
@@ -1451,6 +1508,31 @@ never search that folder. Keep editor-only model data such as `InitialPoses` and
 `ServerStorage.Authoring.Mythlings.<ModelName>` so it is not cloned into the runtime world.
 `ServerStorage.ServerAssets.RBX_ANIMSAVES` is retained in place as Roblox Animation Clip Editor
 authoring data and is not a production asset or legacy code.
+
+### Environment model interiors
+
+Use the following role folders inside each authored island, individual bridge, Arena structure,
+and other substantial environment model. Create a folder only when it has content:
+
+- `Visuals`: visible geometry, retaining imported model roots and reusable submodels intact.
+- `Collision`: dedicated invisible collision parts. Existing visible meshes that also supply
+  collision may stay in `Visuals`; moving a part into a folder never changes its physics settings.
+- `Effects`: standalone effect carriers, beams, and ambient effect groups. Lights, emitters, and
+  attachments that depend on visible geometry stay attached to that geometry under `Visuals`.
+- `Markers`: invisible authored gameplay reference points.
+
+Folders group roles; Models identify objects that can be moved as a unit. Apply this convention at
+the environment model boundary, not recursively to every imported submodel or single-part prop.
+Preserve model pivots, geometry transforms, attributes, tags, and effect attachment references when
+reorganizing. Character rigs, Equipment, and runtime Base templates retain their own service
+contracts rather than adopting the environment folder layout.
+
+Base placement reads `World.BaseIslands.BaseIsland<N>.Collision.Grass`; loading readiness checks
+the island's `Visuals` separately. The Arena's dedicated surfaces live under
+`World.Arena.Collision`, with its imported geometry under `World.Arena.Visuals.RBX_Arena_Root`
+and its floating foundation under `World.Arena.Visuals.FloatingIsland`. Its non-colliding gameplay
+boundary is `World.Arena.Markers.Bounds`; `MainServer` passes that BasePart as
+`context.Instances.Arena` so gameplay services continue using the same boundary geometry.
 
 ### Runtime-only content
 
@@ -1461,10 +1543,15 @@ authoring data and is not a production asset or legacy code.
 - Temporary combat state, cooldowns, capture progress, active effects, and spawned encounters remain
   server-owned memory unless the data contract explicitly marks a client-safe projection.
 
-For mixed Studio/Rojo parents such as `Workspace.Map`, `Workspace.Visuals`, and
+For mixed Studio/Rojo parents such as `Workspace.World`, its mapped collection folders, and
 `ServerStorage.ServerAssets`, use `$ignoreUnknownInstances` deliberately so Rojo preserves
 Studio-authored children. Rojo owns the mapped container and source-backed descendants; Studio owns
 only the explicitly documented unknown descendants.
+
+Rojo owns `TextChatService.AdminCommand`, including its enabled `/admin` alias. The service preserves
+other chat descendants with `$ignoreUnknownInstances` so Roblox's chat configuration and default
+commands remain intact. `AdminCommandService` owns its server handler; island landing markers stay
+with the Studio-authored environment models and are not generated or repositioned by Rojo.
 
 `ReplicatedStorage.Network`, `ReplicatedStorage.Shared`, `ReplicatedStorage.Packages`,
 `ServerScriptService`, and `StarterPlayerScripts` are strict Rojo-owned code boundaries. Unknown
@@ -1473,7 +1560,8 @@ belongs only in the documented mixed-ownership containers.
 
 The generated root `Packages/` directory maps to `ReplicatedStorage.Packages` and contains shared
 Wally dependencies. Server-only vendored libraries stay under `src/ServerScriptService/Packages`;
-server-only Jest dependencies map under `ServerStorage.Tests`. See [dependencies](#dependencies).
+server-only Jest dependencies map under `ServerStorage.Tests` only in the disposable
+`test.project.json` build. See [dependencies](#dependencies).
 
 ## Dependencies
 
@@ -1498,15 +1586,16 @@ remove each item when the implementation is aligned; these notes do not authoriz
 
 | Area | Current source | Target contract / required alignment |
 | --- | --- | --- |
-| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) is version 3 with legacy `consumables`, `base.stands`, and Equipment `definitionId` records. Forward-only migration preserves earned legacy work in stand-owned production ledgers. The complete target Shrine/job/finish schema is still pending. | Introduce remaining target fields with forward-only migrations. Keep `definitionId` for base Equipment references, add optional `finishId` for Stage 1 element variants, and preserve existing player data when retiring prototype-facing features. |
-| Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) reconciles defaults, runs explicit forward-only migrations, and exposes typed `GetData`/`GetLoadedData`, `MarkDirty`, and `SaveNow`. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Implement the remaining per-profile atomic mutations and bounded request resolution. Publishing state or returning `SaveNow == true` does not prove durable persistence. Keep store/key namespaces stable during schema upgrades. |
+| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) is the approved fresh schema-4 baseline: 100 Gold, starter protection, Inventory-upgrade ownership, private transaction state, and empty crafting reservation bookkeeping. No new Consumables field; prototype stands/Mythling records remain compatibility state. | Replace remaining prototype records with the target Shrine/form/complete job schema as their features ship. The deliberate fresh namespace is not permission to reset subsequent progress. |
+| Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
+| Inventory capacity | [Capacity](../src/ServerScriptService/Services/InventoryService/Capacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Collection transfers only what fits and retains the rest in stand storage. | Add validated upgrade purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting; the final Material catalogue remains pending. |
 | Mythling production | [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) uses the [shared server production ledger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua), preserving stored output and unfinished work by stand and Material ID. The v3 migration removes the consumed legacy `lastCollectionAt` cursor. Prototype rates are explicitly named `materialsPerMinute`. | Complete the target Shrine/form/level/batch/XP model and storage configuration. Existing stand-owned accounting is partial implementation, not the full target schema; Luck/Traits remain inactive. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. | Replace the three-form prototype catalogue with the 18 launch forms and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
 | Feature endpoints and transactions | [default.project.json](../default.project.json) exposes the network domains listed above, but does not declare crafting/sale/evolution/build/upgrade, Shrine dismantling, or Material discard endpoints. | Add typed, domain-specific contracts as the approved features ship; target transactional guarantees are requirements, not claims of existing implementations. |
-| Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored Arena/BaseIslands and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |
+| Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored `Workspace.World.Arena.Markers.Bounds`, Base Islands, and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |
 
 `HUDGui`, `StaminaGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,
 `ModalBackdropGui`, and `ToastGui` are current application-owned roots under `PlayerGui`.

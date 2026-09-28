@@ -28,7 +28,9 @@ jobs:
         run: stylua --check src tests
       - name: Strict Luau analysis
         run: ./tools/Typecheck.ps1
-      - name: Rojo build
+      - name: Production Rojo build
         run: rojo build default.project.json -o .verification/mythic-legends-check.rbxlx
+      - name: Test Rojo build
+        run: rojo build test.project.json -o .verification/mythic-legends-tests-check.rbxlx
       - name: Whitespace
         run: git diff --check

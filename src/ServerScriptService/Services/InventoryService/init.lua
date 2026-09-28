@@ -75,8 +75,8 @@ function InventoryService.GetMythling(player: Player, mythlingId: string): Types
 end
 
 -- Material API for production and future crafting services.
-function InventoryService.AddMaterial(player: Player, materialId: string, amount: number)
-	Materials.Add(player, materialId, amount)
+function InventoryService.AddMaterial(player: Player, materialId: string, amount: number): boolean
+	return Materials.Add(player, materialId, amount)
 end
 
 -- Production and base placement can mutate an owned Mythling entry directly. Keep their

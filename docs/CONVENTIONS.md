@@ -25,7 +25,9 @@ method casing differs from the Roblox style guide's general camelCase function r
 ## Project structure
 
 The repository layout groups code by runtime boundary and owning feature. `default.project.json`
-is the executable mapping to Roblox instances; update it and this document together when that
+is the production mapping to Roblox instances. `test.project.json` maps the module-library paths and
+test-only hierarchy used by the disposable runtime-test place; it deliberately excludes executable
+game bootstraps and authored content. Update the project files and this document together when either
 mapping changes. Directory organization must preserve the server/client trust boundary.
 
 ```text
@@ -56,7 +58,7 @@ mythic-legends/
         Types.lua                 # server service protocols and injected context
         Production/ProductionLedger.lua
       Packages/                   # server-only vendored dependencies
-      PostLaunch/                 # inactive, explicitly deferred modules
+      PostLaunch/                 # retained prototypes; only Blockstorm is explicitly started
     ServerStorage/
       Databases/
         PlayerDataTemplate.lua
@@ -81,19 +83,21 @@ mythic-legends/
           <PresentationModule>.lua
   tests/
     __tests__/<Subject>.spec.lua
+    RunTests.lua                  # external Studio CLI entry point
     TestRunner.lua
     jest.config.lua
     wally.toml
     wally.lock
     DevPackages/                  # generated test dependencies; not hand-edited
   Packages/                       # generated shared Wally dependencies
-  art/                            # authoring conventions and versioned source assets
   .vscode/                        # shared editor settings
   .github/workflows/verify.yml     # static checks on pushes and pull requests
+  tools/Test.ps1                   # cross-platform disposable-place test command
   tools/Typecheck.ps1              # pinned Roblox-aware strict analysis
   AGENTS.md                       # agent guidance and required reading
   README.md                       # setup and verification commands
-  default.project.json            # canonical Rojo mapping
+  default.project.json            # canonical production Rojo mapping
+  test.project.json               # isolated mapping for disposable test builds
   aftman.toml                     # pinned development tools
   wally.toml
   wally.lock
@@ -125,9 +129,12 @@ and detailed ownership rules in [Technical Design](TECHNICAL_DESIGN.md#network-c
 
 ```text
 Workspace
-  Map                 -- authored terrain, buildings, and static environment
-  Spawns              -- authored player spawn locations
-  Visuals             -- authored particles, lights, and decorations
+  World               -- all authored models, markers, and spatial effects
+    Arena             -- Model: Visuals, Collision, Effects, Markers
+    BaseIslands       -- Folder: BaseIsland0 through BaseIsland7
+    Bridges           -- Folder: Bridge0 through Bridge7
+    ElementalIslands  -- Folder: FireIsland, WaterIsland, EarthIsland, AirIsland, LightIsland, DarkIsland
+    Atmosphere        -- Folder: shared CloudSea and GodRays
   Runtime             -- server-created Mythlings, bases, effects, and other session state
 ReplicatedFirst
   LoadingScreen       -- early loading-screen entry point
@@ -142,10 +149,9 @@ ServerScriptService
   Infrastructure      -- logging, rate limits, remotes, and server utilities
   Domain              -- explicitly shared server-domain contracts and pure accounting
   Packages            -- server-only external libraries such as ProfileStore
-  PostLaunch          -- inactive post-launch modules; never launch dependencies
+  PostLaunch          -- retained prototypes; only Blockstorm is explicitly started
 ServerStorage
   Databases           -- player-data templates and server-only definitions
-  Tests               -- isolated test source and server-only test dependencies
   ServerAssets        -- production server-only model templates
   Authoring           -- Studio-only backups, source templates, and staged content
 StarterGui
@@ -164,7 +170,17 @@ StarterPlayer
 Keep runtime content separate from authored content. Production UI is repository-owned and composed
 directly under `PlayerGui` by `UI/App`; do not add authored application roots to `StarterGui`.
 The [Studio/Rojo ownership rules](TECHNICAL_DESIGN.md#roblox-studio-and-rojo-ownership) determine which
-unknown authored descendants Rojo preserves. Tests remain server-only and do not run in production.
+unknown authored descendants Rojo preserves. `ServerStorage.Tests` exists only in disposable builds
+from `test.project.json`; never live-sync that project into the authored development place. Places
+previously synced with the former production test mapping require a one-time manual deletion of
+`ServerStorage.Tests` because the production `ServerStorage` boundary preserves unknown children.
+
+Roblox's `Terrain`, `Camera`, and player character models remain directly under `Workspace` as
+required by the engine. Collections use Folders; movable environment objects use Models. Keep
+island, bridge, and Arena haze under each owning model's `Effects.Haze`; only shared atmospheric
+content belongs in `World.Atmosphere`. Spatial ambience anchors are created locally under
+`Runtime.Audio` and removed when the environment audio controller stops. Do not recreate empty
+top-level `Spawns`, `Visuals`, or `Environment` containers; authored markers belong to their models.
 
 ## Naming conventions
 

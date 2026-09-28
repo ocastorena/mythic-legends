@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 local ServerStorage = game:GetService("ServerStorage")
+local HttpService = game:GetService("HttpService")
 
 local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
@@ -15,7 +16,9 @@ local ProfileStore =
 	require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
 local PlayerDataTemplate =
 	require(ServerStorage:WaitForChild("Databases"):WaitForChild("PlayerDataTemplate"))
-local Migrations = require(script.Migrations)
+local Transactions = require(script.Transactions)
+local Projection = require(script.Projection)
+local Configuration = require(ReplicatedStorage.Shared.Configurations.PlayerData)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Domain.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -23,9 +26,6 @@ local Trove = require(ReplicatedStorage.Packages.Trove)
 local lifecycle = ServiceLifecycle.new("DataService")
 
 local log = LogUtil.For("DataService")
-
-local STORE_NAME = "MythicLegends_PlayerData_v2"
-local PROFILE_KEY_PREFIX = "Player_"
 
 export type PlayerData = Types.PlayerDoc
 export type StatePacket = Types.StatePacket
@@ -52,7 +52,6 @@ DataService.OnReleased = releasedBindable.Event
 local updateState: RemoteEvent?
 local requestState: RemoteFunction?
 local stateRequestLimiter = RateLimiter.new(6, 1)
-local MythlingsData: { [string]: Types.MythlingDef }
 
 local function deepClone(value: any): any
 	if type(value) ~= "table" then
@@ -85,25 +84,12 @@ local function deepEqual(left: any, right: any): boolean
 	return true
 end
 
-local function buildProjection(data: PlayerData): { [string]: any }
-	-- Explicit allowlist: no dynamic indexing into the complete player document.
-	return deepClone({
-		currency = data.currency,
-		materials = data.materials,
-		consumables = data.consumables,
-		equipment = data.equipment,
-		combatLoadout = data.combatLoadout,
-		mythlings = data.mythlings,
-		base = data.base,
-	})
-end
-
 local function makeSnapshot(player: Player): StatePacket?
 	local profile = profiles[player]
 	if not profile or not profile:IsActive() then
 		return nil
 	end
-	local projection = buildProjection(profile.Data)
+	local projection = Projection.Build(profile.Data)
 	projections[player] = projection
 	return {
 		revision = revisions[player] or 0,
@@ -119,7 +105,7 @@ local function publishChanges(player: Player, forceFull: boolean?)
 	end
 
 	local previous = projections[player] or {}
-	local current = buildProjection(profile.Data)
+	local current = Projection.Build(profile.Data)
 	local values = {}
 	local removed = {}
 
@@ -154,7 +140,6 @@ end
 function DataService.Init(serviceContext: ServerTypes.Context)
 	updateState = serviceContext.Remotes.State.Update
 	requestState = serviceContext.Remotes.State.Request
-	MythlingsData = serviceContext.Configurations.Mythlings
 end
 
 function DataService.Start()
@@ -164,7 +149,7 @@ function DataService.Start()
 	-- The vendor's recursive JSONAcceptable intersection cannot infer this valid nested template.
 	-- Isolate that constructor adaptation; all loaded documents retain their canonical type.
 	local liveStore: ProfileStore.ProfileStore<PlayerData> =
-		ProfileStore.New(STORE_NAME, PlayerDataTemplate :: any)
+		ProfileStore.New(Configuration.storeName, PlayerDataTemplate :: any)
 	local playerStore = if RunService:IsStudio() then liveStore.Mock else liveStore
 	startSession = function(
 		key: string,
@@ -213,7 +198,7 @@ function DataService.Load(player: Player): boolean
 	local loadSession = startSession
 	assert(loadSession, "[DataService] Profile store is not started")
 	local ok, result = pcall(function()
-		return loadSession(PROFILE_KEY_PREFIX .. player.UserId, {
+		return loadSession(Configuration.profileKeyPrefix .. player.UserId, {
 			Cancel = function()
 				return player.Parent ~= Players or not lifecycle:IsRunning()
 			end,
@@ -242,10 +227,10 @@ function DataService.Load(player: Player): boolean
 	end
 
 	profile:AddUserId(player.UserId)
-	local migrationOk, migrated, migrationError =
-		pcall(Migrations.Apply, profile.Data, MythlingsData, os.time())
-	if not migrationOk or not migrated then
-		log.error(`Profile migration failed for userId {player.UserId}`, migrationError or migrated)
+	-- Explicitly approved pre-release fresh namespace; do not read/migrate the prototype store.
+	-- Later schema changes within this namespace still require explicit forward-only migrations.
+	if profile.Data.version ~= Configuration.schemaVersion then
+		log.error(`Unsupported profile version for userId {player.UserId}`, profile.Data.version)
 		profile:EndSession()
 		if lifecycle:IsRunning() and player.Parent == Players then
 			player:Kick("Your data could not be updated safely. Please rejoin.")
@@ -327,8 +312,47 @@ function DataService.MarkDirty(player: Player): boolean
 	if not profile or not profile:IsActive() then
 		return false
 	end
+	Transactions.Invalidate(profile.Data)
 	publishChanges(player)
 	return true
+end
+
+function DataService.Transact(
+	player: Player,
+	request: Types.TransactionRequest,
+	mutate: Transactions.Mutator
+): Types.TransactionResult
+	local profile = profiles[player]
+	if not lifecycle:IsRunning() or not profile or not profile:IsActive() then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	local result = Transactions.Run(profile.Data, request, mutate, function()
+		return lifecycle:IsRunning() and profiles[player] == profile and profile:IsActive()
+	end)
+	if result.code ~= "DataUnavailable" then
+		publishChanges(player)
+	end
+	return result
+end
+
+-- For server-authored state transitions whose source already prevents duplicate events.
+-- Retryable feature commands use Transact with their original revision-bound request ID.
+function DataService.Update(
+	player: Player,
+	operation: string,
+	mutate: Transactions.Mutator
+): Types.TransactionResult
+	local data = DataService.GetLoadedData(player)
+	if not data then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	local revision = Transactions.GetRevision(data)
+	return DataService.Transact(player, {
+		id = `{revision}:{HttpService:GenerateGUID(false)}`,
+		expectedRevision = revision,
+		operation = operation,
+		signature = "",
+	}, mutate)
 end
 
 function DataService.SaveNow(player: Player): boolean

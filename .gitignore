@@ -2,8 +2,6 @@
 *.rbxl.lock
 *.rbxm
 *.rbxmx
-!/art/roblox/**/*.rbxm
-!/art/roblox/**/*.rbxmx
 .DS_Store
 
 # Built places -- rebuild with `rojo build`

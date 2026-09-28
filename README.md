@@ -21,17 +21,17 @@ identify work needed to bring the prototype into line with it. Runtime balance v
 ## Getting started
 
 Use Roblox Studio with the Rojo Studio plugin, Aftman, and PowerShell 7 (`pwsh`). Install the
-pinned tools and shared/test packages:
+pinned tools and shared packages:
 
 ```bash
 aftman install
 wally install
-wally install --project-path tests
 ```
 
 For gameplay testing, open the existing Studio-authored development place. This repository does not
 include the complete map and model assets: the current bootstrap requires authored
-`Workspace.Map.Arena` and `Workspace.Map.BaseIslands`, along with the configured model templates. A
+`Workspace.World.Arena.Markers.Bounds` and `Workspace.World.BaseIslands`, along with the configured
+model templates. A
 clean Rojo build supplies the mapped code and hierarchy, but is not a complete playable place. See
 [Studio/Rojo ownership](docs/TECHNICAL_DESIGN.md#roblox-studio-and-rojo-ownership) for the authored
 containers to preserve.
@@ -52,6 +52,7 @@ selene src tests
 stylua --check --column-width 100 src tests
 pwsh -File tools/Typecheck.ps1
 rojo build default.project.json -o .verification/mythic-legends-check.rbxlx
+rojo build test.project.json -o .verification/mythic-legends-tests-check.rbxlx
 git diff --check
 ```
 
@@ -61,15 +62,15 @@ explicit width above matches it. Editor settings pin the same release as `aftman
 `.editorconfig` and `.gitattributes` keep encoding and line endings consistent. Report line-ending
 failures separately from other formatting differences. [CI](.github/workflows/verify.yml) runs these
 same static checks on pushes and pull requests.
-The temporary Rojo build verifies source mappings without adding a generated place file to the
-repository. It cannot verify missing Studio-authored content. Gameplay and device behavior still
-require a Studio playtest.
+The temporary production Rojo build verifies source mappings without adding a generated place file
+to the repository. CI also builds the disposable test project. Neither build can verify missing
+Studio-authored content; gameplay and device behavior still require a Studio playtest.
 
 ### Strict type checking
 
 Linting, formatting, and building do not run Luau's type checker. `tools/Typecheck.ps1` uses pinned
 luau-lsp 1.70.0 with the current Luau type solver (`LuauSolverV2`), strict mode, strict DataModel
-resolution, the current Rojo sourcemap, installed
+resolution, separate production/test Rojo sourcemaps, installed
 dependencies, and a SHA-256-verified Roblox API definition snapshot from that same release. It
 checks the pinned Wally and wally-package-types versions, reinstalls the shared and test packages
 from their manifests/lockfiles, and generates Wally type re-exports. Reinstalling regenerates Wally's
@@ -86,9 +87,10 @@ Vendor/generated diagnostics are excluded; first-party integration errors remain
 cross-check against the installed Studio version:
 
 1. Sync the intended checkout and installed dependencies into the Studio development place using
-   the project's Rojo mapping.
-2. Use Studio Script Analysis to check the first-party scope, including source, tests, and inactive
-   `PostLaunch` modules. Confirm that those files use strict checking; non-strict files remain
+   `default.project.json`.
+2. Use Studio Script Analysis to check the production source, including inactive `PostLaunch`
+   modules. Tests stay outside the authored place and are checked through the CLI test-project
+   sourcemap. Confirm that the inspected files use strict checking; non-strict files remain
    compliance gaps even when they report no diagnostics.
 3. Require no unresolved type errors in the stated scope. Record the Studio version, scope,
    exclusions, and remaining diagnostics. If the analysis cannot be completed, report it as
@@ -102,21 +104,67 @@ unavailable.
 
 ### Runtime tests
 
-Jest Roblox tests are isolated under `ServerStorage.Tests` and do not run in production. After
-installing their server-only Wally dependencies, run them from the Studio Command Bar while the
-place is stopped:
+Jest Roblox tests are excluded from `default.project.json`, so production builds and new syncs do not
+add them to the authored development place. If that place was previously synced with the old mapping,
+delete `ServerStorage.Tests` once in Studio and save the place; the intentionally permissive
+`ServerStorage` boundary may preserve that former child. Confirm it is absent before publishing.
+Run the complete suite from Windows or macOS with:
 
-```luau
-require(game.ServerStorage.Tests.TestRunner).Run()
+```powershell
+pwsh -NoProfile -File tools/Test.ps1
 ```
 
-The runner discovers `tests/__tests__/*.spec.lua` through `tests/jest.config.lua`. Keep unit tests
-deterministic: do not call live DataStores, invoke production remotes, depend on wall-clock time, or
-mutate Studio-authored content.
+The command installs the locked shared and test dependencies, builds an ignored disposable place
+from `test.project.json`, and uses Studio's command-line runner to execute Jest before closing Studio.
+It prints the test output and exits nonzero on a failed or missing result. Studio must be installed;
+pass `-Studio <path>` only when it is outside the documented default location. The runner discovers
+`tests/__tests__/*.spec.lua` through `tests/jest.config.lua`. Keep unit tests deterministic: do not
+call live DataStores, invoke production remotes, depend on wall-clock time, or mutate Studio-authored
+content.
 
 Ordinary Studio sessions use an isolated, ephemeral ProfileStore mock. Restarting Studio does not
 verify live cross-session persistence; persistence validation must explicitly exercise the intended
 store and save lifecycle.
+
+### Player-data foundation review
+
+The pre-release foundation uses the intentionally fresh `MythicLegends_MVP_v1` data namespace;
+the prototype store is left untouched and is not migrated. New profiles start with 100 Gold and
+the protected wooden pair. This is a foundation increment, not the complete MVP economy or roster.
+Prototype stand assignment and menus remain until their separate replacement tasks.
+
+The runtime suite covers transaction rollback, duplicate/stale requests, bounded receipts, session
+loss, client-safe projection, category capacities, active reservations, and partial collection.
+After syncing source, check a fresh Studio play session for 100 Gold, both wooden items, normal
+capture/stand assignment, and repeated collection without duplicate Materials. Near capacity, only
+what fits transfers and remaining output stays in the stand. No new Shop/crafting/upgrade actions
+are added in this increment. Mock tests do not establish live durable-save behaviour.
+
+Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:
+
+- `/admin event blockstorm` starts the existing eight-second, non-colliding visual event. Only one
+  Blockstorm runs at a time; it does not change combat, rewards, or player state.
+- `/admin teleport fire` moves the requesting character to Fire Island's authored landing point.
+- `/admin teleport base` returns the requesting character to their own assigned Base's `Spawn` part.
+
+The old `/admin blockstorm` spelling is replaced; there is no `tp` alias or `help` command. Command
+arguments are case-insensitive. Usage errors and results appear privately in chat, with a toast
+fallback if the standard chat channels are unavailable. All current players have access, with
+server-side rate limiting and one pending teleport per player.
+
+For Fire, place an anchored, level Part named `TeleportPoint` under
+`Workspace.World.ElementalIslands.FireIsland.Markers`. Use size `4, 0.2, 4`, disable `CanCollide`,
+`CanTouch`, `CanQuery`, and `CastShadow`, and set `Transparency` to `1` after positioning. Put its top
+just above solid walkable ground, with space for an avatar, and rotate around Y to choose the arrival
+facing. Save these map edits in Studio. No `SpawnLocation` or respawn change is needed.
+
+Water, Earth, Air, Light, and Dark resolve their configured island models the same way and report
+that the island is not ready until its marker exists. Model names and request/landing settings live
+in `src/ReplicatedStorage/Shared/Configurations/AdminCommands.lua`; update those names when replacing
+island models. Missing destinations never fall back to an arbitrary model pivot. Teleports check
+ground and overhead clearance, account for avatar height, request streaming when enabled, and cancel
+if the character or destination changes while waiting. They do not reset Stamina, effects, capture
+state, or progression; ordinary Arena/ring boundary checks continue to apply.
 
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
 
@@ -124,5 +172,4 @@ For more help, check out [the Rojo documentation](https://rojo.space/docs).
 
 Read [AGENTS.md](AGENTS.md) before making changes. Follow the [project structure and coding
 conventions](docs/CONVENTIONS.md), along with the [Studio/Rojo ownership
-rules](docs/TECHNICAL_DESIGN.md#roblox-studio-and-rojo-ownership) in Technical Design. Art-source
-conventions are in [art/README.md](art/README.md).
+rules](docs/TECHNICAL_DESIGN.md#roblox-studio-and-rojo-ownership) in Technical Design.

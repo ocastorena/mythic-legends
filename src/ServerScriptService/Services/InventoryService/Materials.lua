@@ -3,6 +3,7 @@
 -- Owns the Material portion of each player's inventory.
 
 local ServerTypes = require(game:GetService("ServerScriptService").Domain.Types)
+local Capacity = require(script.Parent.Capacity)
 
 local Materials = {}
 
@@ -28,14 +29,28 @@ function Materials.List(player: Player): ServerTypes.Materials
 	return session.materials
 end
 
-function Materials.Add(player: Player, materialId: string, amount: number)
-	local materials = Materials.List(player)
-	if not materials[materialId] then
-		materials[materialId] = { total = amount }
-	else
-		materials[materialId].total += amount
+function Materials.Add(player: Player, materialId: string, amount: number): boolean
+	if
+		type(materialId) ~= "string"
+		or #materialId == 0
+		or #materialId > 128
+		or type(amount) ~= "number"
+		or amount ~= amount
+		or amount <= 0
+		or amount >= math.huge
+		or amount % 1 ~= 0
+	then
+		return false
 	end
-	DataService.MarkDirty(player)
+	local result = DataService.Update(player, "GrantMaterial", function(draft)
+		if Capacity.GetMaterialRoom(draft, materialId) < amount then
+			return { ok = false, code = "InventoryFull" }
+		end
+		local current = draft.materials[materialId]
+		draft.materials[materialId] = { total = (if current then current.total else 0) + amount }
+		return { ok = true }
+	end)
+	return result.ok
 end
 
 return Materials

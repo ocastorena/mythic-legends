@@ -2,22 +2,31 @@
 -- ServerStorage/Databases/PlayerDataTemplate
 
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+local Configuration = require(game:GetService("ReplicatedStorage").Shared.Configurations.PlayerData)
 
 local PlayerDataTemplate: Types.PlayerDoc = {
-	version = 3,
+	version = Configuration.schemaVersion,
 	profile = {
 		userId = 0,
 		createdAt = 0,
 		lastLoginAt = 0,
 	},
 	currency = {
-		gold = 0,
+		gold = Configuration.startingGold,
 	},
 	materials = {},
-	consumables = {},
+	inventoryUpgrades = { materials = 0, mythlings = 0, equipment = 0 },
+	transactions = { revision = 0, receipts = {} },
+	craftingJobs = {},
 	equipment = {
-		starter_wooden_sword = { definitionId = "wooden_sword" },
-		starter_wooden_shield = { definitionId = "wooden_shield" },
+		starter_wooden_sword = {
+			definitionId = Configuration.starterSwordId,
+			isStarterGrant = true,
+		},
+		starter_wooden_shield = {
+			definitionId = Configuration.starterShieldId,
+			isStarterGrant = true,
+		},
 	},
 	combatLoadout = {
 		primaryWeaponInstanceId = "starter_wooden_sword",

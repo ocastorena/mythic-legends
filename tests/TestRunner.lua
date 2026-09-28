@@ -1,6 +1,6 @@
 --!strict
 -- ServerStorage/Tests/TestRunner
--- Manual Studio entry point: require(game.ServerStorage.Tests.TestRunner).Run()
+-- Shared Jest entry point for the disposable Studio test place.
 
 local Jest = require(script.Parent.DevPackages.Jest)
 
@@ -18,7 +18,7 @@ export type TestSummary = {
 
 function TestRunner.Run(): TestSummary
 	local status, result = Jest.runCLI(script.Parent, {
-		ci = false,
+		ci = true,
 		verbose = true,
 	}, { script.Parent }):awaitStatus()
 

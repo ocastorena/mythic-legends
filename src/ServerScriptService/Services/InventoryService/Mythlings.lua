@@ -3,13 +3,9 @@
 -- Owns the player's mythling records. Production timing is owned by ProductionService.
 
 local HttpService = game:GetService("HttpService")
-local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
-local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
-local log = LogUtil.For("InventoryService.Mythlings")
 
 local ServerTypes = require(game:GetService("ServerScriptService").Domain.Types)
 local Capacity = require(script.Parent.Capacity)
@@ -55,12 +51,7 @@ function Mythlings.GetCapacity(player: Player): Types.InventoryCapacity?
 	if not data or not owned or owned ~= data.mythlings then
 		return nil
 	end
-	local used = 0
-	for _ in owned do
-		used += 1
-	end
-	local purchasedLevel = data.inventoryUpgrades and data.inventoryUpgrades.mythlings
-	return { used = used, limit = Capacity.GetMythlingLimit(purchasedLevel) }
+	return Capacity.GetUsage(data, "mythlings")
 end
 
 function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: string }): string?
@@ -74,17 +65,21 @@ function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: 
 	end
 
 	local id = makeId()
-	list[id] = {
-		typeId = params.typeId,
-		variantId = params.variantId,
-		claimedAt = os.time(),
-		level = 1,
-		xp = 0,
-	}
-
-	if not DataService.MarkDirty(player) then
-		list[id] = nil
-		log.warn(`Profile became unavailable while granting Mythling to userId {player.UserId}`)
+	local result = DataService.Update(player, "CaptureMythling", function(draft)
+		local current = Capacity.GetUsage(draft, "mythlings")
+		if current.used >= current.limit then
+			return { ok = false, code = "InventoryFull" }
+		end
+		draft.mythlings[id] = {
+			typeId = params.typeId,
+			variantId = params.variantId,
+			claimedAt = os.time(),
+			level = 1,
+			xp = 0,
+		}
+		return { ok = true, values = { instanceId = id } }
+	end)
+	if not result.ok then
 		return nil
 	end
 	DataService.SaveNow(player)
@@ -99,8 +94,20 @@ function Mythlings.Remove(player: Player, mythlingId: string): boolean
 		return false
 	end
 
-	list[mythlingId] = nil
-	DataService.MarkDirty(player)
+	local result = DataService.Update(player, "RemoveMythling", function(draft)
+		local entry = draft.mythlings[mythlingId]
+		if not entry then
+			return { ok = false, code = "NotOwned" }
+		end
+		if entry.standId ~= nil then
+			return { ok = false, code = "Assigned" }
+		end
+		draft.mythlings[mythlingId] = nil
+		return { ok = true }
+	end)
+	if not result.ok then
+		return false
+	end
 	DataService.SaveNow(player)
 	return true
 end

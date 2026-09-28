@@ -29,6 +29,7 @@ end
 
 function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 	local root = folder(replicatedStorage, "Network")
+	local admin = folder(root, "Admin")
 	local state = folder(root, "State")
 	local inventory = folder(root, "Inventory")
 	local production = folder(root, "Production")
@@ -36,6 +37,7 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 	local combat = folder(root, "Combat")
 	local world = folder(root, "World")
 	return {
+		Admin = { Feedback = event(admin, "Feedback") },
 		State = { Update = event(state, "Update"), Request = request(state, "Request") },
 		Inventory = { DeleteMythling = request(inventory, "DeleteMythling") },
 		Production = {

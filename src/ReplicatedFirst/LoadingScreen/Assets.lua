@@ -143,14 +143,17 @@ function Assets.Collect(
 	if snapshot.baseSpawn and isNearby(snapshot.baseSpawn, position) then
 		appendNearby(snapshot.base)
 	end
-	local map = world:FindFirstChild("Map")
-	if map then
+	local authoredWorld = world:FindFirstChild("World")
+	if authoredWorld then
 		-- FloatingIsland is the central island's underside, not an assumed player spawn.
-		appendNearby(map:FindFirstChild("FloatingIsland"))
-		local baseIslands = map:FindFirstChild("BaseIslands")
+		local arena = authoredWorld:FindFirstChild("Arena")
+		local visuals = arena and arena:FindFirstChild("Visuals")
+		appendNearby(visuals and visuals:FindFirstChild("FloatingIsland"))
+		local baseIslands = authoredWorld:FindFirstChild("BaseIslands")
 		if baseIslands then
 			for _, island in baseIslands:GetChildren() do
-				local grass = island:FindFirstChild("Grass")
+				local collision = island:FindFirstChild("Collision")
+				local grass = collision and collision:FindFirstChild("Grass")
 				if grass and grass:IsA("BasePart") and isNearby(grass, position) then
 					appendNearby(island)
 				end

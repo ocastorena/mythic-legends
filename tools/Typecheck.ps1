@@ -42,25 +42,37 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Wally dependency installation failed: $manifestRoot" }
     }
 
-    & $Rojo sourcemap default.project.json --include-non-scripts --output .verification/sourcemap.json
-    if ($LASTEXITCODE -ne 0) { throw 'Rojo sourcemap generation failed.' }
+    & $Rojo sourcemap default.project.json --include-non-scripts --output .verification/production-sourcemap.json
+    if ($LASTEXITCODE -ne 0) { throw 'Production Rojo sourcemap generation failed.' }
+    & $Rojo sourcemap test.project.json --include-non-scripts --output .verification/test-sourcemap.json
+    if ($LASTEXITCODE -ne 0) { throw 'Test Rojo sourcemap generation failed.' }
 
     # Wally's fresh entrypoints now receive export aliases; upstream sources stay untouched.
-    foreach ($packages in @('Packages', 'tests/DevPackages')) {
-        & $WallyPackageTypes --sourcemap .verification/sourcemap.json $packages `
+    foreach ($packageJob in @(
+        @{ packages = 'Packages'; sourcemap = '.verification/production-sourcemap.json' },
+        @{ packages = 'tests/DevPackages'; sourcemap = '.verification/test-sourcemap.json' }
+    )) {
+        & $WallyPackageTypes --sourcemap $packageJob.sourcemap $packageJob.packages `
             *> .verification/package-types.log
         if ($LASTEXITCODE -ne 0) {
             Get-Content .verification/package-types.log
-            throw "Generating Wally type exports failed: $packages"
+            throw "Generating Wally type exports failed: $($packageJob.packages)"
         }
     }
 
     & $LuauLsp analyze --platform=roblox --flag:LuauSolverV2=true `
-        --sourcemap=.verification/sourcemap.json `
+        --sourcemap=.verification/production-sourcemap.json `
         --definitions=@roblox=.tools/luau-lsp/globalTypes.d.luau `
         '--ignore=Packages/**' '--ignore=src/ServerScriptService/Packages/**' `
-        '--ignore=tests/DevPackages/**' src tests
-    if ($LASTEXITCODE -ne 0) { throw 'Strict first-party Luau analysis failed.' }
+        '--ignore=tests/DevPackages/**' src
+    if ($LASTEXITCODE -ne 0) { throw 'Strict production Luau analysis failed.' }
+
+    & $LuauLsp analyze --platform=roblox --flag:LuauSolverV2=true `
+        --sourcemap=.verification/test-sourcemap.json `
+        --definitions=@roblox=.tools/luau-lsp/globalTypes.d.luau `
+        '--ignore=Packages/**' '--ignore=src/ServerScriptService/Packages/**' `
+        '--ignore=tests/DevPackages/**' tests
+    if ($LASTEXITCODE -ne 0) { throw 'Strict test Luau analysis failed.' }
 } finally {
     Pop-Location
 }

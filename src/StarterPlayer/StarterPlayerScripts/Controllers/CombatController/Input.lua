@@ -891,7 +891,7 @@ function Input.Start()
 				elseif guardPhase ~= "Lowered" then guardPhase
 				elseif isShieldButtonHeld then "Release to retry"
 				elseif character and isSwingLocked(character) then "Swing in progress"
-				else "Hold to guard"
+				else ""
 			view.relayout()
 		end)
 		view.relayout()

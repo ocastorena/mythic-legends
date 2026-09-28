@@ -26,6 +26,7 @@ local lifecycle = ServiceLifecycle.new("BaseService")
 -- ===== Module state =====
 local serviceContext: ServerTypes.Context
 local MAX_SLOTS = 8
+local CHARACTER_ROOT_TIMEOUT_SECONDS = 10
 
 -- slotIndex -> { userId, baseModel }
 local slots: BaseRuntime.Slots = {}
@@ -77,6 +78,64 @@ local function getPlayerBase(player: Player): Model?
 	return nil
 end
 
+function BaseService.GetSpawnPoint(player: Player): BasePart?
+	local base = getPlayerBase(player)
+	if not base or base.Parent ~= basesFolder then
+		return nil
+	end
+	local spawnPart = base:FindFirstChild("Spawn")
+	return if spawnPart and spawnPart:IsA("BasePart") then spawnPart else nil
+end
+
+local function bindCharacterSpawn(
+	player: Player,
+	base: Model,
+	owner: Trove.Trove,
+	isCurrent: () -> boolean
+)
+	local characterOwner = owner:Extend()
+	local activeCharacter: Model? = nil
+
+	local function onCharacter(character: Model)
+		if activeCharacter == character then
+			return
+		end
+		activeCharacter = character
+		characterOwner:Clean()
+
+		local function teleportWhenReady()
+			local root = character:WaitForChild("HumanoidRootPart", CHARACTER_ROOT_TIMEOUT_SECONDS)
+			if not isCurrent() or player.Character ~= character or base.Parent ~= basesFolder then
+				return
+			end
+			if not (root and root:IsA("BasePart")) then
+				log.warn(`Character root unavailable for userId={player.UserId}`)
+				return
+			end
+			local teleported, message = BaseRuntime.TeleportToBaseSpawn(player, character, base)
+			if not teleported then
+				log.warn(`Base spawn failed for userId={player.UserId}: {message or "unknown"}`)
+			end
+		end
+
+		characterOwner:Add(task.defer(function()
+			teleportWhenReady()
+			characterOwner:Pop(coroutine.running())
+		end))
+	end
+
+	owner:Connect(player.CharacterAdded, onCharacter)
+	owner:Connect(player.CharacterRemoving, function(character: Model)
+		if activeCharacter == character then
+			activeCharacter = nil
+			characterOwner:Clean()
+		end
+	end)
+	if player.Character then
+		onCharacter(player.Character)
+	end
+end
+
 local function handlePlayerAdded(player: Player, isCurrent: () -> boolean)
 	if not DataService.Load(player) or not isCurrent() then
 		return
@@ -101,9 +160,7 @@ local function handlePlayerAdded(player: Player, isCurrent: () -> boolean)
 		return
 	end
 
-	playerTrove:Connect(player.CharacterAdded, function(char: Model)
-		BaseRuntime.TeleportToBaseSpawn(player, char, base)
-	end)
+	bindCharacterSpawn(player, base, playerTrove, isCurrent)
 
 	local mythlingsSection = DataService.GetData(player).mythlings
 

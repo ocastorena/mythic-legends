@@ -224,7 +224,7 @@ local function createShieldBubble(character: Model, root: BasePart)
 	tween:Play()
 end
 
-type EquipmentEntries = { [string]: { definitionId: string } }
+type EquipmentEntries = { [string]: Types.EquipmentEntry }
 type Loadout = { primaryWeaponInstanceId: string?, shieldInstanceId: string? }
 type LoadoutSnapshot = LoadoutRequests.Snapshot
 local function getEquipmentAndLoadout(player: Player): (EquipmentEntries, Loadout)

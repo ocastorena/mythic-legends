@@ -3,15 +3,16 @@
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local PlayerDataTemplate = require(game:GetService("ServerStorage").Databases.PlayerDataTemplate)
+local Configuration = require(game:GetService("ReplicatedStorage").Shared.Configurations.PlayerData)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect
 local it = JestGlobals.it
 
 describe("PlayerDataTemplate", function()
-	it("starts the v3 schema with Gold and no legacy Runies field", function()
-		expect(PlayerDataTemplate.version).toBe(3)
-		expect(PlayerDataTemplate.currency.gold).toBe(0)
+	it("starts the configured fresh schema with Gold and no legacy Runies field", function()
+		expect(PlayerDataTemplate.version).toBe(Configuration.schemaVersion)
+		expect(PlayerDataTemplate.currency.gold).toBe(Configuration.startingGold)
 		for key in pairs(PlayerDataTemplate.currency) do
 			expect(key).never.toBe("runies")
 		end

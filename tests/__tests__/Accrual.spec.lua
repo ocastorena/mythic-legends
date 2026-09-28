@@ -4,6 +4,8 @@
 local HttpService = game:GetService("HttpService")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Accrual = require(game:GetService("ServerScriptService").Services.ProductionService.Accrual)
+local Transactions =
+	require(game:GetService("ServerScriptService").Services.DataService.Transactions)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect
@@ -34,6 +36,12 @@ local function copy(value: Types.PlayerDoc): Types.PlayerDoc
 	return HttpService:JSONDecode(HttpService:JSONEncode(value))
 end
 
+local function copyGameplay(value: Types.PlayerDoc): Types.PlayerDoc
+	local result = copy(value)
+	result.transactions = nil
+	return result
+end
+
 local function fixture(saved: Types.PlayerDoc?)
 	-- Accrual forwards Player only as an opaque identity to these injected callbacks.
 	-- Adapt a test-only token at that boundary; no Roblox Player or live state is needed.
@@ -56,6 +64,7 @@ local function fixture(saved: Types.PlayerDoc?)
 		player = player,
 		now = 100,
 		loaded = true,
+		requestNumber = 0,
 		snapshots = {} :: { Types.PlayerDoc },
 		data = data,
 	}
@@ -63,9 +72,33 @@ local function fixture(saved: Types.PlayerDoc?)
 		GetLoadedData = function(_player: Player): Types.PlayerDoc?
 			return if context.loaded then context.data else nil
 		end,
-		MarkDirty = function(_player: Player): boolean
-			table.insert(context.snapshots, copy(context.data))
-			return context.loaded
+		Update = function(
+			_player: Player,
+			operation: string,
+			mutate: (Types.PlayerDoc) -> Accrual.UpdateDecision
+		)
+			if not context.loaded then
+				return { ok = false, code = "DataUnavailable", revision = 0 }
+			end
+			local revision = Transactions.GetRevision(context.data)
+			context.requestNumber += 1
+			local result = Transactions.Run(
+				context.data,
+				{
+					id = `{revision}:test-{context.requestNumber}`,
+					expectedRevision = revision,
+					operation = operation,
+					signature = "",
+				},
+				mutate,
+				function()
+					return context.loaded
+				end
+			)
+			if result.ok then
+				table.insert(context.snapshots, copy(context.data))
+			end
+			return result
 		end,
 	}
 	context.api = Accrual.new(dataService, definitions, function(_player: Player, standId: number)
@@ -74,6 +107,12 @@ local function fixture(saved: Types.PlayerDoc?)
 		return context.now
 	end)
 	return context
+end
+
+local function fillMaterialSlots(data: Types.PlayerDoc, count: number)
+	for index = 1, count do
+		data.materials[`full_{index}`] = { total = 1_000 }
+	end
 end
 describe("Accrual", function()
 	it(
@@ -216,11 +255,11 @@ describe("Accrual", function()
 					"[Accrual.spec] Expected production ledger"
 				).materials.crystal.progress
 			).toBeCloseTo(0.5)
-			local beforeRepeat = copy(f.data)
+			local beforeRepeat = copyGameplay(f.data)
 			local collected, code = f.api.Collect(f.player, 0)
 			expect(collected).toBe(false)
 			expect(code).toBe("NothingToCollect")
-			expect(f.data).toEqual(beforeRepeat)
+			expect(copyGameplay(f.data)).toEqual(beforeRepeat)
 			expect(#f.snapshots).toBe(1)
 
 			f.now = 220
@@ -228,6 +267,88 @@ describe("Accrual", function()
 			expect(f.data.materials.crystal.total).toBe(2)
 		end
 	)
+
+	it("rolls back settlement when no collected Material can fit", function()
+		local f = fixture()
+		fillMaterialSlots(f.data, 12)
+		f.now = 190
+		local before = copyGameplay(f.data)
+
+		local collected, code, result = f.api.Collect(f.player, 0)
+		expect(collected).toBe(false)
+		expect(code).toBe("InventoryFull")
+		expect(result).toBeNil()
+		expect(copyGameplay(f.data)).toEqual(before)
+		expect(#f.snapshots).toBe(0)
+
+		-- The rejected settlement did not consume elapsed time; once space exists, the same
+		-- previewed output can be settled and transferred exactly once.
+		f.data.materials.full_12 = nil
+		collected, code, result = f.api.Collect(f.player, 0)
+		expect(collected).toBe(true)
+		expect(code).toBeNil()
+		expect(result).toEqual({ collected = 1, remaining = 0, materials = { crystal = 1 } })
+		expect(f.data.materials.crystal.total).toBe(1)
+	end)
+
+	it("partially collects what fits and leaves the stored remainder on the stand", function()
+		local f = fixture()
+		fillMaterialSlots(f.data, 11)
+		f.data.materials.crystal = { total = 999 }
+		f.now = 700
+
+		local collected, code, result = f.api.Collect(f.player, 0)
+		expect(collected).toBe(true)
+		expect(code).toBeNil()
+		expect(result).toEqual({ collected = 1, remaining = 2, materials = { crystal = 1 } })
+		expect(f.data.materials.crystal.total).toBe(1_000)
+		local ledger =
+			assert(f.data.base.stands["0"].production, "[Accrual.spec] Expected production ledger")
+		expect(ledger.lastAccruedAt).toBe(700)
+		expect(ledger.materials.crystal).toEqual({ stored = 2, progress = 0 })
+	end)
+
+	it("counts active crafting refund reservations before collecting", function()
+		local f = fixture()
+		fillMaterialSlots(f.data, 11)
+		f.data.materials.crystal = { total = 998 }
+		f.data.craftingJobs = {
+			job_1 = {
+				status = "Active",
+				reservations = { equipment = 0, materials = { crystal = 1 } },
+			},
+		}
+		f.now = 700
+
+		local collected, code, result = f.api.Collect(f.player, 0)
+		expect(collected).toBe(true)
+		expect(code).toBeNil()
+		expect(result).toEqual({ collected = 1, remaining = 2, materials = { crystal = 1 } })
+		expect(f.data.materials.crystal.total).toBe(999)
+	end)
+
+	it("allocates limited multi-Material room in stable Material ID order", function()
+		local f = fixture()
+		f.data.mythlings.worker.standId = nil
+		f.data.base.stands["0"].production = {
+			lastAccruedAt = 100,
+			materials = {
+				zeta = { stored = 1, progress = 0 },
+				alpha = { stored = 1, progress = 0 },
+			},
+		}
+		fillMaterialSlots(f.data, 11)
+
+		local collected, code, result = f.api.Collect(f.player, 0)
+		expect(collected).toBe(true)
+		expect(code).toBeNil()
+		expect(result).toEqual({ collected = 1, remaining = 1, materials = { alpha = 1 } })
+		expect(f.data.materials.alpha.total).toBe(1)
+		local ledger =
+			assert(f.data.base.stands["0"].production, "[Accrual.spec] Expected production ledger")
+		expect(ledger.materials.alpha.stored).toBe(0)
+		expect(ledger.materials.zeta.stored).toBe(1)
+	end)
 
 	it("does not turn full-storage time into catch-up production after collection", function()
 		local f = fixture()
@@ -268,7 +389,7 @@ describe("Accrual", function()
 		function()
 			local f = fixture()
 			f.now = 190
-			local before = copy(f.data)
+			local before = copyGameplay(f.data)
 			expect(f.api.Get(f.player, 99)).toBeNil()
 			local settled, settleCode = f.api.Settle(f.player, 99)
 			local collected, collectCode = f.api.Collect(f.player, 99)
@@ -285,7 +406,7 @@ describe("Accrual", function()
 			expect(settleCode).toBe("DataUnavailable")
 			expect(collected).toBe(false)
 			expect(collectCode).toBe("DataUnavailable")
-			expect(f.data).toEqual(before)
+			expect(copyGameplay(f.data)).toEqual(before)
 			expect(#f.snapshots).toBe(0)
 		end
 	)
@@ -295,19 +416,19 @@ describe("Accrual", function()
 		f.now = 190
 		f.data.mythlings.second =
 			{ typeId = "satyr", variantId = "regular", claimedAt = 100, standId = 0 }
-		local before = copy(f.data)
+		local before = copyGameplay(f.data)
 		local collected, code = f.api.Collect(f.player, 0)
 		expect(collected).toBe(false)
 		expect(code).toBe("ConflictingAssignment")
-		expect(f.data).toEqual(before)
+		expect(copyGameplay(f.data)).toEqual(before)
 
 		f.data.mythlings.second = nil
 		f.data.mythlings.worker.typeId = "unknown"
-		before = copy(f.data)
+		before = copyGameplay(f.data)
 		collected, code = f.api.Collect(f.player, 0)
 		expect(collected).toBe(false)
 		expect(code).toBe("InvalidDefinition")
-		expect(f.data).toEqual(before)
+		expect(copyGameplay(f.data)).toEqual(before)
 		expect(#f.snapshots).toBe(0)
 	end)
 end)

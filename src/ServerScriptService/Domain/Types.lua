@@ -18,6 +18,16 @@ export type DataApi = {
 	Release: (Player) -> (),
 	GetData: (Player) -> PlayerData,
 	GetLoadedData: (Player) -> PlayerData?,
+	Update: (
+		Player,
+		string,
+		(PlayerData) -> SharedTypes.TransactionOutcome
+	) -> SharedTypes.TransactionResult,
+	Transact: (
+		Player,
+		SharedTypes.TransactionRequest,
+		(PlayerData) -> SharedTypes.TransactionOutcome
+	) -> SharedTypes.TransactionResult,
 	MarkDirty: (Player) -> boolean,
 	SaveNow: (Player) -> boolean,
 }
@@ -31,9 +41,10 @@ export type InventoryApi = {
 	SaveWonMythling: (Player, { typeId: string, variantId: string }) -> string?,
 	GetMythling: (Player, string) -> SharedTypes.MythlingEntry?,
 	MarkDirty: (Player) -> boolean,
-	AddMaterial: (Player, string, number) -> (),
+	AddMaterial: (Player, string, number) -> boolean,
 }
 export type BaseApi = {
+	GetSpawnPoint: (Player) -> BasePart?,
 	HasStand: (Player, number) -> boolean,
 	RemoveMythlingFromStand: (Player, string) -> boolean,
 }
@@ -64,6 +75,7 @@ export type SpawnApi = {
 	OnClaimed: (string, Player) -> (),
 }
 export type Services = {
+	DivineInterventionService: { StartEvent: (string) -> (boolean, string) },
 	DataService: DataApi,
 	InventoryService: InventoryApi,
 	BaseService: BaseApi,
@@ -72,18 +84,19 @@ export type Services = {
 }
 export type Context = {
 	Instances: {
+		World: Folder,
 		Runtime: Instance,
 		Arena: BasePart,
 		Mythlings: Instance,
 		Bases: Folder,
 		BaseIslands: Folder,
-		Visuals: Instance,
 		MythlingAssets: Folder,
 		BaseAssets: Instance,
 		EquipmentAssets: Folder,
 		Templates: Instance,
 	},
 	Configurations: {
+		AdminCommands: SharedTypes.AdminCommandsConfiguration,
 		Mythlings: { [string]: SharedTypes.MythlingDef },
 		Equipment: SharedTypes.EquipmentConfiguration,
 		MythlingSpawns: SharedTypes.MythlingSpawnConfiguration,
