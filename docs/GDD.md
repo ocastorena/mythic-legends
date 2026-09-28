@@ -674,6 +674,8 @@ purchase**, up to **six unlocked slots in the MVP**. Starting with two slots mea
 purchases are available. Unlocked slots persist through Shrine dismantling, character reset, and
 reconnect; dismantling frees space without undoing an expansion.
 Players may use the six slots for one Shrine per element or choose duplicate-element Shrines.
+Construction automatically uses the lowest-numbered empty unlocked build slot. Existing Shrines
+retain their assigned slots; this logical placement does not depend on prototype model geometry.
 
 Starting Gold must cover any one basic level-1 Shrine, so players can retain their first capture and
 build a matching Shrine regardless of element. Ordinary capture sales fund later purchases and

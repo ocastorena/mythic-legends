@@ -190,8 +190,24 @@ export type EquipmentEntry = {
 
 export type CraftingStationRecord = { id: string, craftingStationId: string }
 
--- Identity/occupancy contract only. Construction will add the Shrine-owned production ledger.
-export type ShrineRecord = { id: string, shrineId: string }
+-- Construction metadata only; output/upgrade metadata joins the production feature separately.
+export type ShrineDef = {
+	displayName: string,
+	element: "Fire" | "Water" | "Earth" | "Air" | "Light" | "Dark",
+	buildGoldCost: number,
+	initialLevel: number,
+	maxLevel: number,
+}
+
+-- Construction state. Shrine-owned production/assignment ledgers are a separate increment.
+export type ShrineRecord = { id: string, shrineId: string, buildSlotId: number, level: number }
+
+export type BuildShrineRequest = {
+	requestId: string,
+	expectedRevision: number,
+	shrineId: string,
+	expectedGoldCost: number,
+}
 
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.

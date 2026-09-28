@@ -10,6 +10,22 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local BaseRuntime = {}
 export type Slots = { [number]: { userId: number, base: Model } }
 
+local function applyCapacity(model: Model, status: Types.BaseStatus)
+	model:SetAttribute("UsedShrineSlots", status.usedShrineSlots)
+	model:SetAttribute("UnlockedShrineSlots", status.unlockedShrineSlots)
+	model:SetAttribute("MaxShrineSlots", status.maxShrineSlots)
+end
+
+-- Presentation only: purchases always validate the saved Base, never these attributes.
+function BaseRuntime.RefreshCapacity(model: Model, baseRecord: Types.BaseRecord): boolean
+	local status = BaseState.GetStatus(baseRecord)
+	if not status then
+		return false
+	end
+	applyCapacity(model, status)
+	return true
+end
+
 local function getFreeSlot(slots: Slots, maxSlots: number): number?
 	for i = 1, maxSlots do
 		if not slots[i] then
@@ -160,9 +176,7 @@ function BaseRuntime.SpawnBaseFor(
 			`Base template is missing Crafting Station model {stationDefinition.modelName}`
 	end
 	label.Text = player.DisplayName
-	model:SetAttribute("UsedShrineSlots", status.usedShrineSlots)
-	model:SetAttribute("UnlockedShrineSlots", status.unlockedShrineSlots)
-	model:SetAttribute("MaxShrineSlots", status.maxShrineSlots)
+	applyCapacity(model, status)
 	station:SetAttribute("StationInstanceId", status.craftingStation.id)
 	station:SetAttribute("StationDefinitionId", status.craftingStation.craftingStationId)
 	station:SetAttribute("OwnerId", userId)

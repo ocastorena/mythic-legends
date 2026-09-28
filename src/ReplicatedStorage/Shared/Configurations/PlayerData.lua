@@ -7,7 +7,7 @@ return FreezeUtil.DeepFreeze({
 	-- Deliberate pre-release fresh start; the prototype namespace is left untouched.
 	storeName = "MythicLegends_MVP_v1",
 	profileKeyPrefix = "Player_",
-	schemaVersion = 5,
+	schemaVersion = 6,
 	startingGold = 100,
 	starterSwordId = "wooden_sword",
 	starterShieldId = "wooden_shield",

@@ -142,13 +142,14 @@ are added in this increment. Mock tests do not establish live durable-save behav
 
 ### Base foundation review
 
-Schema 5 keeps the same MVP data namespace and adds Base state to schema-4 profiles without resetting
-Gold, Inventory, purchased upgrades, active-job bookkeeping, receipts, or legacy stand production.
+The Base foundation keeps the same MVP data namespace and adds Base state to schema-4 profiles
+without resetting Gold, Inventory, purchased upgrades, active-job bookkeeping, receipts, or legacy
+stand production.
 A Base starts with two Shrine-only slots and one free permanent Crafting Station, whose unique saved
 identity is reused on rebuild/reconnect. The Station and legacy stands do not occupy Shrine slots.
 Capacity derives from the purchased expansion count and configuration (maximum six); it is not saved
-as a copied limit. Shrine construction, expansion purchases, Station interaction, and crafting are
-not implemented by this foundation increment. Existing stand gameplay remains available.
+as a copied limit. Expansion purchases, Station interaction, and crafting remain separate work.
+Existing stand gameplay remains available; server-only Shrine construction is described below.
 
 After syncing source and starting a fresh play session, inspect the player's runtime Base attributes:
 `UsedShrineSlots = 0`, `UnlockedShrineSlots = 2`, `MaxShrineSlots = 6`. The existing
@@ -157,6 +158,28 @@ After syncing source and starting a fresh play session, inspect the player's run
 stand assignment/collection intact. There is intentionally no new Station prompt or menu. Automated
 tests cover schema additions, identity reuse after serialization, derived capacity, safe runtime
 allocation failure, and Base reconstruction; they do not establish live save durability.
+
+### Shrine-construction logic review
+
+`BaseService.BuildShrine(player, request)` is a server-only command; there is no new menu, remote, or
+Shrine model spawn. It supports Fire, Water, Earth, Air, Light, and Dark definitions in
+`Shared.Configurations.Shrines`. Each costs 100 configured Gold, starts at level 1, and takes the
+lowest-numbered empty unlocked Shrine slot. Duplicate elements are allowed. Neither Materials nor
+an owned Mythling are required. The prototype Shrine asset does not define this behavior.
+
+Requests contain `requestId` (`<expectedRevision>:<unique token>`), `expectedRevision`, `shrineId`,
+and `expectedGoldCost`. Reuse the original request to retry. Success returns `shrineInstanceId`,
+`shrineId`, `buildSlotId`, `level`, and `goldSpent` in the transaction's `values`; the normal state
+projection carries the confirmed Gold, owned Shrines, and capacity. A stale price is rejected,
+never silently charged. Persisted receipts prevent repeat charges even after reconnect.
+
+Schema 6 adds missing slot IDs and levels to v4/v5 records without resetting earned state. Existing
+valid slots and levels are retained; incomplete older records receive deterministic lowest-free
+slots and level 1. Corrupt or conflicting ownership is rejected rather than erased or remapped.
+The automated suite exercises all six elements, duplicate and stale requests, full capacity,
+insufficient Gold, rollback, automatic gap filling, projection privacy, and serialized reconnects.
+Production, assignments, upgrades, dismantling, and UI integration are separate reviewable tasks.
+These checks establish in-session atomicity and serialized-state behavior, not live save durability.
 
 Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:
 

@@ -17,6 +17,7 @@ local log = LogUtil.For("BaseService")
 -- Module dependencies
 local StandPlacement = require(script.StandPlacement)
 local BaseRuntime = require(script.BaseRuntime)
+local ShrineConstruction = require(script.ShrineConstruction)
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
 local ServerTypes = require(ServerScriptService.Domain.Types)
 local Trove = require(game:GetService("ReplicatedStorage").Packages.Trove)
@@ -41,6 +42,7 @@ local placeMythlingRemote: RemoteFunction
 local removeMythlingRemote: RemoteFunction
 local MythlingsMeta: { [string]: Types.MythlingDef }
 local DataService: ServerTypes.DataApi
+local shrineConstruction: ShrineConstruction.ShrineConstruction?
 local InventoryService: ServerTypes.InventoryApi
 local ProductionService: ServerTypes.ProductionApi
 local placementLimiter = RateLimiter.new(6, 2)
@@ -85,6 +87,26 @@ function BaseService.GetSpawnPoint(player: Player): BasePart?
 	end
 	local spawnPart = base:FindFirstChild("Spawn")
 	return if spawnPart and spawnPart:IsA("BasePart") then spawnPart else nil
+end
+
+-- Server-only command until the separate menu/network integration is ready.
+function BaseService.BuildShrine(
+	player: Player,
+	request: Types.BuildShrineRequest
+): Types.TransactionResult
+	local construction = shrineConstruction
+	if not lifecycle:IsRunning() or not construction or player.Parent ~= Players then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	local result = construction.Build(player, request)
+	if result.ok then
+		local base = getPlayerBase(player)
+		local data = DataService.GetLoadedData(player)
+		if base and base.Parent == basesFolder and data then
+			BaseRuntime.RefreshCapacity(base, data.base)
+		end
+	end
+	return result
 end
 
 local function bindCharacterSpawn(
@@ -320,6 +342,7 @@ end
 function BaseService.Init(context: ServerTypes.Context)
 	serviceContext = context
 	resolveAssets()
+	shrineConstruction = ShrineConstruction.new(DataService)
 end
 
 function BaseService.Start()
@@ -346,6 +369,7 @@ function BaseService.Stop()
 		slots[index] = nil
 	end
 	placementLimiter:Clear()
+	shrineConstruction = nil
 end
 
 return BaseService

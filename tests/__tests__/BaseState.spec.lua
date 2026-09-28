@@ -8,6 +8,7 @@ local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local BaseState = require(ServerScriptService.Domain.Base.BaseState)
 local Bases = require(ReplicatedStorage.Shared.Configurations.Bases)
 local CraftingStations = require(ReplicatedStorage.Shared.Configurations.CraftingStations)
+local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Types = require(ReplicatedStorage.Shared.Types)
 
 local describe = JestGlobals.describe
@@ -48,8 +49,8 @@ describe("BaseState", function()
 			end
 			expect(status(base).usedShrineSlots).toBe(0)
 			base.shrines = {
-				first = { id = "first", shrineId = "fire_shrine" },
-				second = { id = "second", shrineId = "water_shrine" },
+				first = { id = "first", shrineId = "fire_shrine", buildSlotId = 1, level = 1 },
+				second = { id = "second", shrineId = "water_shrine", buildSlotId = 2, level = 1 },
 			}
 			expect(status(base).usedShrineSlots).toBe(2)
 			expect(status(base).unlockedShrineSlots).toBe(2)
@@ -88,15 +89,23 @@ describe("BaseState", function()
 		base = freshBase()
 		base.shrines = nil
 		expect(BaseState.GetStatus(base)).toBeNil()
-		base.shrines = { first = { id = "other-id", shrineId = "fire_shrine" } }
+		base.shrines =
+			{ first = { id = "other-id", shrineId = "fire_shrine", buildSlotId = 1, level = 1 } }
 		expect(BaseState.GetStatus(base)).toBeNil()
-		base.shrines = { ["station-one"] = { id = "station-one", shrineId = "fire_shrine" } }
+		base.shrines = {
+			["station-one"] = {
+				id = "station-one",
+				shrineId = "fire_shrine",
+				buildSlotId = 1,
+				level = 1,
+			},
+		}
 		expect(BaseState.GetStatus(base)).toBeNil()
 		local shrines: { [string]: Types.ShrineRecord } = {}
 		base.shrines = shrines
 		for index = 1, 3 do
 			local id = tostring(index)
-			shrines[id] = { id = id, shrineId = "fire_shrine" }
+			shrines[id] = { id = id, shrineId = "fire_shrine", buildSlotId = index, level = 1 }
 		end
 		expect(BaseState.GetStatus(base)).toBeNil()
 		base.buildSlotUpgrades = 1
@@ -108,5 +117,53 @@ describe("BaseState", function()
 		expect(table.isfrozen(Bases.buildSlotGrants)).toBe(true)
 		expect(table.isfrozen(CraftingStations)).toBe(true)
 		expect(table.isfrozen(CraftingStations[Bases.craftingStationId])).toBe(true)
+		expect(table.isfrozen(Shrines)).toBe(true)
+		for _, definition in Shrines do
+			expect(table.isfrozen(definition)).toBe(true)
+		end
+	end)
+
+	it("selects the lowest gap in unlocked slots, independently of map insertion order", function()
+		local base = freshBase()
+		base.buildSlotUpgrades = 2
+		base.shrines = {
+			last = { id = "last", shrineId = "fire_shrine", buildSlotId = 4, level = 1 },
+			first = { id = "first", shrineId = "fire_shrine", buildSlotId = 1, level = 1 },
+		}
+		expect((BaseState.GetLowestFreeShrineSlot(base))).toBe(2)
+	end)
+
+	it("distinguishes a full Base from malformed slot ownership", function()
+		local base = freshBase()
+		base.shrines = {
+			first = { id = "first", shrineId = "fire_shrine", buildSlotId = 1, level = 1 },
+			second = { id = "second", shrineId = "fire_shrine", buildSlotId = 2, level = 1 },
+		}
+		local slot, code = BaseState.GetLowestFreeShrineSlot(base)
+		expect(slot).toBeNil()
+		expect(code).toBe("BaseFull")
+		for _, invalidSlot in { 0, 1, 1.5, 3, math.huge, 0 / 0 } do
+			local shrines = assert(base.shrines, "[BaseState.spec] Expected Shrines")
+			shrines.second.buildSlotId = invalidSlot
+			slot, code = BaseState.GetLowestFreeShrineSlot(base)
+			expect(slot).toBeNil()
+			expect(code).toBe("InvalidBaseState")
+		end
+	end)
+
+	it("rejects unknown Shrine definitions and invalid levels", function()
+		local base = freshBase()
+		local shrine = { id = "first", shrineId = "unknown", buildSlotId = 1, level = 1 }
+		base.shrines = { first = shrine }
+		expect(BaseState.GetStatus(base)).toBeNil()
+		shrine.shrineId = "fire_shrine"
+		for _, invalidLevel in { 0, 1.5, 4, math.huge, 0 / 0 } do
+			shrine.level = invalidLevel
+			expect(BaseState.GetStatus(base)).toBeNil()
+		end
+		for level = 1, 3 do
+			shrine.level = level
+			expect(status(base).usedShrineSlots).toBe(1)
+		end
 	end)
 end)

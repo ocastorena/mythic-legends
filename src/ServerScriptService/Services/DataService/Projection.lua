@@ -21,6 +21,15 @@ function Projection.Build(data: Types.PlayerDoc): { [string]: any }
 	for id, entry in pairs(data.equipment) do
 		equipment[id] = { definitionId = entry.definitionId, finishId = entry.finishId }
 	end
+	local shrines = {}
+	for id, shrine in data.base.shrines or {} do
+		shrines[id] = {
+			id = shrine.id,
+			shrineId = shrine.shrineId,
+			buildSlotId = shrine.buildSlotId,
+			level = shrine.level,
+		}
+	end
 	-- Explicit allowlist. Profile identity, starter-grant authority, jobs/reservations,
 	-- request signatures and resolution receipts never cross the replication boundary.
 	return clone({
@@ -34,6 +43,7 @@ function Projection.Build(data: Types.PlayerDoc): { [string]: any }
 			-- Preserve the existing stand view without exposing future private Base ledgers.
 			stands = data.base.stands,
 			status = BaseState.GetStatus(data.base),
+			shrines = shrines,
 		},
 		inventoryUpgrades = data.inventoryUpgrades,
 		transactionRevision = if data.transactions then data.transactions.revision else 0,

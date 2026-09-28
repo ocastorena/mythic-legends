@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Configuration = require(ReplicatedStorage.Shared.Configurations.Bases)
 local CraftingStations = require(ReplicatedStorage.Shared.Configurations.CraftingStations)
+local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Types = require(ReplicatedStorage.Shared.Types)
 
 local BaseState = {}
@@ -14,11 +15,7 @@ local function isId(value: unknown): boolean
 	return type(value) == "string" and #value > 0 and #value <= 128
 end
 
-function BaseState.GetStatus(base: Types.BaseRecord): Types.BaseStatus?
-	if type(base) ~= "table" then
-		return nil
-	end
-	local upgrades = base.buildSlotUpgrades
+function BaseState.GetSlotLimits(upgrades: unknown): (number?, number?)
 	if
 		type(upgrades) ~= "number"
 		or upgrades ~= upgrades
@@ -26,7 +23,7 @@ function BaseState.GetStatus(base: Types.BaseRecord): Types.BaseStatus?
 		or upgrades > #Configuration.buildSlotGrants
 		or upgrades % 1 ~= 0
 	then
-		return nil
+		return nil, nil
 	end
 
 	local unlocked = Configuration.initialShrineSlots
@@ -36,6 +33,17 @@ function BaseState.GetStatus(base: Types.BaseRecord): Types.BaseStatus?
 		if index <= upgrades then
 			unlocked += grant
 		end
+	end
+	return unlocked, maximum
+end
+
+function BaseState.GetStatus(base: Types.BaseRecord): Types.BaseStatus?
+	if type(base) ~= "table" then
+		return nil
+	end
+	local unlocked, maximum = BaseState.GetSlotLimits(base.buildSlotUpgrades)
+	if not unlocked or not maximum then
+		return nil
 	end
 
 	local station = base.craftingStation
@@ -53,6 +61,7 @@ function BaseState.GetStatus(base: Types.BaseRecord): Types.BaseStatus?
 		return nil
 	end
 	local used = 0
+	local occupied: { [number]: boolean } = {}
 	for id, shrine in shrines do
 		if
 			not isId(id)
@@ -63,6 +72,28 @@ function BaseState.GetStatus(base: Types.BaseRecord): Types.BaseStatus?
 		then
 			return nil
 		end
+		local definition = Shrines[shrine.shrineId]
+		if not definition then
+			return nil
+		end
+		local slot = shrine.buildSlotId
+		local level = shrine.level
+		if
+			type(slot) ~= "number"
+			or slot ~= slot
+			or slot < 1
+			or slot > unlocked
+			or slot % 1 ~= 0
+			or occupied[slot]
+			or type(level) ~= "number"
+			or level ~= level
+			or level < definition.initialLevel
+			or level > definition.maxLevel
+			or level % 1 ~= 0
+		then
+			return nil
+		end
+		occupied[slot] = true
 		used += 1
 	end
 	if used > unlocked then
@@ -75,6 +106,24 @@ function BaseState.GetStatus(base: Types.BaseRecord): Types.BaseStatus?
 		maxShrineSlots = maximum,
 		craftingStation = { id = station.id, craftingStationId = station.craftingStationId },
 	}
+end
+
+function BaseState.GetLowestFreeShrineSlot(base: Types.BaseRecord): (number?, string?)
+	local status = BaseState.GetStatus(base)
+	local shrines = if type(base) == "table" then base.shrines else nil
+	if not status or not shrines then
+		return nil, "InvalidBaseState"
+	end
+	local occupied: { [number]: boolean } = {}
+	for _, shrine in shrines do
+		occupied[shrine.buildSlotId] = true
+	end
+	for slot = 1, status.unlockedShrineSlots do
+		if not occupied[slot] then
+			return slot, nil
+		end
+	end
+	return nil, "BaseFull"
 end
 
 return table.freeze(BaseState)

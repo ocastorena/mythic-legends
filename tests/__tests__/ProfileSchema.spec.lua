@@ -34,6 +34,17 @@ local function oldData(): Types.PlayerDoc
 	return data
 end
 
+local function initializedData(version: number): Types.PlayerDoc
+	local data = freshData()
+	data.version = version
+	data.profile = { userId = 25, createdAt = 100, lastLoginAt = 200 }
+	data.base.craftingStation = {
+		id = "retained-station",
+		craftingStationId = "basic_crafting_station",
+	}
+	return data
+end
+
 local function stationId(): string
 	return "permanent-station-id"
 end
@@ -69,7 +80,7 @@ describe("MVP ProfileSchema", function()
 	end)
 
 	it(
-		"adds v5 state atomically while retaining all v4 progression and live table identities",
+		"adds current state atomically while retaining all v4 progression and live table identities",
 		function()
 			local data = oldData()
 			data.currency.gold = 9876
@@ -123,30 +134,75 @@ describe("MVP ProfileSchema", function()
 		end
 	)
 
+	it("upgrades an empty v5 Base without replacing any retained tables", function()
+		local data = initializedData(5)
+		local base = data.base
+		local shrines = assert(data.base.shrines, "[ProfileSchema.spec] Expected Shrine map")
+		local station = data.base.craftingStation
+		local before = snapshot(data)
+		before.version = Configuration.schemaVersion
+
+		expect((ProfileSchema.Prepare(data, neverGenerate))).toBe(true)
+		expect(snapshot(data)).toEqual(before)
+		expect(data.base).toBe(base)
+		expect(data.base.shrines).toBe(shrines)
+		expect(data.base.craftingStation).toBe(station)
+	end)
+
 	it(
-		"reuses existing Station identity, purchases, Shrines and opaque job links during upgrade",
+		"deterministically fills legacy Shrine fields while preserving records and opaque state",
 		function()
-			local data = oldData()
-			data.base.buildSlotUpgrades = 3
-			data.base.shrines = { kept = { id = "kept", shrineId = "fire_shrine" } }
-			data.base.craftingStation =
-				{ id = "retained-station", craftingStationId = "basic_crafting_station" }
-			-- Future job fields are opaque to this schema addition and must not be reconstructed.
-			local raw = snapshot(data)
-			raw.craftingJobs = {
-				job = {
-					stationInstanceId = "retained-station",
-					deadline = 12345,
-					finishId = "fire",
-					status = "Active",
-					reservations = { equipment = 1, materials = { fire = 5 } },
-				},
-			}
-			data = (raw :: unknown) :: Types.PlayerDoc
-			local expected = snapshot(data)
-			expected.version = Configuration.schemaVersion
-			expect((ProfileSchema.Prepare(data, neverGenerate))).toBe(true)
-			expect(snapshot(data)).toEqual(expected)
+			for _, version in { 4, 5 } do
+				local data = initializedData(version)
+				data.base.buildSlotUpgrades = 2
+				local raw = snapshot(data)
+				raw.base.shrines = {}
+				-- Deliberately insert the lexically later missing record first.
+				raw.base.shrines.zulu = {
+					id = "zulu",
+					shrineId = "air_shrine",
+					futureLedger = { stored = 9 },
+				}
+				raw.base.shrines.fixed = {
+					id = "fixed",
+					shrineId = "water_shrine",
+					buildSlotId = 2,
+					level = 2,
+				}
+				raw.base.shrines.alpha = { id = "alpha", shrineId = "fire_shrine" }
+				-- Future job fields are opaque to this migration and must not be reconstructed.
+				raw.craftingJobs = {
+					job = {
+						stationInstanceId = "retained-station",
+						deadline = 12345,
+						finishId = "fire",
+						status = "Active",
+						reservations = { equipment = 1, materials = { fire = 5 } },
+					},
+				}
+				data = (raw :: unknown) :: Types.PlayerDoc
+				local shrines =
+					assert(data.base.shrines, "[ProfileSchema.spec] Expected Shrine map")
+				local alpha, fixed, zulu = shrines.alpha, shrines.fixed, shrines.zulu
+				local jobs = data.craftingJobs
+
+				expect((ProfileSchema.Prepare(data, neverGenerate))).toBe(true)
+				expect(data.version).toBe(Configuration.schemaVersion)
+				expect(data.base.shrines).toBe(shrines)
+				local prepared =
+					assert(data.base.shrines, "[ProfileSchema.spec] Expected prepared Shrine map")
+				expect(prepared.alpha).toBe(alpha)
+				expect(prepared.fixed).toBe(fixed)
+				expect(prepared.zulu).toBe(zulu)
+				expect(prepared.alpha.buildSlotId).toBe(1)
+				expect(prepared.alpha.level).toBe(1)
+				expect(prepared.fixed.buildSlotId).toBe(2)
+				expect(prepared.fixed.level).toBe(2)
+				expect(prepared.zulu.buildSlotId).toBe(3)
+				expect(prepared.zulu.level).toBe(1)
+				expect((prepared.zulu :: any).futureLedger).toEqual({ stored = 9 })
+				expect(data.craftingJobs).toBe(jobs)
+			end
 		end
 	)
 
@@ -182,13 +238,68 @@ describe("MVP ProfileSchema", function()
 	end)
 
 	it("rejects other namespaces' schemas and future versions without modifying them", function()
-		for _, version in { 0, 2, 3, 6 } do
+		for _, version in { 0, 2, 3, Configuration.schemaVersion + 1 } do
 			local data = oldData()
 			data.version = version
 			local before = snapshot(data)
 			local ok, code = ProfileSchema.Prepare(data, neverGenerate)
 			expect(ok).toBe(false)
 			expect(code).toBe("UnsupportedVersion")
+			expect(snapshot(data)).toEqual(before)
+		end
+	end)
+
+	it("rejects missing or invalid required Shrine fields in the current schema", function()
+		local corruptions = {
+			{ kept = { id = "kept", shrineId = "fire_shrine" } },
+			{ kept = { id = "kept", shrineId = "fire_shrine", buildSlotId = 1 } },
+			{ kept = { id = "kept", shrineId = "fire_shrine", level = 1 } },
+			{ kept = { id = "kept", shrineId = "fire_shrine", buildSlotId = 0, level = 1 } },
+			{ kept = { id = "kept", shrineId = "fire_shrine", buildSlotId = 1, level = 4 } },
+		}
+
+		for _, shrines in corruptions do
+			local data = initializedData(Configuration.schemaVersion)
+			local raw = snapshot(data)
+			raw.base.shrines = shrines
+			data = (raw :: unknown) :: Types.PlayerDoc
+			local before = snapshot(data)
+
+			local ok, code = ProfileSchema.Prepare(data, neverGenerate)
+			expect(ok).toBe(false)
+			expect(code).toBe("InvalidBase")
+			expect(snapshot(data)).toEqual(before)
+		end
+	end)
+
+	it("rejects conflicting or invalid explicit legacy Shrine state atomically", function()
+		local corruptions = {
+			{
+				first = { id = "first", shrineId = "fire_shrine", buildSlotId = 1, level = 1 },
+				second = { id = "second", shrineId = "water_shrine", buildSlotId = 1, level = 1 },
+			},
+			{
+				locked = { id = "locked", shrineId = "earth_shrine", buildSlotId = 3, level = 1 },
+			},
+			{
+				invalidLevel = {
+					id = "invalidLevel",
+					shrineId = "light_shrine",
+					buildSlotId = 1,
+					level = 4,
+				},
+			},
+		}
+
+		for _, shrines in corruptions do
+			local data = initializedData(5)
+			local raw = snapshot(data)
+			raw.base.shrines = shrines
+			data = (raw :: unknown) :: Types.PlayerDoc
+			local before = snapshot(data)
+			local ok, code = ProfileSchema.Prepare(data, neverGenerate)
+			expect(ok).toBe(false)
+			expect(code).toBe("InvalidBase")
 			expect(snapshot(data)).toEqual(before)
 		end
 	end)
@@ -221,23 +332,42 @@ describe("MVP ProfileSchema", function()
 	end)
 
 	it(
-		"projects only client-safe derived Base status and preserves the legacy stand view",
+		"projects only allowlisted detached Shrine state and preserves the legacy stand view",
 		function()
-			local data = oldData()
+			local data = initializedData(5)
 			data.base.stands["1"] = {}
-			expect((ProfileSchema.Prepare(data, stationId))).toBe(true)
+			local raw = snapshot(data)
+			raw.base.shrines = {
+				kept = {
+					id = "kept",
+					shrineId = "dark_shrine",
+					privateLedger = { stored = 99 },
+				},
+			}
+			data = (raw :: unknown) :: Types.PlayerDoc
+			expect((ProfileSchema.Prepare(data, neverGenerate))).toBe(true)
 			local projection = Projection.Build(data)
 			expect(projection.base.status).toEqual({
-				usedShrineSlots = 0,
+				usedShrineSlots = 1,
 				unlockedShrineSlots = 2,
 				maxShrineSlots = 6,
-				craftingStation = { id = stationId(), craftingStationId = "basic_crafting_station" },
+				craftingStation = {
+					id = "retained-station",
+					craftingStationId = "basic_crafting_station",
+				},
 			})
 			expect(projection.base.stands).toEqual(data.base.stands)
-			expect(projection.base.shrines).toBeNil()
+			expect(projection.base.shrines).toEqual({
+				kept = { id = "kept", shrineId = "dark_shrine", buildSlotId = 1, level = 1 },
+			})
+			expect(projection.base.shrines.kept.privateLedger).toBeNil()
+			projection.base.shrines.kept.level = 3
+			expect(
+				assert(data.base.shrines, "[ProfileSchema.spec] Expected saved Shrine map").kept.level
+			).toBe(1)
 			projection.base.status.craftingStation.id = "client-change"
 			expect((assert(data.base.craftingStation, "[ProfileSchema.spec] Expected Station")).id).toBe(
-				stationId()
+				"retained-station"
 			)
 			local saved = snapshot(data.base)
 			expect(saved.unlockedShrineSlots).toBeNil()

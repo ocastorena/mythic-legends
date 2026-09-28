@@ -65,7 +65,7 @@ end
 describe("fresh player data", function()
 	it("uses the fresh MVP namespace and scoped fresh-profile defaults", function()
 		expect(Configuration.storeName).toBe("MythicLegends_MVP_v1")
-		expect(Configuration.schemaVersion).toBe(5)
+		expect(Configuration.schemaVersion).toBe(6)
 		expect(PlayerDataTemplate.version).toBe(Configuration.schemaVersion)
 		expect(PlayerDataTemplate.currency.gold).toBe(100)
 		expect(PlayerDataTemplate.consumables).toBeNil()

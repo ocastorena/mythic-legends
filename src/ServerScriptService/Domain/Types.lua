@@ -44,6 +44,7 @@ export type InventoryApi = {
 	AddMaterial: (Player, string, number) -> boolean,
 }
 export type BaseApi = {
+	BuildShrine: (Player, SharedTypes.BuildShrineRequest) -> SharedTypes.TransactionResult,
 	GetSpawnPoint: (Player) -> BasePart?,
 	HasStand: (Player, number) -> boolean,
 	RemoveMythlingFromStand: (Player, string) -> boolean,

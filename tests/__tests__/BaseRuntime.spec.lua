@@ -177,6 +177,25 @@ afterEach(function()
 end)
 
 describe("BaseRuntime", function()
+	it("refreshes capacity after construction without changing the permanent Station", function()
+		local fixture = createFixture("Model")
+		local player = fakePlayer(42)
+		local slots: Slots = {}
+		local record = savedBase()
+		expect((spawn(player, slots, fixture, record))).toBe(true)
+		local base = slots[1].base
+		record.shrines = {
+			built = { id = "built", shrineId = "fire_shrine", buildSlotId = 1, level = 1 },
+		}
+		expect(BaseRuntime.RefreshCapacity(base, record)).toBe(true)
+		expect(base:GetAttribute("UsedShrineSlots")).toBe(1)
+		expect(base:GetAttribute("UnlockedShrineSlots")).toBe(2)
+		expect(getStation(base):GetAttribute("StationInstanceId")).toBe("station_123")
+		record.buildSlotUpgrades = -1
+		expect(BaseRuntime.RefreshCapacity(base, record)).toBe(false)
+		expect(base:GetAttribute("UsedShrineSlots")).toBe(1)
+	end)
+
 	it("stamps identities without counting legacy stands or the permanent Station", function()
 		local fixture = createFixture("Model")
 		local player = fakePlayer(42)

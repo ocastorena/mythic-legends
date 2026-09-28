@@ -49,6 +49,7 @@ local services: ServerTypes.Services = {
 		SettleProduction = ProductionService.SettleProduction,
 	},
 	BaseService = {
+		BuildShrine = BaseService.BuildShrine,
 		GetSpawnPoint = BaseService.GetSpawnPoint,
 		HasStand = BaseService.HasStand,
 		RemoveMythlingFromStand = BaseService.RemoveMythlingFromStand,
