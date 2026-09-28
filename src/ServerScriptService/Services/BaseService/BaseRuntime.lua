@@ -1,5 +1,12 @@
 --!strict
 -- ServerScriptService/Services/BaseService/BaseRuntime
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local BaseState = require(ServerScriptService.Domain.Base.BaseState)
+local CraftingStations = require(ReplicatedStorage.Shared.Configurations.CraftingStations)
+local Types = require(ReplicatedStorage.Shared.Types)
+
 local BaseRuntime = {}
 export type Slots = { [number]: { userId: number, base: Model } }
 
@@ -98,6 +105,7 @@ function BaseRuntime.SpawnBaseFor(
 	slots: Slots,
 	maxSlots: number,
 	baseModel: Model?,
+	baseRecord: Types.BaseRecord,
 	arena: BasePart,
 	baseIslands: Folder,
 	basesFolder: Folder
@@ -113,6 +121,16 @@ function BaseRuntime.SpawnBaseFor(
 	local slotIndex = getFreeSlot(slots, maxSlots)
 	if not slotIndex then
 		return false, "No free base slots"
+	end
+
+	local status = BaseState.GetStatus(baseRecord)
+	if not status then
+		return false, "Base state is invalid or not initialized"
+	end
+	local stationDefinition = CraftingStations[status.craftingStation.craftingStationId]
+	if not stationDefinition then
+		return false,
+			`Unknown Crafting Station definition: {status.craftingStation.craftingStationId}`
 	end
 	-- spawn base
 	local model = baseModel and baseModel:Clone()
@@ -131,11 +149,23 @@ function BaseRuntime.SpawnBaseFor(
 	local surface = sign and sign:FindFirstChild("SurfaceGui")
 	local label = surface and surface:FindFirstChild("Name")
 	local stands = model:FindFirstChild("Stands")
+	local station = model:FindFirstChild(stationDefinition.modelName)
 	if not label or not label:IsA("TextLabel") or not stands then
 		model:Destroy()
 		return false, "Base template is missing its name label or Stands"
 	end
+	if not station or not station:IsA("Model") then
+		model:Destroy()
+		return false,
+			`Base template is missing Crafting Station model {stationDefinition.modelName}`
+	end
 	label.Text = player.DisplayName
+	model:SetAttribute("UsedShrineSlots", status.usedShrineSlots)
+	model:SetAttribute("UnlockedShrineSlots", status.unlockedShrineSlots)
+	model:SetAttribute("MaxShrineSlots", status.maxShrineSlots)
+	station:SetAttribute("StationInstanceId", status.craftingStation.id)
+	station:SetAttribute("StationDefinitionId", status.craftingStation.craftingStationId)
+	station:SetAttribute("OwnerId", userId)
 
 	for _, prompt in stands:GetDescendants() do
 		if prompt:IsA("ProximityPrompt") then
@@ -143,8 +173,8 @@ function BaseRuntime.SpawnBaseFor(
 		end
 	end
 
-	model.Parent = basesFolder
 	model:PivotTo(position)
+	model.Parent = basesFolder
 	-- update slots
 	slots[slotIndex] = { userId = userId, base = model }
 	return true, nil

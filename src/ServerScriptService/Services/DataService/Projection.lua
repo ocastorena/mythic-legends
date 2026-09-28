@@ -2,6 +2,7 @@
 -- ServerScriptService/Services/DataService/Projection
 
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+local BaseState = require(game:GetService("ServerScriptService").Domain.Base.BaseState)
 local Projection = {}
 
 local function clone(value: any): any
@@ -29,7 +30,11 @@ function Projection.Build(data: Types.PlayerDoc): { [string]: any }
 		equipment = equipment,
 		combatLoadout = data.combatLoadout,
 		mythlings = data.mythlings,
-		base = data.base,
+		base = {
+			-- Preserve the existing stand view without exposing future private Base ledgers.
+			stands = data.base.stands,
+			status = BaseState.GetStatus(data.base),
+		},
 		inventoryUpgrades = data.inventoryUpgrades,
 		transactionRevision = if data.transactions then data.transactions.revision else 0,
 	})

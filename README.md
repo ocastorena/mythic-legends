@@ -140,6 +140,24 @@ capture/stand assignment, and repeated collection without duplicate Materials. N
 what fits transfers and remaining output stays in the stand. No new Shop/crafting/upgrade actions
 are added in this increment. Mock tests do not establish live durable-save behaviour.
 
+### Base foundation review
+
+Schema 5 keeps the same MVP data namespace and adds Base state to schema-4 profiles without resetting
+Gold, Inventory, purchased upgrades, active-job bookkeeping, receipts, or legacy stand production.
+A Base starts with two Shrine-only slots and one free permanent Crafting Station, whose unique saved
+identity is reused on rebuild/reconnect. The Station and legacy stands do not occupy Shrine slots.
+Capacity derives from the purchased expansion count and configuration (maximum six); it is not saved
+as a copied limit. Shrine construction, expansion purchases, Station interaction, and crafting are
+not implemented by this foundation increment. Existing stand gameplay remains available.
+
+After syncing source and starting a fresh play session, inspect the player's runtime Base attributes:
+`UsedShrineSlots = 0`, `UnlockedShrineSlots = 2`, `MaxShrineSlots = 6`. The existing
+`PB_CraftingStation_Root` should have `OwnerId`, `StationInstanceId`, and
+`StationDefinitionId = basic_crafting_station`. Reset should retain that identity and leave normal
+stand assignment/collection intact. There is intentionally no new Station prompt or menu. Automated
+tests cover schema additions, identity reuse after serialization, derived capacity, safe runtime
+allocation failure, and Base reconstruction; they do not establish live save durability.
+
 Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:
 
 - `/admin event blockstorm` starts the existing eight-second, non-colliding visual event. Only one

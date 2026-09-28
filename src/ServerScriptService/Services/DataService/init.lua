@@ -18,6 +18,7 @@ local PlayerDataTemplate =
 	require(ServerStorage:WaitForChild("Databases"):WaitForChild("PlayerDataTemplate"))
 local Transactions = require(script.Transactions)
 local Projection = require(script.Projection)
+local ProfileSchema = require(script.ProfileSchema)
 local Configuration = require(ReplicatedStorage.Shared.Configurations.PlayerData)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Domain.Types)
@@ -227,10 +228,12 @@ function DataService.Load(player: Player): boolean
 	end
 
 	profile:AddUserId(player.UserId)
-	-- Explicitly approved pre-release fresh namespace; do not read/migrate the prototype store.
-	-- Later schema changes within this namespace still require explicit forward-only migrations.
-	if profile.Data.version ~= Configuration.schemaVersion then
-		log.error(`Unsupported profile version for userId {player.UserId}`, profile.Data.version)
+	-- Forward-only MVP additions run before reconciliation and before any consumer sees the data.
+	local prepared, schemaError = ProfileSchema.Prepare(profile.Data, function()
+		return HttpService:GenerateGUID(false)
+	end)
+	if not prepared then
+		log.error(`Profile schema preparation failed for userId {player.UserId}`, schemaError)
 		profile:EndSession()
 		if lifecycle:IsRunning() and player.Parent == Players then
 			player:Kick("Your data could not be updated safely. Please rejoin.")

@@ -140,6 +140,10 @@ local function handlePlayerAdded(player: Player, isCurrent: () -> boolean)
 	if not DataService.Load(player) or not isCurrent() then
 		return
 	end
+	local data = DataService.GetLoadedData(player)
+	if not data then
+		return
+	end
 	local playerTrove = lifecycle.trove:Extend()
 	playerTroves[player] = playerTrove
 	local result, message = BaseRuntime.SpawnBaseFor(
@@ -147,6 +151,7 @@ local function handlePlayerAdded(player: Player, isCurrent: () -> boolean)
 		slots,
 		MAX_SLOTS,
 		baseModel,
+		data.base,
 		arena,
 		baseIslands,
 		basesFolder
@@ -162,9 +167,7 @@ local function handlePlayerAdded(player: Player, isCurrent: () -> boolean)
 
 	bindCharacterSpawn(player, base, playerTrove, isCurrent)
 
-	local mythlingsSection = DataService.GetData(player).mythlings
-
-	StandPlacement.LoadMythlingsOnStands(mythlingsSection, base, mythlingAssets, MythlingsMeta)
+	StandPlacement.LoadMythlingsOnStands(data.mythlings, base, mythlingAssets, MythlingsMeta)
 end
 
 function BaseService.HasStand(player: Player, standId: number): boolean

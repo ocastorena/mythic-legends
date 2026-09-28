@@ -44,11 +44,12 @@ descendants are preserved only at explicitly mixed-ownership containers.
   `ReplicatedStorage.Shared.Configurations`. It contains static definitions and balance values only;
   it must never be written at runtime.
 - **DataService** owns one ProfileStore session per Roblox user ID using the current store namespace
-  `MythicLegends_PlayerData_v2`. It reconciles defaults, associates the user ID, handles session
-  termination, and ends the session when the player leaves. Forward-only migrations run before
-  reconciliation, including the prototype v2-to-v3 stand-ledger migration. Future target-schema
-  changes still require explicit migrations; reconciliation alone is not a migration. Studio uses an isolated, ephemeral mock
-  store by default.
+  `MythicLegends_MVP_v1`. It reconciles defaults, associates the user ID, handles session
+  termination, and ends the session when the player leaves. The approved pre-release namespace
+  leaves the old prototype store untouched. Within the MVP namespace, the additive v4-to-v5 Base
+  migration runs before reconciliation; the old v2-to-v3 prototype migration is not invoked.
+  Future target-schema changes still require explicit migrations; reconciliation alone is not a
+  migration. Studio uses an isolated, ephemeral mock store by default.
 - **Combat is the stated exception.** Its client-reported, server-validated relay and immediate
   local presentation remain exactly as defined in [client-reported sword
   combat](#client-reported-sword-combat). This architecture must not be changed by the general UI
@@ -1586,7 +1587,8 @@ remove each item when the implementation is aligned; these notes do not authoriz
 
 | Area | Current source | Target contract / required alignment |
 | --- | --- | --- |
-| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) is the approved fresh schema-4 baseline: 100 Gold, starter protection, Inventory-upgrade ownership, private transaction state, and empty crafting reservation bookkeeping. No new Consumables field; prototype stands/Mythling records remain compatibility state. | Replace remaining prototype records with the target Shrine/form/complete job schema as their features ship. The deliberate fresh namespace is not permission to reset subsequent progress. |
+| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 5: 100 initial Gold, starter protection, Inventory-upgrade ownership, private transaction state, crafting reservation bookkeeping, and Base ownership. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) adds the Base fields to v4 saves without replacing existing progression, jobs, receipts, or prototype ledgers. No new Consumables field. | Replace remaining prototype records with the target Shrine/form/complete job schema as their features ship. The deliberate fresh namespace is not permission to reset subsequent progress. |
+| Base foundation | [BaseState](../src/ServerScriptService/Domain/Base/BaseState.lua) derives two initial Shrine-only slots and four configurable one-slot expansions from purchased state. Load initializes one free, unique Station identity; [BaseRuntime](../src/ServerScriptService/Services/BaseService/BaseRuntime.lua) binds it to the existing authored `PB_CraftingStation_Root` model. `base.status` and world attributes expose derived presentation state, not purchase authority. | No Shrine construction, expansion purchase, or crafting action yet. The Shrine map currently contains identity/occupancy records only; add production/assignment fields with construction. Keep `base.stands` and its existing placement/collection paths functional until the replacement can preserve their earned work. Authored Shrine markers/models remain separate work. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
 | Inventory capacity | [Capacity](../src/ServerScriptService/Services/InventoryService/Capacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Collection transfers only what fits and retains the rest in stand storage. | Add validated upgrade purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting; the final Material catalogue remains pending. |
 | Mythling production | [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) uses the [shared server production ledger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua), preserving stored output and unfinished work by stand and Material ID. The v3 migration removes the consumed legacy `lastCollectionAt` cursor. Prototype rates are explicitly named `materialsPerMinute`. | Complete the target Shrine/form/level/batch/XP model and storage configuration. Existing stand-owned accounting is partial implementation, not the full target schema; Luck/Traits remain inactive. |

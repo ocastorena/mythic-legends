@@ -35,6 +35,9 @@ local PlayerDataTemplate: Types.PlayerDoc = {
 	mythlings = {},
 	base = {
 		stands = {},
+		buildSlotUpgrades = 0,
+		shrines = {},
+		-- The load boundary creates a unique permanent Station before exposing this profile.
 	},
 }
 

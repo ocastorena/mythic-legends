@@ -188,6 +188,27 @@ export type EquipmentEntry = {
 	isStarterGrant: boolean?,
 }
 
+export type CraftingStationRecord = { id: string, craftingStationId: string }
+
+-- Identity/occupancy contract only. Construction will add the Shrine-owned production ledger.
+export type ShrineRecord = { id: string, shrineId: string }
+
+export type BaseRecord = {
+	-- Transitional prototype ledger, independent of the new Shrine build slots.
+	stands: { [string]: { production: StandProduction? } },
+	-- Optional only at the load boundary and in retained prototype fixtures.
+	buildSlotUpgrades: number?,
+	shrines: { [string]: ShrineRecord }?,
+	craftingStation: CraftingStationRecord?,
+}
+
+export type BaseStatus = {
+	usedShrineSlots: number,
+	unlockedShrineSlots: number,
+	maxShrineSlots: number,
+	craftingStation: CraftingStationRecord,
+}
+
 -- The player document held by DataService through ProfileStore.
 export type PlayerDoc = {
 	version: number,
@@ -209,9 +230,7 @@ export type PlayerDoc = {
 		primaryWeaponInstanceId: string?,
 		shieldInstanceId: string?,
 	},
-	base: {
-		stands: { [string]: { production: StandProduction? } },
-	},
+	base: BaseRecord,
 }
 
 export type StatePacket = {
