@@ -964,6 +964,37 @@ endpoint, schema migration, or UI.
 - Collection, sales, discard, assignment, upgrades, and dismantling share the per-profile transaction path.
   UI confirmations do not replace server validation, and retries must not repeat completed mutations.
 
+### Isolated Mythling-sale reducer
+
+`Domain/Inventory/MythlingSales.Sell` implements detached sale accounting over the shared
+`ShrineAccrual.State` plus the same profile's Gold balance. Inventory owns the removal/payout rule;
+the shared production domain owns settlement. The accounting view must include every owned worker
+and Shrine assignment, not a client-provided selection. Per-form optional `sale = { gold }` metadata
+provides eligibility and a positive safe whole-Gold value; absence means not sellable. The future
+launch catalogue must supply the approved per-form prices and validate them across all six elements.
+This increment uses synthetic metadata only and does not price or enable the legacy forms.
+
+The strict request is `{ workerId, expectedFormId, expectedGoldValue }`. Validate accounting,
+configuration, Gold, server-authored time, ownership, and current form. Reject an assigned worker
+without automatic unassignment, even at full storage. Validate the selected sale definition, compare
+the quoted price against its authoritative value, and check addition against safe-integer overflow
+before calculating the new balance. No minimum-copy protection or rarity/level/acquisition modifier
+applies. No copied sale value is added to an owned record.
+
+Settle the whole ledger on its normal schedule, then remove only the selected worker and return
+`production`, `gold`, `workerId`, `formId`, and `goldGranted`. Preserve Shrine output, unfinished work,
+other workers' earned/pending XP, and the accounting clock. Any unresolved XP on the sold worker
+retires with that owned instance; it is neither forced into an early award nor transferred to another
+worker. The sale does not collect Materials, change reservations, or create a replacement instance.
+Rejections return no staged result and leave inputs unchanged, including settlement failures.
+
+The future live adapter must derive both views from one authenticated loaded profile, serialize with
+assignment/evolution, and commit the ledger, canonical owned-record deletion, Gold, and revision-bound
+receipt together. Merge only the affected fields and retain unrelated profile/acquisition/legacy
+state for every remaining instance. A second request against the resulting state cannot pay again
+because the worker is no longer owned; the reducer itself has no durable retry receipt, live command,
+persistence migration, or UI. The existing prototype `DeleteMythling` path remains unchanged.
+
 ## Crafting transactions
 
 The GDD's [crafting rules](GDD.md#crafting) define one included permanent Station per Base, one active
@@ -1757,6 +1788,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Shrine upgrades | [ShrineUpgrades](../src/ServerScriptService/Domain/Base/ShrineUpgrades.lua) validates next-level purchases, settles at the old capacity, and returns detached production/Material/Gold state. Shared [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) owns the approved level capacities, slots, and prices; no output IDs are finalized. | Wire the reducer into the authenticated transaction/save lifecycle with revision-bound receipts and finalized content references. The pure operation does not enable a live upgrade command or new UI. |
 | Shrine dismantling | [ShrineDismantling](../src/ServerScriptService/Domain/Base/ShrineDismantling.lua) validates matching Base/accounting views, rejects workers or settled whole output, and returns detached maps removing only the selected instance. Its build slot is freed without refund; pending worker XP survives discarded unfinished production. | Commit both maps through the authenticated profile transaction, preserve all other Base/profile fields, and remove presentation only after success. The pure reducer does not delete live models or add a network command. |
 | Mythling evolution | [MythlingEvolution](../src/ServerScriptService/Domain/Production/MythlingEvolution.lua) follows a validated optional same-element link, settles old-form production/XP before the level gate, and changes only the owned form ID in a detached ledger. Assigned and consecutive eligible evolutions retain work, progression, and batch timing; tests use synthetic forms. | Finalize and validate the launch catalogue, then integrate authenticated requests, revision/receipt protection, and persistence. This increment changes no live roster, owned schema, command, or menu. |
+| Mythling sales | [MythlingSales](../src/ServerScriptService/Domain/Inventory/MythlingSales.lua) rejects assigned/stale selections, resolves the current form's fixed sale value, settles production, and returns detached worker removal plus Gold. Final-copy sales are allowed; tests use synthetic forms and preserve earned Shrine work. | Finalize per-form sale metadata and integrate canonical owned-record deletion, Gold, accounting, and revision/receipt protection in one authenticated transaction. The pure reducer adds no live sale endpoint or menu and does not replace prototype deletion. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. | Replace the three-form prototype catalogue with the 18 launch forms and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |

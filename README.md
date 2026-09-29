@@ -300,6 +300,29 @@ serialized continuation. The reducer validates the selected reachable chain, not
 A future authenticated service must commit the whole ledger through revision/receipt protection,
 preserving unrelated owned/profile fields. The authored Studio game and prototype roster are unchanged.
 
+### Mythling-sale logic review
+
+`Domain.Inventory.MythlingSales.Sell` is a pure server-domain operation selecting one owned Mythling
+with its expected current form and quoted Gold value. The current form's optional `sale = { gold }`
+metadata owns eligibility and payout; no sale definition means not sellable. Tests use synthetic
+forms with the approved 25/100/300-Gold launch prices, without changing the unfinished roster.
+
+The Mythling must be unassigned, including from a full Shrine. Final-copy sales are allowed. Level,
+XP, inactive legacy Luck/Traits, rarity, and acquisition route never multiply the configured value.
+Evolution changes which form supplies that value. Stale form/price requests, assigned workers,
+invalid metadata, and unsafe Gold arithmetic reject without changing inputs.
+
+Success settles the whole production ledger normally, removes only the selected worker, and returns
+the replacement ledger and Gold balance together. Earned Shrine work and other workers' XP remain;
+remaining pending XP leaves with the sold instance and never transfers to a replacement. Selling
+does not force a partial batch, collect Shrine output, or touch crafting reservations.
+
+Tests cover fixed prices, assignment/removal and evolution sequences, stale/repeated requests,
+accounting boundaries, final-copy sales, overflow rollback, and detached serialized results. A future
+authenticated adapter must commit the ledger, canonical owned-record deletion, Gold, and request
+receipt atomically, serialized with assignment/evolution. This increment adds no live sale endpoint,
+save-schema change, catalogue change, or menu, and leaves the prototype deletion command unchanged.
+
 ### Admin commands
 
 Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:
