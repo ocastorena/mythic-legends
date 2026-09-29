@@ -59,6 +59,10 @@ describe("InventoryService canonical command gates", function()
 				code = "DataUnavailable",
 				revision = 0,
 			})
+			expect(
+				service.SaveWonMythling(player, { typeId = "mythling_0001", variantId = "regular" })
+			).toBeNil()
+			expect(service.GetMythlingCapacity(player)).toBeNil()
 			expect(reads).toBe(0)
 			expect(transactions).toBe(0)
 		end
@@ -80,6 +84,10 @@ describe("InventoryService canonical command gates", function()
 					Transact = function(): Types.TransactionResult
 						transactions += 1
 						return { ok = false, code = "UnexpectedTransaction", revision = 0 }
+					end,
+					Update = function(): Types.TransactionResult
+						transactions += 1
+						return { ok = false, code = "UnexpectedUpdate", revision = 0 }
 					end,
 				},
 			},

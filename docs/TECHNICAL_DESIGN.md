@@ -574,8 +574,9 @@ release; do not infer live roster readiness from the 12-contest target or valida
 Capture grants now enforce the configured Mythling limits of 24/36/48, derived from optional saved
 `inventoryUpgrades.mythlings` (absent means zero purchases). Existing owned entries, including those
 assigned to Shrines or above capacity, are retained and counted. Upgrade purchasing remains a
-separate feature. New captures alone initialize `level = 1` and `xp = 0`; existing progression is
-not reset or migrated by this change.
+separate feature. The [capture-grant boundary](#canonical-capture-grant-boundary) supports the
+18 canonical forms without activating their live spawn pool. New canonical captures alone initialize
+`level = 1`, `xp = 0`, and `pendingXp = 0`; existing progression is not reset or migrated.
 
 Enforce the GDD's [population and availability
 rules](GDD.md#server-population-and-spawn-availability) through server-owned contest state. The
@@ -662,6 +663,52 @@ same target in quiet and full servers; player count does not scale availability.
   character must not affect its replacement. Reset is not a profile join or an online/offline
   production transition: it must not regrant starter items, replay offline accrual, or cancel Shrine
   assignments and Crafting Jobs.
+
+### Canonical capture-grant boundary
+
+`InventoryService.SaveWonMythling(player, params)` is a server-only award boundary used by
+ClaimService, not a client-selectable acquisition or retryable purchase command. The existing
+Inventory session must still refer to the player's loaded owned-Mythling collection. Private
+`InventoryService.CaptureGrant` validates the closed selection payload and resolves the form from
+the canonical launch catalogue or the retained known prototype definitions; arbitrary unknown
+form IDs are rejected. The server creates the owned-instance ID and acquisition timestamp rather
+than accepting either from the selection payload.
+
+The selection is exactly `{ typeId, variantId }`, with nonempty IDs of at most 128 bytes and no
+extra fields or metatable. Canonical forms accept only `variantId = "regular"`, the existing save
+schema's ordinary-variant sentinel; it creates no cosmetic option or prototype model mapping.
+Prototype compatibility requires an actual configured form and variant. Private
+`CaptureGrant.new(dataSource, clock?, createId?).Grant(player, params)` returns the normal transaction
+result with `values.instanceId` on success; the public wrapper retains its `string?` result.
+
+Use one `DataService.Update` with operation `CaptureMythling` to recheck the current derived Mythling
+capacity, reject an existing instance-ID collision, and install the newly owned entry. Retain the
+exact selected canonical `typeId`, initialize `level = 1`, `xp = 0`, and `pendingXp = 0`, and save only
+owned state and metadata IDs. Neither stage nor rarity supplies starting XP. Do not grant Luck or a
+Trait, copy static rarity/Yield/sale values, assign a Shrine slot, or award Gold. Reject malformed input, invalid
+server-generated identity/time, unavailable data, or full capacity without a partial grant.
+The transaction retains all existing entries and their earned/legacy state.
+
+The draft must use the current player-data schema and a plain owned collection with valid owned
+IDs/records and form IDs. Optional Mythling capacity-upgrade state must be a valid configured
+purchase count, never coerced from malformed data. Sample `workspace:GetServerTimeNow()` only inside
+the transaction after these state, definition, and capacity checks; the default identity generator
+then supplies a `myth_`-prefixed GUID. Reject nonfinite/negative time or a malformed/colliding generated
+ID. Tests may inject those two dependencies; throwing/yielding callbacks retain the transaction
+engine's rollback guarantees.
+Adding a new unassigned worker changes no prior production input and grants no earlier work/XP.
+
+ClaimService remains the source of award uniqueness: its ordered resolution rechecks the current
+character/profile/capacity, marks the contest as claiming, calls this non-yielding grant, and closes
+the contest after success. `DataService.Update` provides atomicity but does not make repeated
+independent calls with fresh server request IDs idempotent. Do not expose this internal boundary as
+a client retry endpoint or claim that its asynchronous save request acknowledges durable storage.
+
+The three configured prototype forms retain their compatibility path while the live spawner still
+uses them. Existing legacy records are not converted into canonical forms. Supporting canonical
+grant records does not choose creative names/assets, map model templates, change the live spawn
+distribution, or add UI/remotes. Complete that live integration separately; runtime tests of
+injected dependencies and serialized data do not establish multiplayer capture or durable saves.
 
 ## Production accrual
 
@@ -1895,12 +1942,13 @@ copy of the initial numbers. This launch-catalogue contract does not narrow the 
 evolution, or sale reducers into a universal three-stage/rarity rule.
 
 The catalogue is not passed into the live service context. Existing spawn definitions/weights,
-models, save schema, prototype stand production, and menus remain unchanged. Canonical Shrine
-commands, evolution, and sales consume the relevant metadata directly. Evolution updates only the
-selected owned `typeId`, and sales remove only the selected owned instance, through their protected
-transactions. Validation alone enables none of these mutations.
-Capture awards, remaining live integration, and creative asset readiness require separate
-increments; tests of metadata and invalid fixtures do not establish those features.
+models, save schema, prototype stand production, and menus remain unchanged. The canonical
+[capture-grant boundary](#canonical-capture-grant-boundary), Shrine commands, evolution, and sales
+consume the relevant metadata directly. Capture grants retain the caught form with new-grant
+progression defaults; evolution changes only the selected owned `typeId`, and sales remove only the
+selected owned instance, through their protected transactions. Validation alone enables none of
+these mutations. Activating the canonical live spawn pool and completing creative asset readiness
+require separate increments; metadata and grant tests do not establish those features.
 
 ### Launch Material catalogue
 
@@ -2072,18 +2120,20 @@ are deferred. Accessible progression through ordinary Arena captures uses existi
 ownership, Material, and Gold state; it adds no separate participation balance or
 fallback-progression record.
 
-An owned Mythling entry must contain at least:
+The owned collection is keyed by unique instance ID. New canonical capture entries use the existing
+saved field names rather than introducing duplicate IDs or renaming older records:
 
 ```text
-id                 -- unique owned-Mythling instance ID
-mythlingId         -- current Mythling-form metadata ID
+mythlings[instanceId]
+typeId             -- current Mythling-form metadata ID
+variantId          -- ordinary "regular" sentinel for canonical launch forms
 level
 xp                 -- progress toward the next level, retaining earned precision
 pendingXp          -- earned credit, awarded on the common profile batch schedule
-acquiredAt
+claimedAt          -- server-authored acquisition timestamp
 ```
 
-Evolution updates `mythlingId` to the evolved form's metadata ID. The saved entry stays small while
+Evolution updates `typeId` to the evolved form's metadata ID. The saved entry stays small while
 the game resolves the current form's base Yield and other immutable data from metadata. Resolve
 `evolutionStage` from the current form definition; do not duplicate it or the chain's static data in
 the owned record. Mythling Stage 2/3 support is part of launch and is independent of the deferred
@@ -2355,7 +2405,8 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. Private [ProfileSettlements](../src/ServerScriptService/Services/DataService/ProfileSettlements.lua) runs registered Ready/Checkpoint/Release hooks in one transaction before publication or finalization. `SaveNow` checkpoints before requesting the vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau)'s asynchronous save. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success, an in-memory checkpoint, or `SaveNow == true` still does not prove durable persistence. Playtest real session/shutdown/save ordering. |
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Canonical production, collection, and Shrine-upgrade commands use these references; integrate recipes, other paid upgrades, Shop, and Material sales separately. Metadata alone adds none of those actions. |
 | Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Prototype callers retain their prior behavior; `ValidateMaterialState` rejects malformed inputs to canonical Shrine collection/upgrades and their detached reducers. | Add validated Inventory-capacity purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting. |
-| Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, the six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates this separate business catalogue before server services start. Canonical Shrine commands, evolution, and Mythling sales consume the relevant metadata directly. | Finalize creative names/concepts/assets and integrate capture grants and remaining live features separately. The catalogue is not in the service context and does not replace the three live prototype forms or expose menus; owned form changes and sales occur only through their transactions. |
+| Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, the six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates this separate business catalogue before server services start. Canonical capture grants, Shrine commands, evolution, and Mythling sales consume the relevant metadata directly. | Finalize creative names/concepts/assets and integrate the live canonical spawn pool and remaining features separately. The catalogue is not in the service context and does not replace the three live prototype forms or expose menus; ownership changes occur only through their transactions. |
+| Capture grants | Server-only `InventoryService.SaveWonMythling` retains its loaded Inventory-session gate and delegates to private [CaptureGrant](../src/ServerScriptService/Services/InventoryService/CaptureGrant.lua). It validates supported selection, generated identity/time, and capacity before granting the exact canonical form at level 1, XP 0, and pending XP 0 through `DataService.Update`. No Luck/Trait roll or static metadata is copied into the new record; configured prototype captures remain supported temporarily. | ClaimService supplies contest-level award uniqueness; the grant is not a retryable client endpoint. Canonical model bindings and live spawn selection remain separate work. Validate connected-player capture and durable saves; injected/serialized tests and asynchronous save requests do not establish them. No GUI, remote, or schema migration is added. |
 | Mythling production | Existing [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) retains prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua) behavior. Canonical [ProfileProduction](../src/ServerScriptService/Services/ProductionService/ProfileProduction.lua) settles Ready/Checkpoint/Release through shared [ShrineAccounting](../src/ServerScriptService/Shared/ShrineAccounting.lua), with [ProfileCheckpoints](../src/ServerScriptService/Services/ProductionService/ProfileCheckpoints.lua) initially scheduling loaded-profile checkpoints every 30 seconds. Server-only `SettleShrines` and atomic assignment/collection/upgrade/dismantling/evolution/sale commands use the same accounting engine in their own transactions. | Integrate remaining features and player-facing views separately. Keep settlement and input changes in one draft; legacy stand paths and inactive Luck/Traits remain unchanged. The private clock and pending XP stay out of projection. Mock/serialized tests and asynchronous save requests do not establish live durable persistence; validate join/leave/shutdown and reconnect behavior in play. |
 | Shrine assignment | Server-only `BaseService.AssignShrineWorker`/`RemoveShrineWorker` delegate to private [ShrineWorkers](../src/ServerScriptService/Services/BaseService/ShrineWorkers.lua). It uses [ShrineAssignments](../src/ServerScriptService/Services/BaseService/ShrineAssignments.lua) and the shared adapter to settle and mutate canonical state in one revision-bound `DataService.Transact`, with default launch metadata and one server timestamp. Explicit unassignment, empty matching slots, stable slot identities, expected-worker checks, and duplicate-safe receipts are enforced. | No new remote, acquisition, schema migration, model, or presentation. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Legacy deletion is blocked for canonical forms or retained entries with Shrine assignments/pending credit. |
 | Shrine collection | Server-only `ProductionService.CollectShrine` delegates to private [ShrineCollector](../src/ServerScriptService/Services/ProductionService/ShrineCollector.lua). It uses [ShrineCollection](../src/ServerScriptService/Services/ProductionService/ShrineCollection.lua) and the shared storage bridge to settle work/XP and commit the stored debit with the Inventory grant in one revision-bound `DataService.Transact`. Materials, upgrades, and refund reservations come from the same draft; partial transfers retain excess and unfinished work, and receipts prevent replayed grants. | No new remote, schema, automatic lifecycle, or presentation. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Prototype collection and crafting reservations remain unchanged. |

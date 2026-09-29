@@ -103,6 +103,14 @@ end
 
 -- Mythling inventory API used by claiming, base placement, and production.
 function InventoryService.GetMythlingCapacity(player: Player): Types.InventoryCapacity?
+	if
+		not lifecycle:IsRunning()
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return nil
+	end
 	return Mythlings.GetCapacity(player)
 end
 
@@ -110,6 +118,14 @@ function InventoryService.SaveWonMythling(
 	player: Player,
 	params: { typeId: string, variantId: string }
 ): string?
+	if
+		not lifecycle:IsRunning()
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return nil
+	end
 	return Mythlings.SaveWon(player, params)
 end
 

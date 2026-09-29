@@ -2,7 +2,6 @@
 -- ServerScriptService/Services/InventoryService/Mythlings
 -- Owns the player's mythling records. Production timing is owned by ProductionService.
 
-local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -11,15 +10,13 @@ local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingFo
 
 local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
 local ServerTypes = require(ServerScriptService.Shared.Types)
+local CaptureGrant = require(script.Parent.CaptureGrant)
 
 local Mythlings = {}
 
 local DataService: ServerTypes.DataApi
 local sessionsByUserId: ServerTypes.InventorySessions
-
-local function makeId(): string
-	return `myth_{HttpService:GenerateGUID(false)}`
-end
+local captureGrant: CaptureGrant.CaptureGrant?
 
 local function getOwned(player: Player)
 	local session = sessionsByUserId[player.UserId]
@@ -69,6 +66,7 @@ function Mythlings.Init(
 	sessions: ServerTypes.InventorySessions
 )
 	DataService = serviceContext.Services.DataService
+	captureGrant = CaptureGrant.new(DataService)
 	sessionsByUserId = sessions
 end
 
@@ -88,34 +86,21 @@ end
 
 function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: string }): string?
 	assert(player and player.UserId, "[InventoryService.Mythlings] invalid player")
-	assert(params, "[InventoryService.Mythlings] params required")
 
+	local grant = captureGrant
 	local list = getOwned(player)
 	local capacity = Mythlings.GetCapacity(player)
-	if not list or not capacity or capacity.used >= capacity.limit then
+	if not grant or not list or not capacity or capacity.used >= capacity.limit then
 		return nil
 	end
 
-	local id = makeId()
-	local result = DataService.Update(player, "CaptureMythling", function(draft)
-		local current = InventoryCapacity.GetUsage(draft, "mythlings")
-		if current.used >= current.limit then
-			return { ok = false, code = "InventoryFull" }
-		end
-		draft.mythlings[id] = {
-			typeId = params.typeId,
-			variantId = params.variantId,
-			claimedAt = os.time(),
-			level = 1,
-			xp = 0,
-		}
-		return { ok = true, values = { instanceId = id } }
-	end)
-	if not result.ok then
+	local result = grant.Grant(player, params)
+	local instanceId = result.values and result.values.instanceId
+	if not result.ok or type(instanceId) ~= "string" then
 		return nil
 	end
 	DataService.SaveNow(player)
-	return id
+	return instanceId
 end
 
 function Mythlings.Remove(player: Player, mythlingId: string): boolean

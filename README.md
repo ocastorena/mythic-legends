@@ -151,9 +151,34 @@ and descriptions remain open. IDs are not player-facing names or owned-instance 
 Run the static suite and runtime tests above for catalogue and invalid-fixture checks. After syncing,
 a fresh Studio session should still use the unchanged three-form prototype capture/spawn and stand
 paths. The definitions are not exposed through the service context: metadata validation alone does
-not activate them in the Arena or menus. Canonical Shrine commands, evolution, and Mythling sales
-below consume the relevant metadata directly; capture grants remain separate integration work. The
-catalogue itself does not rewrite existing `typeId` values or change the save schema.
+not activate them in the Arena or menus. Canonical capture grants, Shrine commands, evolution, and
+Mythling sales consume the relevant metadata directly. The catalogue itself does not rewrite
+existing `typeId` values or change the save schema.
+
+### Canonical capture-grant review
+
+The existing server-only `InventoryService.SaveWonMythling(player, params)` boundary now accepts
+the 18 canonical launch forms through private `CaptureGrant`. A successful grant retains the exact
+caught form and creates one owned instance with level 1, XP 0, and explicit pending XP 0. It grants
+no Luck, Trait, copied rarity/Yield/sale value, automatic assignment, or Gold. Existing progression
+and inactive legacy records remain unchanged.
+
+The closed selection is `{ typeId, variantId }`; canonical forms accept only the retained
+`"regular"` sentinel, not a cosmetic variant or model binding. The grant validates supported
+form/variant IDs, current-schema owned state, owned-instance identity, server time, and available
+Mythling capacity. Ownership creation and the repeated capacity check share one `DataService.Update`
+transaction. ClaimService owns the non-yielding contest resolution
+that prevents a second award; this is not a client-request endpoint or a retryable purchase API.
+An asynchronous save request does not establish durable delivery. See the
+[grant contract](docs/TECHNICAL_DESIGN.md#canonical-capture-grant-boundary).
+
+Run the static suite and runtime tests above. Tests cover canonical grant defaults and rejection
+boundaries while retaining unrelated saved data. After syncing, the authored Arena still captures
+its three known prototype forms: their compatibility path remains enabled, but unknown IDs are
+rejected. Activating the 18-form spawn pool still requires approved asset bindings and spawn
+integration; no new model mapping, UI, remote, or schema migration is added here. Verify actual
+connected-player capture, reset/rejoin retention, and durable saves separately from injected and
+serialized-state tests.
 
 ### Launch Material catalogue review
 

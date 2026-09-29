@@ -1,8 +1,10 @@
 --!strict
 -- ServerStorage/Tests/__tests__/MythlingCapture.spec
 
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Types = require(ReplicatedStorage.Shared.Types)
 local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
@@ -10,6 +12,8 @@ local ServerTypes = require(ServerScriptService.Shared.Types)
 local Mythlings = require(ServerScriptService.Services.InventoryService.Mythlings)
 local Capacity = require(ServerScriptService.Shared.InventoryCapacity)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
+local ProfileSchema = require(ServerScriptService.Services.DataService.ProfileSchema)
+local PlayerDataTemplate = require(ServerStorage.Databases.PlayerDataTemplate)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect
@@ -29,18 +33,16 @@ local function fixture(count: number, upgradeLevel: number?)
 			standId = if index <= 18 then math.ceil(index / 3) else nil,
 		}
 	end
-	local data: Types.PlayerDoc = {
-		version = 3,
-		profile = { userId = player.UserId, createdAt = 0, lastLoginAt = 0 },
-		currency = { gold = 0 },
-		consumables = {},
-		equipment = {},
-		combatLoadout = {},
-		base = { stands = {} },
-		mythlings = owned,
-		materials = {},
-		inventoryUpgrades = if upgradeLevel then { mythlings = upgradeLevel } else nil,
-	}
+	local data = (
+		HttpService:JSONDecode(HttpService:JSONEncode(PlayerDataTemplate)) :: unknown
+	) :: Types.PlayerDoc
+	local prepared, problem = ProfileSchema.Prepare(data, function()
+		return "capture_station"
+	end, 0)
+	assert(prepared, `[MythlingCapture.spec] Fixture preparation failed: {tostring(problem)}`)
+	data.profile.userId = player.UserId
+	data.mythlings = owned
+	data.inventoryUpgrades = if upgradeLevel then { mythlings = upgradeLevel } else nil
 	local state = {
 		player = player,
 		data = data,
@@ -111,7 +113,7 @@ local function snapshot(owned: ServerTypes.Mythlings): ServerTypes.Mythlings
 end
 
 local function capture(player: Player): string?
-	return Mythlings.SaveWon(player, { typeId = "caught_form", variantId = "regular" })
+	return Mythlings.SaveWon(player, { typeId = "mythling_0001", variantId = "regular" })
 end
 
 describe("Mythling capture inventory", function()
@@ -177,15 +179,15 @@ describe("Mythling capture inventory", function()
 		-- Old saves retain opaque Luck/Trait fields outside the new-grant record shape.
 		f.data.mythlings.legacy = (legacy :: unknown) :: Types.MythlingEntry
 		local before = snapshot(f.data.mythlings)
-		for _, typeId in { "common_form", "rare_form", "epic_form" } do
-			local id =
-				Mythlings.SaveWon(f.player, { typeId = typeId, variantId = "caught_variant" })
+		for _, typeId in { "mythling_0001", "mythling_0002", "mythling_0003" } do
+			local id = Mythlings.SaveWon(f.player, { typeId = typeId, variantId = "regular" })
 			assert(id, "[MythlingCapture.spec] Expected a successful grant")
 			local granted = f.data.mythlings[id]
 			expect(granted.typeId).toBe(typeId)
-			expect(granted.variantId).toBe("caught_variant")
+			expect(granted.variantId).toBe("regular")
 			expect(granted.level).toBe(1)
 			expect(granted.xp).toBe(0)
+			expect(granted.pendingXp).toBe(0)
 			expect(granted).never.toHaveProperty("luck")
 			expect(granted).never.toHaveProperty("traitId")
 		end
@@ -243,7 +245,7 @@ describe("Mythling capture inventory", function()
 		local second = capture(f.player)
 		assert(first, "[MythlingCapture.spec] Expected the final available slot")
 		expect(second).toBeNil()
-		expect(f.data.mythlings[first].typeId).toBe("caught_form")
+		expect(f.data.mythlings[first].typeId).toBe("mythling_0001")
 		expect(Mythlings.GetCapacity(f.player)).toEqual({ used = 24, limit = 24 })
 		expect(f.dirtyCalls).toBe(1)
 		expect(f.saveCalls).toBe(1)
