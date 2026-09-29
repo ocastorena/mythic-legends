@@ -45,9 +45,6 @@ local function fixture()
 			state.admissions += 1
 			return state.isAllowed
 		end,
-		resolveLoadout = function(_player)
-			state.resolutions += 1
-		end,
 		snapshotLoadout = function(_player)
 			state.snapshots += 1
 			return { equipment = {}, primaryWeaponInstanceId = state.equippedId }
@@ -114,7 +111,7 @@ describe("LoadoutRequests", function()
 			ok = true,
 			snapshot = { equipment = {}, primaryWeaponInstanceId = "old" },
 		})
-		expect(f.state.resolutions).toBe(1)
+		expect(f.state.resolutions).toBe(0)
 		expect(f.state.snapshots).toBe(1)
 		expect(f.state.loads).toBe(0)
 		expect(f.state.equips).toBe(0)

@@ -205,13 +205,40 @@ Crafted definitions require a valid finish; plain wooden items reject one. Names
 
 `EquipmentCatalogUtil.ValidateLaunch` checks definitions, recipes, effects, Material references,
 and resale relationships before startup. Run the verification commands above; real-catalogue tests
-also pin the approved initial values and unchanged wooden gameplay. The compatibility `profiles`
-map still contains only the wooden pair, so this increment does not activate crafted combat.
+also pin the approved initial values and unchanged wooden gameplay. Server loadout/combat resolution
+uses the canonical definitions; the unchanged client still uses the wooden-only `profiles` map.
 
 Crafted model bindings and thumbnails are explicitly empty while assets remain undecided. There is
 no wooden-model fallback, GUI change, saved-stat copy, Shop purchase, or active elemental effect yet.
-The headless crafting commands below now consume this catalogue. See the
+The headless crafting and atomic loadout commands consume this catalogue, but unbound crafted items
+cannot pass the server's mounted-Equipment action checks. See the
 [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-equipment-catalogue).
+
+### Starter initialization and atomic loadout review
+
+The recurring player template has empty Equipment and loadout tables. Schema preparation grants the
+protected wooden pair and initial slot references only for clearly untouched initialization state;
+it does not refill chosen empty slots, replace missing items, or reinterpret ambiguous retained
+progress as a new player. Reconnect/reset preserves the saved selection. See the
+[initialization contract](docs/TECHNICAL_DESIGN.md#one-time-starter-equipment-initialization).
+
+Server-only `CombatService.EquipEquipment` and `UnequipEquipment` use revision-bound transactions
+and exact owned identities. Equip derives the slot from metadata; unequip requires the expected
+slot occupant. The existing `Combat.Equip` endpoint now adapts its instance-only request to that
+atomic command, while `Combat.GetLoadout` is read-only and never selects a replacement automatically.
+See the [request/result contract](docs/TECHNICAL_DESIGN.md#atomic-loadout-implementation).
+
+Only a fresh successful selection change updates the current live character: it invalidates the
+old swing authorization, removes guard protection, and rebuilds attachments without resetting
+Stamina, cooldowns, swing locks, or an existing lowering deadline. Replays and unchanged selections
+skip those runtime effects. Server actions require the exact owned instance, definition, finish,
+and matching hand-mounted model. Client/GUI integration is unchanged; crafted assets remain unbound,
+with no wooden fallback or active elemental effects.
+
+Run the verification commands above for one-time defaults, retained/ambiguous saves, empty-slot
+reconnects, stale/replayed commands, compatibility, mount identity, and rollback. Playtest normal
+wooden combat, death/reset, and Equipment changes during attack/guard transitions separately.
+In-memory and serialized tests do not prove durable persistence or crafted combat readiness.
 
 ### Player-data foundation review
 
@@ -750,8 +777,9 @@ jobs, reservations, or Shrine work; shared transaction preparation may complete 
 
 See the [Equipment sale contract](docs/TECHNICAL_DESIGN.md#atomic-equipment-sale-command).
 Run the verification commands above for variant identity, ownership, starter/equipped rejection,
-quote conflicts, numeric limits, and rollback. This step adds no GUI, remote, equip/unequip action,
-asset binding, or combat effect. Connected-player and durable-persistence checks remain separate.
+quote conflicts, numeric limits, and rollback. The sale adds no GUI, remote, asset binding, or combat
+effect; loadout edits use the atomic commands above. Connected-player and durable-persistence checks
+remain separate.
 
 ### Headless crafting and mutation preparation review
 
@@ -775,7 +803,7 @@ using one timestamp and detached draft. Due resolution and the requested action 
 an action rejection rolls both back. Receipt replays and stale requests skip preparation. Crafting
 also resolves on Ready/Checkpoint/Release, before exposure/finalization, and a configurable
 one-second scheduler requests resolution only for already-loaded profiles with due jobs. These
-hooks remain usable after CraftingService stops. Direct prototype `MarkDirty` writers are not
+hooks remain usable after CraftingService stops. Direct prototype Base `MarkDirty` writers are not
 covered by preparation or rollback.
 
 Run the verification commands above for receipt replay/conflicts, exact-deadline cancellation,

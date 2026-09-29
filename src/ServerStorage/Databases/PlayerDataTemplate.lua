@@ -18,20 +18,9 @@ local PlayerDataTemplate: Types.PlayerDoc = {
 	inventoryUpgrades = { materials = 0, mythlings = 0, equipment = 0 },
 	transactions = { revision = 0, receipts = {} },
 	craftingJobs = {},
-	equipment = {
-		starter_wooden_sword = {
-			definitionId = Configuration.starterSwordId,
-			isStarterGrant = true,
-		},
-		starter_wooden_shield = {
-			definitionId = Configuration.starterShieldId,
-			isStarterGrant = true,
-		},
-	},
-	combatLoadout = {
-		primaryWeaponInstanceId = "starter_wooden_sword",
-		shieldInstanceId = "starter_wooden_shield",
-	},
+	-- ProfileSchema grants the starter pair once; reconciliation must not refill empty slots.
+	equipment = {},
+	combatLoadout = {},
 	mythlings = {},
 	-- ProfileSchema creates productionClock once using server time; no static accrual sentinel.
 	base = {

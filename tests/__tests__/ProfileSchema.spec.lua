@@ -87,6 +87,248 @@ describe("MVP ProfileSchema", function()
 	end)
 
 	it(
+		"grants one protected starter pair in place only after fresh preparation succeeds",
+		function()
+			local data = freshData()
+			local equipment, loadout = data.equipment, data.combatLoadout
+			expect((ProfileSchema.Prepare(data, stationId, 0))).toBe(true)
+			expect(data.equipment).toBe(equipment)
+			expect(data.combatLoadout).toBe(loadout)
+			expect(data.equipment).toEqual({
+				starter_wooden_sword = {
+					definitionId = Configuration.starterSwordId,
+					isStarterGrant = true,
+				},
+				starter_wooden_shield = {
+					definitionId = Configuration.starterShieldId,
+					isStarterGrant = true,
+				},
+			})
+			expect(data.combatLoadout).toEqual({
+				primaryWeaponInstanceId = "starter_wooden_sword",
+				shieldInstanceId = "starter_wooden_shield",
+			})
+			local sword, shield = equipment.starter_wooden_sword, equipment.starter_wooden_shield
+			local before = snapshot(data)
+			expect((ProfileSchema.Prepare(data, neverGenerate, 100))).toBe(true)
+			expect(snapshot(data)).toEqual(before)
+			expect(equipment.starter_wooden_sword).toBe(sword)
+			expect(equipment.starter_wooden_shield).toBe(shield)
+			expect(PlayerDataTemplate.equipment).toEqual({})
+			expect(PlayerDataTemplate.combatLoadout).toEqual({})
+		end
+	)
+
+	it(
+		"retains a pre-created Station and empty-work clock while finishing untouched defaults",
+		function()
+			local data = freshData()
+			data.base.craftingStation =
+				{ id = stationId(), craftingStationId = "basic_crafting_station" }
+			data.productionClock = {
+				lastAccruedAt = 50,
+				nextBatchAt = 50 + Production.batchIntervalSeconds,
+				lastOnlineCheckpointAt = 50,
+				offlineSince = 50,
+			}
+			local station, clock = data.base.craftingStation, data.productionClock
+			expect((ProfileSchema.Prepare(data, neverGenerate, 100))).toBe(true)
+			expect(data.base.craftingStation).toBe(station)
+			expect(data.productionClock).toBe(clock)
+			expect(data.equipment.starter_wooden_sword.isStarterGrant).toBe(true)
+			expect(data.equipment.starter_wooden_shield.isStarterGrant).toBe(true)
+		end
+	)
+
+	it(
+		"does not refill old starter data or empty slots before profile metadata is initialized",
+		function()
+			for _, removeSword in { false, true } do
+				local data = freshData()
+				data.equipment.starter_wooden_shield = {
+					definitionId = Configuration.starterShieldId,
+					isStarterGrant = true,
+				}
+				if not removeSword then
+					data.equipment.starter_wooden_sword = {
+						definitionId = Configuration.starterSwordId,
+						isStarterGrant = true,
+					}
+				end
+				local expectedEquipment = snapshot(data.equipment)
+				expect((ProfileSchema.Prepare(data, stationId, 0))).toBe(true)
+				expect(data.equipment).toEqual(expectedEquipment)
+				expect(data.combatLoadout).toEqual({})
+				local before = snapshot(data)
+				expect((ProfileSchema.Prepare(data, neverGenerate, 50))).toBe(true)
+				expect(snapshot(data)).toEqual(before)
+			end
+		end
+	)
+
+	it(
+		"never reconstructs missing Equipment or a chosen empty slot for an established profile",
+		function()
+			for _, keepShield in { false, true } do
+				local data = initializedData(Configuration.schemaVersion)
+				if keepShield then
+					data.equipment.starter_wooden_shield = {
+						definitionId = Configuration.starterShieldId,
+						isStarterGrant = true,
+					}
+					data.combatLoadout.shieldInstanceId = "starter_wooden_shield"
+				end
+				local equipment, loadout = data.equipment, data.combatLoadout
+				local before = snapshot(data)
+				expect((ProfileSchema.Prepare(data, neverGenerate, 1_100))).toBe(true)
+				expect(snapshot(data)).toEqual(before)
+				expect(data.equipment).toBe(equipment)
+				expect(data.combatLoadout).toBe(loadout)
+				local reloaded = (snapshot(data) :: unknown) :: Types.PlayerDoc
+				expect((ProfileSchema.Prepare(reloaded, neverGenerate, 1_200))).toBe(true)
+				expect(snapshot(reloaded)).toEqual(before)
+			end
+		end
+	)
+
+	it(
+		"preserves ambiguous zero-sentinel state instead of interpreting it as a starter grant",
+		function()
+			local retainedStates: { (any) -> () } = {
+				function(data)
+					data.profile.userId = 25
+				end,
+				function(data)
+					data.profile.createdAt = 1
+				end,
+				function(data)
+					data.profile.lastLoginAt = 1
+				end,
+				function(data)
+					data.currency.gold = Configuration.startingGold + 1
+				end,
+				function(data)
+					data.currency.gold = Configuration.startingGold - 1
+				end,
+				function(data)
+					data.materials.fire = { total = 1 }
+				end,
+				function(data)
+					data.mythlings.retained = { typeId = "legacy", level = 2, xp = 1 }
+				end,
+				function(data)
+					data.craftingJobs.legacy =
+						{ status = "Completed", reservations = { equipment = 0, materials = {} } }
+				end,
+				function(data)
+					data.base.stands["1"] = { retainedWork = 1 }
+				end,
+				function(data)
+					data.base.buildSlotUpgrades = 1
+				end,
+				function(data)
+					data.base.shrines.retained = {
+						id = "retained",
+						shrineId = "fire_shrine",
+						buildSlotId = 1,
+						level = 1,
+						stored = 0,
+						progress = 0,
+						newWork = 0,
+						workerIdsBySlot = {},
+					}
+				end,
+				function(data)
+					data.inventoryUpgrades.materials = 1
+				end,
+				function(data)
+					data.inventoryUpgrades.mythlings = 1
+				end,
+				function(data)
+					data.inventoryUpgrades.equipment = 1
+				end,
+				function(data)
+					data.transactions.revision = 1
+				end,
+				function(data)
+					data.transactions.receipts.retained = { futureData = 1 }
+				end,
+				function(data)
+					data.inventoryUpgrades = nil
+				end,
+				function(data)
+					data.transactions = nil
+				end,
+				function(data)
+					data.craftingJobs = nil
+				end,
+				function(data)
+					data.combatLoadout.primaryWeaponInstanceId = "retained-missing-item"
+				end,
+				function(data)
+					data.equipment.legacy = { definitionId = "future-equipment" }
+				end,
+			}
+			for _, mutate in retainedStates do
+				local data = initializedData(Configuration.schemaVersion)
+				data.profile = { userId = 0, createdAt = 0, lastLoginAt = 0 }
+				mutate(data)
+				local before = snapshot(data)
+				expect((ProfileSchema.Prepare(data, neverGenerate, 1_100))).toBe(true)
+				expect(snapshot(data)).toEqual(before)
+			end
+		end
+	)
+
+	it("does not grant defaults over unknown future or inactive retained fields", function()
+		local paths = {
+			{},
+			{ "profile" },
+			{ "currency" },
+			{ "inventoryUpgrades" },
+			{ "transactions" },
+			{ "base" },
+			{ "base", "craftingStation" },
+			{ "productionClock" },
+		}
+		for _, path in paths do
+			local raw = snapshot(initializedData(Configuration.schemaVersion))
+			raw.profile = { userId = 0, createdAt = 0, lastLoginAt = 0 }
+			local section = raw
+			for _, key in path do
+				section = section[key]
+			end
+			section.retainedFutureState = { earned = 1 }
+			local data = (raw :: unknown) :: Types.PlayerDoc
+			local before = snapshot(data)
+			expect((ProfileSchema.Prepare(data, neverGenerate, 1_100))).toBe(true)
+			expect(snapshot(data)).toEqual(before)
+		end
+		local data = freshData()
+		data.consumables = {}
+		expect((ProfileSchema.Prepare(data, stationId, 0))).toBe(true)
+		expect(data.consumables).toEqual({})
+		expect(data.equipment).toEqual({})
+		expect(data.combatLoadout).toEqual({})
+	end)
+
+	it("leaves starter candidates ungranted when later schema validation fails", function()
+		local data = freshData()
+		data.productionClock = { lastAccruedAt = 1, nextBatchAt = 1 }
+		local before = snapshot(data)
+		local equipment, loadout = data.equipment, data.combatLoadout
+		local ok, code = ProfileSchema.Prepare(data, stationId, 0)
+		expect(ok).toBe(false)
+		expect(code).toBe("InvalidProductionClock")
+		expect(snapshot(data)).toEqual(before)
+		expect(data.equipment).toBe(equipment)
+		expect(data.combatLoadout).toBe(loadout)
+		data.productionClock = nil
+		expect((ProfileSchema.Prepare(data, stationId, 0))).toBe(true)
+		expect(data.equipment.starter_wooden_sword.isStarterGrant).toBe(true)
+	end)
+
+	it(
 		"adds current state atomically while retaining all v4 progression and live table identities",
 		function()
 			local data = oldData()

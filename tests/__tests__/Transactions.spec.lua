@@ -10,6 +10,7 @@ local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Configuration = require(ReplicatedStorage.Shared.Configurations.PlayerData)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Projection = require(ServerScriptService.Services.DataService.Projection)
+local ProfileSchema = require(ServerScriptService.Services.DataService.ProfileSchema)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
 local PlayerDataTemplate = require(ServerStorage.Databases.PlayerDataTemplate)
 
@@ -20,9 +21,16 @@ local it = JestGlobals.it
 type Mutator = (Types.PlayerDoc) -> Types.TransactionOutcome
 
 local function freshData(): Types.PlayerDoc
-	return (
+	local data = (
 		HttpService:JSONDecode(HttpService:JSONEncode(PlayerDataTemplate)) :: unknown
 	) :: Types.PlayerDoc
+	assert(
+		ProfileSchema.Prepare(data, function(): string
+			return "transaction-test-station"
+		end, 0),
+		"[Transactions.spec] Expected prepared player data"
+	)
+	return data
 end
 
 local function snapshot(value: unknown): any
@@ -69,6 +77,9 @@ describe("fresh player data", function()
 		expect(PlayerDataTemplate.version).toBe(Configuration.schemaVersion)
 		expect(PlayerDataTemplate.currency.gold).toBe(100)
 		expect(PlayerDataTemplate.consumables).toBeNil()
+		expect(PlayerDataTemplate.equipment).toEqual({})
+		expect(PlayerDataTemplate.combatLoadout).toEqual({})
+		local prepared = freshData()
 
 		local upgrades = assert(
 			PlayerDataTemplate.inventoryUpgrades,
@@ -77,21 +88,19 @@ describe("fresh player data", function()
 		expect(upgrades).toEqual({ materials = 0, mythlings = 0, equipment = 0 })
 
 		local sword = assert(
-			PlayerDataTemplate.equipment.starter_wooden_sword,
-			"[Transactions.spec] Expected PlayerDataTemplate.equipment.starter_wooden_sword"
+			prepared.equipment.starter_wooden_sword,
+			"[Transactions.spec] Expected prepared.equipment.starter_wooden_sword"
 		)
 		local shield = assert(
-			PlayerDataTemplate.equipment.starter_wooden_shield,
-			"[Transactions.spec] Expected PlayerDataTemplate.equipment.starter_wooden_shield"
+			prepared.equipment.starter_wooden_shield,
+			"[Transactions.spec] Expected prepared.equipment.starter_wooden_shield"
 		)
 		expect(sword.definitionId).toBe(Configuration.starterSwordId)
 		expect(shield.definitionId).toBe(Configuration.starterShieldId)
 		expect(sword.isStarterGrant).toBe(true)
 		expect(shield.isStarterGrant).toBe(true)
-		expect(PlayerDataTemplate.combatLoadout.primaryWeaponInstanceId).toBe(
-			"starter_wooden_sword"
-		)
-		expect(PlayerDataTemplate.combatLoadout.shieldInstanceId).toBe("starter_wooden_shield")
+		expect(prepared.combatLoadout.primaryWeaponInstanceId).toBe("starter_wooden_sword")
+		expect(prepared.combatLoadout.shieldInstanceId).toBe("starter_wooden_shield")
 
 		local transactions = assert(
 			PlayerDataTemplate.transactions,

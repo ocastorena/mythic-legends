@@ -452,6 +452,21 @@ export type SellEquipmentRequest = {
 	expectedGold: number,
 }
 
+export type EquipEquipmentRequest = {
+	requestId: string,
+	expectedRevision: number,
+	instanceId: string,
+	expectedDefinitionId: string,
+	expectedFinishId: string?,
+}
+
+export type UnequipEquipmentRequest = {
+	requestId: string,
+	expectedRevision: number,
+	slot: "PrimaryWeapon" | "Shield",
+	expectedInstanceId: string,
+}
+
 export type UpgradeInventoryCapacityRequest = {
 	requestId: string,
 	expectedRevision: number,

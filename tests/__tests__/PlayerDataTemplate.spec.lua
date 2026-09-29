@@ -18,14 +18,9 @@ describe("PlayerDataTemplate", function()
 		end
 	end)
 
-	it("keeps starter equipment references internally consistent", function()
-		local loadout = PlayerDataTemplate.combatLoadout
-		local ownedIds: { string } = {}
-		for instanceId in pairs(PlayerDataTemplate.equipment) do
-			table.insert(ownedIds, instanceId)
-		end
-		expect(ownedIds).toContain(loadout.primaryWeaponInstanceId)
-		expect(ownedIds).toContain(loadout.shieldInstanceId)
+	it("leaves one-time Equipment and loadout grants out of recurring reconciliation", function()
+		expect(PlayerDataTemplate.equipment).toEqual({})
+		expect(PlayerDataTemplate.combatLoadout).toEqual({})
 	end)
 
 	it("defers the per-profile production clock until the load boundary", function()
@@ -34,5 +29,6 @@ describe("PlayerDataTemplate", function()
 		expect(PlayerDataTemplate.base.shrines).toEqual({})
 		expect(PlayerDataTemplate.profile.userId).toBe(0)
 		expect(PlayerDataTemplate.profile.createdAt).toBe(0)
+		expect(PlayerDataTemplate.profile.lastLoginAt).toBe(0)
 	end)
 end)

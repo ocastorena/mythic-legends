@@ -7,7 +7,7 @@ local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
 local LoadoutRequests = {}
 
 export type Snapshot = {
-	equipment: { { instanceId: string, definitionId: string } },
+	equipment: { { instanceId: string, definitionId: string, finishId: string? } },
 	primaryWeaponInstanceId: string?,
 	shieldInstanceId: string?,
 }
@@ -16,7 +16,6 @@ export type Dependencies = {
 	DataService: { GetLoadedData: (Player) -> Types.PlayerDoc? },
 	isAvailable: (Player) -> boolean,
 	allowRequest: (Player) -> boolean,
-	resolveLoadout: (Player) -> (),
 	snapshotLoadout: (Player) -> Snapshot,
 	equipOwnedInstance: (Player, unknown) -> (boolean, string?),
 	now: (() -> number)?,
@@ -56,7 +55,6 @@ function LoadoutRequests.new(dependencies: Dependencies): Requests
 		if rejection then
 			return { ok = false, code = rejection }
 		end
-		dependencies.resolveLoadout(player)
 		return { ok = true, snapshot = dependencies.snapshotLoadout(player) }
 	end
 

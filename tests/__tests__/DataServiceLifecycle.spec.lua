@@ -62,6 +62,18 @@ local function copy<T>(value: T): T
 	return (HttpService:JSONDecode(HttpService:JSONEncode(value)) :: unknown) :: T
 end
 
+-- Match the vendor's missing-string-key reconciliation so lifecycle tests can detect accidental
+-- grants/slot defaults introduced by the canonical template; this does not model durable storage.
+local function reconcile(data: { [string]: any }, template: { [string]: any })
+	for key, value in template do
+		if data[key] == nil then
+			data[key] = copy(value)
+		elseif type(data[key]) == "table" and type(value) == "table" then
+			reconcile(data[key], value)
+		end
+	end
+end
+
 local function signal(): Signal
 	local listeners: { { callback: () -> (), connection: Connection } } = {}
 	return {
@@ -123,8 +135,9 @@ local function fakeProfile()
 		AddUserId = function(_self: FakeProfile, userId: number)
 			table.insert(state.users, userId)
 		end,
-		Reconcile = function()
+		Reconcile = function(self: FakeProfile)
 			state.reconcileCalls += 1
+			reconcile(self.Data :: any, PlayerDataTemplate :: any)
 		end,
 		Save = function(self: FakeProfile)
 			state.saveCalls += 1
@@ -261,6 +274,36 @@ local function expectBlocked(result: PublicProbe)
 end
 
 describe("DataService profile lifecycle", function()
+	for _, removeOwnership in { false, true } do
+		it(
+			`preserves empty slots across reconnect reconciliation (missing ownership: {removeOwnership})`,
+			function()
+				local f = fixture()
+				f.api.Start()
+				expect(f.api.Load(f.player)).toBe(true)
+				local data = f.first.profile.Data
+				expect(data.equipment.starter_wooden_sword.isStarterGrant).toBe(true)
+				expect(data.combatLoadout.primaryWeaponInstanceId).toBe("starter_wooden_sword")
+				expect(f.api.Update(f.player, "Test.EmptyLoadout", function(draft)
+					draft.combatLoadout.primaryWeaponInstanceId = nil
+					draft.combatLoadout.shieldInstanceId = nil
+					return { ok = true }
+				end).ok).toBe(true)
+				f.api.Release(f.player)
+				f.second.profile.Data = copy(data)
+				if removeOwnership then
+					-- Simulate an established retained profile, never an allowed destructive command.
+					table.clear(f.second.profile.Data.equipment)
+				end
+				local expectedEquipment = copy(f.second.profile.Data.equipment)
+				expect(f.api.Load(f.player)).toBe(true)
+				expect(f.second.state.reconcileCalls).toBe(1)
+				expect(f.second.profile.Data.combatLoadout).toEqual({})
+				expect(f.second.profile.Data.equipment).toEqual(expectedEquipment)
+			end
+		)
+	end
+
 	it(
 		"delivers a saved due crafting promise before first publication without exposing its receipt",
 		function()

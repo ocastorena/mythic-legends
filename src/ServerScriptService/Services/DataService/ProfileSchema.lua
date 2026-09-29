@@ -12,6 +12,7 @@ local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Types = require(ReplicatedStorage.Shared.Types)
 local BaseState = require(ServerScriptService.Shared.BaseState)
 local ProductionClockUtil = require(ServerScriptService.Shared.ProductionClockUtil)
+local StarterEquipment = require(script.Parent.StarterEquipment)
 
 local ProfileSchema = {}
 
@@ -288,6 +289,7 @@ function ProfileSchema.Prepare(
 	if not clock then
 		return false, clockError
 	end
+	local starterGrant = StarterEquipment.Stage(data)
 
 	-- Retain table identities and every existing field, including legacy ledgers and job links.
 	for id, stagedShrine in stagedShrines do
@@ -304,6 +306,13 @@ function ProfileSchema.Prepare(
 	data.base.shrines = retainedShrines
 	data.base.craftingStation = candidate.craftingStation
 	data.productionClock = clock
+	if starterGrant then
+		for instanceId, entry in starterGrant.equipment do
+			data.equipment[instanceId] = entry
+		end
+		data.combatLoadout.primaryWeaponInstanceId = starterGrant.primaryWeaponInstanceId
+		data.combatLoadout.shieldInstanceId = starterGrant.shieldInstanceId
+	end
 	data.version = Configuration.schemaVersion
 	return true, nil
 end

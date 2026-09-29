@@ -3,6 +3,7 @@
 -- Server-owned R15 loadouts, Arena state, Stamina, guard validation, and hit authorization.
 
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -24,6 +25,9 @@ local ArenaBounds = require(script.ArenaBounds)
 local CombatMath = require(script.CombatMath)
 local CombatState = require(script.CombatState)
 local LoadoutRequests = require(script.LoadoutRequests)
+local LoadoutCommands = require(script.LoadoutCommands)
+local LoadoutUtil = require(script.LoadoutUtil)
+local EquipmentCatalog = require(ReplicatedStorage.Shared.EquipmentCatalog)
 local lifecycle = ServiceLifecycle.new("CombatService")
 local presentation: { Clear: (Model) -> (), Rebuild: (Model) -> () }
 local Equipment: Types.EquipmentConfiguration
@@ -37,11 +41,11 @@ local combatImpact: RemoteEvent
 local getLoadoutRemote: RemoteFunction
 local equipRemote: RemoteFunction
 local loadoutRequests: LoadoutRequests.Requests
+local loadoutCommands: LoadoutCommands.LoadoutCommands?
 local arena: BasePart
 
 local CombatService = {}
 
-local EQUIPMENT_FOLDER_NAME = "EquippedEquipment"
 local STATE_STEP_SECONDS = 0.1
 local MAX_SEQUENCE = 2_147_483_647
 local MAX_REACH = 20
@@ -61,7 +65,7 @@ type MovementState = {
 
 type AuthorizedSwing = {
 	sequence: number,
-	weaponId: string,
+	selection: LoadoutUtil.Selection,
 	expiresAt: number,
 }
 
@@ -70,7 +74,7 @@ type ImpactReactionType = Types.CombatReactionType
 type CombatRuntime = {
 	accounting: CombatState.State,
 	immunityUntil: number,
-	guardShieldId: string?,
+	guardShield: LoadoutUtil.Selection?,
 	lastSwingSequence: number,
 	lastHitSequence: number,
 	authorizedSwing: AuthorizedSwing?,
@@ -98,14 +102,6 @@ local function getNumber(value: unknown, fallback: number, minimum: number, maxi
 		return fallback
 	end
 	return math.clamp(value, minimum, maximum)
-end
-
-local function getProfile(definitionId: unknown): Types.EquipmentProfile?
-	if type(definitionId) ~= "string" or #definitionId > 64 then
-		return nil
-	end
-	local profile = Equipment.profiles[definitionId]
-	return if type(profile) == "table" then profile else nil
 end
 
 local function getAliveR15Character(player: Player): (Model?, Humanoid?, BasePart?)
@@ -150,7 +146,7 @@ local function getRuntime(player: Player): CombatRuntime
 			recoveryPerSecond = Equipment.combat.staminaRegenPerSecond,
 		}),
 		immunityUntil = 0,
-		guardShieldId = nil,
+		guardShield = nil,
 		lastSwingSequence = 0,
 		lastHitSequence = 0,
 		authorizedSwing = nil,
@@ -224,107 +220,20 @@ local function createShieldBubble(character: Model, root: BasePart)
 	tween:Play()
 end
 
-type EquipmentEntries = { [string]: Types.EquipmentEntry }
-type Loadout = { primaryWeaponInstanceId: string?, shieldInstanceId: string? }
-type LoadoutSnapshot = LoadoutRequests.Snapshot
-local function getEquipmentAndLoadout(player: Player): (EquipmentEntries, Loadout)
+local function snapshotLoadout(player: Player): LoadoutRequests.Snapshot
 	local data = DataService.GetLoadedData(player)
 	assert(data, "[CombatService] Loadout requires an active profile")
-	return data.equipment, data.combatLoadout
+	return LoadoutUtil.Snapshot(data)
 end
 
-local function getOwnedDefinition(
-	equipment: EquipmentEntries,
-	instanceId: unknown,
-	expectedKind: string
-): string?
-	if type(instanceId) ~= "string" or instanceId == "" then
-		return nil
-	end
-	local entry = equipment[instanceId]
-	local definitionId = type(entry) == "table" and entry.definitionId or nil
-	local profile = getProfile(definitionId)
-	return if profile and profile.kind == expectedKind then definitionId else nil
-end
-
-local function findOwnedInstance(equipment: EquipmentEntries, expectedKind: string): string?
-	local best: string? = nil
-	for instanceId, entry in equipment do
-		local definitionId = type(entry) == "table" and entry.definitionId or nil
-		local profile = getProfile(definitionId)
-		if type(instanceId) == "string" and profile and profile.kind == expectedKind then
-			if not best or instanceId < best then
-				best = instanceId
-			end
-		end
-	end
-	return best
-end
-
-local function resolveLoadout(player: Player): (string, string)
-	local equipment, loadout = getEquipmentAndLoadout(player)
-	local changed = false
-	local primaryInstanceId = loadout.primaryWeaponInstanceId
-	local shieldInstanceId = loadout.shieldInstanceId
-	if not getOwnedDefinition(equipment, primaryInstanceId, "PrimaryWeapon") then
-		primaryInstanceId = findOwnedInstance(equipment, "PrimaryWeapon")
-		loadout.primaryWeaponInstanceId = primaryInstanceId
-		changed = true
-	end
-	if not getOwnedDefinition(equipment, shieldInstanceId, "Shield") then
-		shieldInstanceId = findOwnedInstance(equipment, "Shield")
-		loadout.shieldInstanceId = shieldInstanceId
-		changed = true
-	end
-	if changed then
-		DataService.MarkDirty(player)
-	end
-	return getOwnedDefinition(equipment, primaryInstanceId, "PrimaryWeapon") or "",
-		getOwnedDefinition(equipment, shieldInstanceId, "Shield") or ""
-end
-
-local function snapshotLoadout(player: Player): LoadoutSnapshot
-	local equipment, loadout = getEquipmentAndLoadout(player)
-	local entries: { { instanceId: string, definitionId: string } } = {}
-	for instanceId, entry in equipment do
-		local definitionId = type(entry) == "table" and entry.definitionId or nil
-		if
-			type(instanceId) == "string"
-			and type(definitionId) == "string"
-			and getProfile(definitionId)
-		then
-			table.insert(entries, {
-				instanceId = instanceId,
-				definitionId = definitionId,
-			})
-		end
-	end
-	table.sort(entries, function(a: { instanceId: string }, b: { instanceId: string })
-		return a.instanceId < b.instanceId
-	end)
-	return {
-		equipment = entries,
-		primaryWeaponInstanceId = loadout.primaryWeaponInstanceId,
-		shieldInstanceId = loadout.shieldInstanceId,
-	}
-end
-
-local function getGuardProfile(player: Player): (string?, Types.EquipmentProfile?)
+local function getGuardProfile(player: Player): (LoadoutUtil.Selection?, Types.EquipmentProfile?)
 	local character = getAliveR15Character(player)
 	local data = DataService.GetLoadedData(player)
 	if not character or not data or not isCharacterInArena(character) then
 		return nil, nil
 	end
-	local definitionId =
-		getOwnedDefinition(data.equipment, data.combatLoadout.shieldInstanceId, "Shield")
-	if not definitionId or character:GetAttribute("LeftEquipped") ~= definitionId then
-		return nil, nil
-	end
-	local motor = character:FindFirstChild("LeftHandMotor", true)
-	if not motor or not motor:IsA("Motor6D") then
-		return nil, nil
-	end
-	return definitionId, getProfile(definitionId)
+	local selection = LoadoutUtil.GetMounted(data, character, "Shield")
+	return selection, if selection then selection.item.profile else nil
 end
 
 local function shieldTuning(profile: Types.EquipmentProfile): CombatState.ShieldTuning?
@@ -395,12 +304,16 @@ local function refreshRuntime(player: Player, now: number): CombatRuntime
 	local runtime = getRuntime(player)
 	CombatState.Advance(runtime.accounting, now)
 	if runtime.accounting.phase ~= "Lowered" then
-		local shieldId = getGuardProfile(player)
-		if not shieldId or shieldId ~= runtime.guardShieldId then
+		local shield = getGuardProfile(player)
+		if
+			not shield
+			or not runtime.guardShield
+			or not LoadoutUtil.Same(shield, runtime.guardShield)
+		then
 			CombatState.ReleaseGuard(runtime.accounting, now, nil, true)
 		end
 	else
-		runtime.guardShieldId = nil
+		runtime.guardShield = nil
 	end
 	if runtime.authorizedSwing and now > runtime.authorizedSwing.expiresAt then
 		runtime.authorizedSwing = nil
@@ -418,9 +331,11 @@ local function forceLowerGuard(player: Player)
 end
 
 local function applyResolvedLoadout(player: Player, character: Model)
-	local primaryId, shieldId = resolveLoadout(player)
-	character:SetAttribute("RightEquipped", primaryId)
-	character:SetAttribute("LeftEquipped", shieldId)
+	local data = DataService.GetLoadedData(player)
+	if not data then
+		return
+	end
+	LoadoutUtil.WriteAttributes(character, data)
 	getRuntime(player).authorizedSwing = nil
 	presentation.Rebuild(character)
 end
@@ -451,14 +366,14 @@ local function handleGuardRequest(player: Player, input: unknown)
 	local now = os.clock()
 	local runtime = refreshRuntime(player, now)
 	if action == "Begin" then
-		local shieldId, profile = getGuardProfile(player)
+		local shield, profile = getGuardProfile(player)
 		local tuning = profile and shieldTuning(profile)
 		local accepted = false
-		if shieldId and tuning and character:GetAttribute("CombatReady") == true then
+		if shield and tuning and character:GetAttribute("CombatReady") == true then
 			accepted = CombatState.BeginGuard(runtime.accounting, now, sequence, tuning)
 		end
 		if accepted then
-			runtime.guardShieldId = shieldId
+			runtime.guardShield = shield
 			runtime.authorizedSwing = nil
 		end
 		if not accepted then
@@ -489,25 +404,9 @@ local function updateArenaCombatState(player: Player)
 	presentation.Rebuild(character)
 end
 
-local function getEquippedPrimary(character: Model): (string?, Types.EquipmentProfile?)
-	local definitionId = character:GetAttribute("RightEquipped")
-	local profile = getProfile(definitionId)
-	if type(definitionId) ~= "string" or not profile or profile.kind ~= "PrimaryWeapon" then
-		return nil, nil
-	end
-	local folder = character:FindFirstChild(EQUIPMENT_FOLDER_NAME)
-	local model = folder and folder:FindFirstChild("RightEquipment")
-	local motor = character:FindFirstChild("RightHandMotor", true)
-	if
-		not model
-		or not model:IsA("Model")
-		or model:GetAttribute("EquipmentId") ~= definitionId
-		or not motor
-		or not motor:IsA("Motor6D")
-	then
-		return nil, nil
-	end
-	return definitionId, profile
+local function getEquippedPrimary(player: Player, character: Model): LoadoutUtil.Selection?
+	local data = DataService.GetLoadedData(player)
+	return if data then LoadoutUtil.GetMounted(data, character, "PrimaryWeapon") else nil
 end
 
 local function hasLineOfSight(attackerCharacter: Model, targetCharacter: Model): boolean
@@ -551,10 +450,11 @@ local function handleMeleeSwing(player: Player, input: unknown)
 	then
 		return
 	end
-	local weaponId, profile = getEquippedPrimary(character)
-	if not weaponId or not profile then
+	local selection = getEquippedPrimary(player, character)
+	if not selection then
 		return
 	end
+	local profile = selection.item.profile
 	local now = os.clock()
 	local runtime = refreshRuntime(player, now)
 	if payload.sequence <= runtime.lastSwingSequence then
@@ -586,7 +486,7 @@ local function handleMeleeSwing(player: Player, input: unknown)
 	runtime.lastSwingSequence = payload.sequence
 	runtime.authorizedSwing = {
 		sequence = payload.sequence,
-		weaponId = weaponId,
+		selection = selection,
 		expiresAt = now + window + 0.75,
 	}
 	publishRuntime(player, runtime, now)
@@ -664,17 +564,18 @@ local function handleHitReport(player: Player, input: unknown)
 	then
 		return
 	end
-	local weaponId, profile = getEquippedPrimary(attackerCharacter)
-	if not weaponId or not profile then
+	local selection = getEquippedPrimary(player, attackerCharacter)
+	if not selection then
 		return
 	end
+	local profile = selection.item.profile
 	local now = os.clock()
 	local runtime = refreshRuntime(player, now)
 	local authorization = runtime.authorizedSwing
 	if
 		not authorization
 		or authorization.sequence ~= payload.sequence
-		or authorization.weaponId ~= weaponId
+		or not LoadoutUtil.Same(authorization.selection, selection)
 		or now > authorization.expiresAt
 		or payload.sequence <= runtime.lastHitSequence
 	then
@@ -721,7 +622,7 @@ local function handleHitReport(player: Player, input: unknown)
 	local maximumReactionSeconds = 0
 	local landingRecoverySeconds = 0
 	local airTrailSeconds = 0
-	local shieldProfile = getProfile(targetCharacter:GetAttribute("LeftEquipped"))
+	local _, shieldProfile = getGuardProfile(target)
 	if
 		targetRuntime.accounting.protecting
 		and shieldProfile
@@ -843,31 +744,52 @@ local function onCharacterAdded(player: Player, character: Model)
 	end)
 end
 
+local function afterLoadoutCommit(player: Player, result: Types.TransactionResult)
+	if not result.ok or result.replayed or not result.values or result.values.changed ~= true then
+		return
+	end
+	local character = getAliveR15Character(player)
+	if character then
+		-- Combat retains its monotonic os.clock timebase; persisted transaction timestamps must
+		-- never be used to reset or advance these cooldown/transition deadlines.
+		local ok, problem = pcall(function()
+			forceLowerGuard(player)
+			applyResolvedLoadout(player, character)
+		end)
+		if not ok then
+			-- The save already committed. Ownership/model identity checks fail closed on a stale
+			-- model, without pretending the persisted action failed and encouraging another edit.
+			log.error(`Loadout presentation failed for userId {player.UserId}`, problem)
+		end
+	end
+end
+
 local function equipOwnedInstance(player: Player, instanceId: unknown): (boolean, string?)
-	if type(instanceId) ~= "string" then
+	-- Compatibility adapter for the existing instance-only endpoint. New callers retain their
+	-- own revision-bound request IDs through EquipEquipment; this adapter never writes live data.
+	if type(instanceId) ~= "string" or #instanceId == 0 or #instanceId > 128 then
 		return false, "InvalidEquipment"
 	end
-	local equipment, loadout = getEquipmentAndLoadout(player)
-	local entry = equipment[instanceId]
-	local definitionId = type(entry) == "table" and entry.definitionId or nil
-	local profile = getProfile(definitionId)
-	if not profile then
+	local data = DataService.GetLoadedData(player)
+	if not data then
+		return false, "NotReady"
+	end
+	local entry = if type(data.equipment) == "table" then data.equipment[instanceId] else nil
+	local item = if type(entry) == "table"
+		then EquipmentCatalog.Resolve(entry.definitionId, entry.finishId)
+		else nil
+	if not item then
 		return false, "NotOwned"
 	end
-	if profile.kind == "PrimaryWeapon" then
-		loadout.primaryWeaponInstanceId = instanceId
-	elseif profile.kind == "Shield" then
-		loadout.shieldInstanceId = instanceId
-	else
-		return false, "UnsupportedEquipment"
-	end
-	DataService.MarkDirty(player)
-	local character = player.Character
-	if character then
-		forceLowerGuard(player)
-		applyResolvedLoadout(player, character)
-	end
-	return true, nil
+	local revision = if type(data.transactions) == "table" then data.transactions.revision else 0
+	local result = CombatService.EquipEquipment(player, {
+		requestId = `{revision}:{HttpService:GenerateGUID(false)}`,
+		expectedRevision = revision,
+		instanceId = instanceId,
+		expectedDefinitionId = item.definitionId,
+		expectedFinishId = item.finishId,
+	})
+	return result.ok, result.code
 end
 
 local function onPlayerAdded(player: Player)
@@ -929,8 +851,9 @@ end
 function CombatService.Init(serviceContext: ServerTypes.Context)
 	Equipment = serviceContext.Configurations.Equipment
 	DataService = serviceContext.Services.DataService
+	loadoutCommands = LoadoutCommands.new(DataService)
 	equipmentAssets = serviceContext.Instances.EquipmentAssets
-	presentation = EquipmentPresentation.new(equipmentAssets, Equipment.profiles)
+	presentation = EquipmentPresentation.new(equipmentAssets, Equipment.definitions)
 	startAttack = serviceContext.Remotes.Combat.StartAttack
 	reportHit = serviceContext.Remotes.Combat.ReportHit
 	setShieldGuardRemote = serviceContext.Remotes.Combat.SetShieldGuard
@@ -945,9 +868,6 @@ function CombatService.Init(serviceContext: ServerTypes.Context)
 		end,
 		allowRequest = function(player)
 			return loadoutLimiter:Allow(player)
-		end,
-		resolveLoadout = function(player)
-			resolveLoadout(player)
 		end,
 		snapshotLoadout = snapshotLoadout,
 		equipOwnedInstance = equipOwnedInstance,
@@ -1014,6 +934,7 @@ function CombatService.Stop()
 	if not lifecycle:Stop() then
 		return
 	end
+	loadoutCommands = nil
 	RemoteUtil.ClearServerHandler(getLoadoutRemote)
 	RemoteUtil.ClearServerHandler(equipRemote)
 	if serviceTrove then
@@ -1028,6 +949,39 @@ function CombatService.Stop()
 	guardLimiter:Clear()
 	startAttackLimiter:Clear()
 	reportHitLimiter:Clear()
+end
+
+local function available(player: Player): boolean
+	return lifecycle:IsRunning()
+		and typeof(player) == "Instance"
+		and player:IsA("Player")
+		and player.Parent == Players
+end
+
+function CombatService.EquipEquipment(
+	player: Player,
+	request: Types.EquipEquipmentRequest
+): Types.TransactionResult
+	local commands = loadoutCommands
+	if not commands or not available(player) then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	local result = commands.Equip(player, request)
+	afterLoadoutCommit(player, result)
+	return result
+end
+
+function CombatService.UnequipEquipment(
+	player: Player,
+	request: Types.UnequipEquipmentRequest
+): Types.TransactionResult
+	local commands = loadoutCommands
+	if not commands or not available(player) then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	local result = commands.Unequip(player, request)
+	afterLoadoutCommit(player, result)
+	return result
 end
 
 return CombatService

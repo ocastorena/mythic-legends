@@ -87,6 +87,10 @@ local services: ServerTypes.Services = {
 		StartJob = CraftingService.StartJob,
 		CancelJob = CraftingService.CancelJob,
 	},
+	CombatService = {
+		EquipEquipment = CombatService.EquipEquipment,
+		UnequipEquipment = CombatService.UnequipEquipment,
+	},
 	ProductionService = {
 		GetProduction = ProductionService.GetProduction,
 		CollectProduction = ProductionService.CollectProduction,

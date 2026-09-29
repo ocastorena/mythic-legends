@@ -12,7 +12,7 @@ local EquipmentPresentation = {}
 
 function EquipmentPresentation.new(
 	equipmentAssets: Folder,
-	profiles: { [string]: Types.EquipmentProfile }
+	profiles: { [string]: Types.EquipmentDefinition }
 )
 	local function getEquipmentFolder(character: Model): Folder
 		local existing = character:FindFirstChild(EQUIPMENT_FOLDER_NAME)
@@ -89,6 +89,10 @@ function EquipmentPresentation.new(
 
 	local function cloneEquipment(character: Model, slot: string, definitionId: string): Model?
 		local profile = profiles[definitionId]
+		-- Unbound prototype content remains unavailable; it never borrows wooden assets.
+		if profile and profile.modelName == "" then
+			return nil
+		end
 		local asset = profile and equipmentAssets:FindFirstChild(profile.modelName)
 		if not asset or not asset:IsA("Model") then
 			log.warn(`Missing authored Equipment model for {definitionId}`)
@@ -97,6 +101,11 @@ function EquipmentPresentation.new(
 		local model = asset:Clone()
 		model.Name = `{slot}Equipment`
 		model:SetAttribute("EquipmentId", definitionId)
+		model:SetAttribute(
+			"EquipmentInstanceId",
+			character:GetAttribute(`{slot}EquipmentInstanceId`)
+		)
+		model:SetAttribute("EquipmentFinishId", character:GetAttribute(`{slot}EquipmentFinishId`))
 		model:SetAttribute("EquipmentSlot", slot)
 		if not prepareEquipmentModel(model) then
 			model:Destroy()

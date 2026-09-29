@@ -111,6 +111,16 @@ export type Services = {
 	BaseService: BaseApi,
 	ProductionService: ProductionApi,
 	MythlingSpawnService: SpawnApi,
+	CombatService: {
+		EquipEquipment: (
+			Player,
+			SharedTypes.EquipEquipmentRequest
+		) -> SharedTypes.TransactionResult,
+		UnequipEquipment: (
+			Player,
+			SharedTypes.UnequipEquipmentRequest
+		) -> SharedTypes.TransactionResult,
+	},
 	CraftingService: {
 		StartJob: (Player, SharedTypes.StartCraftingRequest) -> SharedTypes.TransactionResult,
 		CancelJob: (Player, SharedTypes.CancelCraftingRequest) -> SharedTypes.TransactionResult,
