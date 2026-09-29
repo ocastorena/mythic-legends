@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Production = require(ReplicatedStorage.Shared.Configurations.Production)
 local MythlingProgression = require(ReplicatedStorage.Shared.Configurations.MythlingProgression)
+local Types = require(ReplicatedStorage.Shared.Types)
 local MythlingProgressionUtil = require(script.Parent.MythlingProgressionUtil)
 
 export type ProductionConfig = { batchIntervalSeconds: number, baseXpPerSecond: number }
@@ -25,15 +26,15 @@ export type State = {
 	shrines: { [string]: Shrine },
 	workers: { [string]: Worker },
 }
+export type FormDefinition = { element: string, baseYieldPerHour: number }
+export type ShrineDefinition = {
+	element: string,
+	materialId: string,
+	levels: { [number]: Types.ShrineLevelDef },
+}
 export type Metadata = {
-	forms: { [string]: { element: string, baseYieldPerHour: number } },
-	shrines: {
-		[string]: {
-			element: string,
-			materialId: string,
-			levels: { [number]: { capacity: number, workerSlots: number } },
-		},
-	},
+	forms: { [string]: FormDefinition },
+	shrines: { [string]: ShrineDefinition },
 }
 
 local MAX_SAFE_INTEGER = 9007199254740991

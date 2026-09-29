@@ -239,6 +239,27 @@ capacity helper now lives under `Domain/Inventory/InventoryCapacity`; existing l
 their behavior. No live Shrine collection endpoint, save-schema change, final catalogue, or menu is
 introduced here, and these isolated tests do not establish durable-save behavior.
 
+### Shrine-upgrade logic review
+
+`Domain.Base.ShrineUpgrades.Upgrade` is a pure server-domain operation. It purchases only the next
+Shrine level using collected matching Materials and Gold: level 1→2 costs 1,000 Gold + 400 Materials;
+level 2→3 costs 15,000 Gold + 4,000 Materials. The shared Shrine configuration now owns all six
+elements' 1/2/3 worker slots, 300/1,200/3,600 storage, and target-level costs. Material IDs and Mythling
+forms remain injected test content; the unfinished launch catalogue is not changed.
+
+Accepted upgrades settle the whole profile under the old storage limit before paying and increasing
+the level. Existing workers, stored output, unfinished work, earned XP, and the batch schedule survive;
+the new slot remains empty. Increased storage resumes production without backfilling full-storage
+time. Neither Shrine output nor crafting-refund reservations can pay the cost. Tests cover both
+transitions, all six elements, stale quotes/levels, insufficient funds, reservation protection,
+full-storage pauses, and serialized mid-batch continuation.
+
+The result contains the accounting ledger, replacement Material map, and remaining Gold. A future
+authenticated service must commit them together with its revision/receipt record, preserving all
+other profile fields. Rejections leave every input unchanged. This increment adds no live upgrade
+command, save migration, timer, auto-assignment, or UI; runtime and durable-save integration remain
+separate work.
+
 ### Admin commands
 
 Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:

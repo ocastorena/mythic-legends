@@ -190,13 +190,22 @@ export type EquipmentEntry = {
 
 export type CraftingStationRecord = { id: string, craftingStationId: string }
 
--- Construction metadata only; output/upgrade metadata joins the production feature separately.
+export type ShrineUpgradeCost = { gold: number, materialQuantity: number }
+export type ShrineLevelDef = {
+	capacity: number,
+	workerSlots: number,
+	-- Paid when entering this level, not when leaving it. Absent at the initial level.
+	upgradeCost: ShrineUpgradeCost?,
+}
+
+-- Static construction and level metadata; output Material IDs join the content catalogue separately.
 export type ShrineDef = {
 	displayName: string,
 	element: "Fire" | "Water" | "Earth" | "Air" | "Light" | "Dark",
 	buildGoldCost: number,
 	initialLevel: number,
 	maxLevel: number,
+	levels: { [number]: ShrineLevelDef },
 }
 
 -- Construction state. Shrine-owned production/assignment ledgers are a separate increment.
