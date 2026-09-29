@@ -253,7 +253,7 @@ Unreferenced legacy forms without pending credit remain untouched. See the
 
 Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
 state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
-XP private. The server-shared adapter supports on-demand settlement and atomic assignment commands;
+XP private. The server-shared adapter supports on-demand settlement, atomic assignment, and collection;
 it is not an automatic lifecycle hook, remote, or menu action. Callers must use it inside
 `DataService.Transact` or `Update`; it neither authenticates a player nor saves a profile by itself.
 These tests do not establish live durable persistence.
@@ -287,8 +287,8 @@ Tests use synthetic Mythlings and Materials, leaving the unfinished roster and p
 untouched. They exercise whole output, retained partial work, worker changes, chronological XP and
 levels, full/empty pauses, offline equivalence, and repeated-time safety. Long offline intervals skip
 identical batches up to the next level/storage event rather than iterating every elapsed second.
-The current live stand-production path remains unchanged. Server-only settlement and assignment now
-use the engine through the shared adapter. Automatic lifecycle integration, collection, migration of
+The current live stand-production path remains unchanged. Server-only settlement, assignment, and
+collection use the engine through the shared adapter. Automatic lifecycle integration, migration of
 retained prototype work, and final content remain separate tasks; pure tests do not prove live
 persistence.
 
@@ -350,12 +350,35 @@ full-storage pauses, repeated timestamps, stale selections, and detached seriali
 synthetic content. Empty storage returns `NothingToCollect`, including when Inventory is full;
 stored output with no room returns `InventoryFull`. Rejections leave both inputs unchanged.
 
-The result contains the settled accounting ledger and updated Material map; a future authenticated
-service must commit both in one profile transaction with revision/receipt protection. The shared
-capacity helper now lives under `ServerScriptService/Shared/InventoryCapacity`; existing live
-callers retain their behavior. No live Shrine collection endpoint, save-schema change, final
-catalogue, or menu is introduced here, and these isolated tests do not establish durable-save
-behavior.
+The result contains the settled accounting ledger and updated Material map; the server-only command
+below now commits both in one profile transaction with revision/receipt protection. The shared
+capacity helper lives under `ServerScriptService/Shared/InventoryCapacity`; existing prototype
+callers retain their behavior. The pure operation adds no remote, save-schema change, or menu, and
+its isolated tests do not establish durable-save behavior.
+
+### Atomic Shrine-collection command review
+
+`ProductionService.CollectShrine(player, request)` is a server-only command for the running service
+and a connected player's already-loaded profile. Requests contain `requestId`
+(`<expectedRevision>:<unique token>`), `expectedRevision`, `shrineInstanceId`, and
+`expectedMaterialId`. Retry the original request unchanged. Success returns `shrineInstanceId`,
+`materialId`, `collected`, `remaining`, and `settledAt` in transaction `values`.
+
+The command derives accounting, Materials, purchased capacity, and crafting reservations from the
+same transaction draft. One `DataService.Transact` callback settles prior work and commits the
+Shrine debit with the Inventory grant, using one server timestamp and real launch metadata. It
+never calls standalone settlement or a separate Material grant. A positive partial transfer
+succeeds and leaves the remainder in Shrine storage; full bags reject with `InventoryFull`, while
+no whole output returns `NothingToCollect`. Rejection rolls back gameplay changes, including staged
+accounting, though DataService may record the rejection receipt and revision. Receipt replay never
+resamples time or grants Materials twice. Jobs and reservations remain unchanged.
+
+Run the static suite and runtime tests above. Transaction fixtures cover receipt safety, stale
+selections, profile isolation, rollback, reservations, partial transfers, and retained work. Actual
+connected/disconnected-player dispatch and durable saves still need a playtest. There is no new
+remote, menu, model, automatic production loop, acquisition grant, profile auto-load, save request,
+or schema migration; prototype stand collection is unchanged. See the
+[command contract](docs/TECHNICAL_DESIGN.md#atomic-shrine-collection-command).
 
 ### Shrine-upgrade logic review
 

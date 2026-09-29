@@ -299,7 +299,7 @@ describe("ShrineProduction.Settle", function()
 	end)
 end)
 
-describe("ProductionService.SettleShrines gate", function()
+describe("ProductionService Shrine command gates", function()
 	it("rejects calls before startup, after stop, and for non-Player impostors", function()
 		local root = Instance.new("Folder")
 		root.Name = "ShrineProductionServiceFixture"
@@ -314,6 +314,13 @@ describe("ProductionService.SettleShrines gate", function()
 		-- Exercise lifecycle and impostor rejection here; actual membership needs playtesting.
 		local player = { UserId = 1001, Parent = game:GetService("Players") }
 		local updates = 0
+		local reads, transactions = 0, 0
+		local request: Types.CollectShrineRequest = {
+			requestId = "0:collect",
+			expectedRevision = 0,
+			shrineInstanceId = "first",
+			expectedMaterialId = "fire_material",
+		}
 		local getStatus = Instance.new("RemoteFunction")
 		getStatus.Parent = root
 		local collect = Instance.new("RemoteFunction")
@@ -322,7 +329,14 @@ describe("ProductionService.SettleShrines gate", function()
 			local result = service.SettleShrines(value)
 			expect(result.ok).toBe(false)
 			expect(type(result.code)).toBe("string")
+			expect(service.CollectShrine(value, request)).toEqual({
+				ok = false,
+				code = "DataUnavailable",
+				revision = 0,
+			})
 			expect(updates).toBe(0)
+			expect(reads).toBe(0)
+			expect(transactions).toBe(0)
 		end
 
 		expectUnavailable(player)
@@ -334,7 +348,12 @@ describe("ProductionService.SettleShrines gate", function()
 						return { ok = false, code = "UnexpectedUpdate", revision = 0 }
 					end,
 					GetLoadedData = function(): Types.PlayerDoc?
+						reads += 1
 						return nil
+					end,
+					Transact = function(): Types.TransactionResult
+						transactions += 1
+						return { ok = false, code = "UnexpectedTransaction", revision = 0 }
 					end,
 				},
 				BaseService = {

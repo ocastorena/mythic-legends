@@ -15,7 +15,7 @@ local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 local ShrineAccounting = {}
 
-export type AssignmentChange = (
+export type AccountingChange = (
 	ShrineAccrual.State,
 	number,
 	ShrineAccrual.Metadata,
@@ -161,7 +161,7 @@ end
 local function changeToDraft(
 	draft: Types.PlayerDoc,
 	now: number,
-	change: AssignmentChange,
+	change: AccountingChange,
 	changeAssignments: boolean,
 	metadata: ShrineAccrual.Metadata?,
 	production: ShrineAccrual.ProductionConfig?,
@@ -199,6 +199,18 @@ local function changeToDraft(
 		local after = settled.shrines[id]
 		if not after or after.shrineId ~= before.shrineId or after.level ~= before.level then
 			return false, "InvalidAccountingChange"
+		end
+		if not changeAssignments then
+			for slot, workerId in before.workerIdsBySlot do
+				if after.workerIdsBySlot[slot] ~= workerId then
+					return false, "InvalidAccountingChange"
+				end
+			end
+			for slot, workerId in after.workerIdsBySlot do
+				if before.workerIdsBySlot[slot] ~= workerId then
+					return false, "InvalidAccountingChange"
+				end
+			end
 		end
 	end
 	for id in settled.shrines do
@@ -267,12 +279,26 @@ end
 function ShrineAccounting.ChangeAssignmentsToDraft(
 	draft: Types.PlayerDoc,
 	now: number,
-	change: AssignmentChange,
+	change: AccountingChange,
 	metadata: ShrineAccrual.Metadata?,
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
 ): (boolean, string?)
 	return changeToDraft(draft, now, change, true, metadata, production, progression)
+end
+
+-- Production owns collection/capacity policy. Its trusted pure reducer returns the settled
+-- accounting with a storage debit; its matching Inventory grant belongs in the SAME transaction.
+-- Unlike assignment changes, storage changes must retain every assignment and its slot identity.
+function ShrineAccounting.ChangeStorageToDraft(
+	draft: Types.PlayerDoc,
+	now: number,
+	change: AccountingChange,
+	metadata: ShrineAccrual.Metadata?,
+	production: ShrineAccrual.ProductionConfig?,
+	progression: ShrineAccrual.ProgressionConfig?
+): (boolean, string?)
+	return changeToDraft(draft, now, change, false, metadata, production, progression)
 end
 
 return table.freeze(ShrineAccounting)

@@ -1,6 +1,6 @@
 --!strict
 -- ServerScriptService/Services/ProductionService
--- Owns prototype stand production and explicit server-only Shrine settlement.
+-- Owns prototype stand production and server-only Shrine settlement/collection.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -12,12 +12,14 @@ local RateLimiter = require(infrastructure:WaitForChild("RateLimiter"))
 
 local Accrual = require(script.Accrual)
 local ShrineProduction = require(script.ShrineProduction)
+local ShrineCollector = require(script.ShrineCollector)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
 local lifecycle = ServiceLifecycle.new("ProductionService")
 local accrual: Accrual.Accrual
 local shrineProduction: ShrineProduction.ShrineProduction?
+local shrineCollector: ShrineCollector.ShrineCollector?
 
 local ProductionService = {}
 local getStatus: RemoteFunction
@@ -33,6 +35,7 @@ function ProductionService.Init(serviceContext: ServerTypes.Context)
 		end
 	)
 	shrineProduction = ShrineProduction.new(serviceContext.Services.DataService)
+	shrineCollector = ShrineCollector.new(serviceContext.Services.DataService)
 	getStatus = serviceContext.Remotes.Production.GetStatus
 	collect = serviceContext.Remotes.Production.Collect
 end
@@ -97,6 +100,7 @@ function ProductionService.Stop()
 	RemoteUtil.ClearServerHandler(collect)
 	requestLimiter:Clear()
 	shrineProduction = nil
+	shrineCollector = nil
 end
 
 function ProductionService.GetProduction(player: Player, standId: number): Accrual.ProductionStatus?
@@ -129,6 +133,24 @@ function ProductionService.SettleShrines(player: Player): Types.TransactionResul
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return production.Settle(player)
+end
+
+-- Server-only retryable command. This is not the retained prototype Collect remote.
+function ProductionService.CollectShrine(
+	player: Player,
+	request: Types.CollectShrineRequest
+): Types.TransactionResult
+	local collector = shrineCollector
+	if
+		not lifecycle:IsRunning()
+		or not collector
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return collector.Collect(player, request)
 end
 
 return ProductionService

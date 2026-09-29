@@ -273,6 +273,13 @@ export type RemoveShrineWorkerRequest = {
 	expectedWorkerId: string,
 }
 
+export type CollectShrineRequest = {
+	requestId: string,
+	expectedRevision: number,
+	shrineInstanceId: string,
+	expectedMaterialId: string,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },

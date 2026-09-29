@@ -64,6 +64,7 @@ local services: ServerTypes.Services = {
 		CollectProduction = ProductionService.CollectProduction,
 		SettleProduction = ProductionService.SettleProduction,
 		SettleShrines = ProductionService.SettleShrines,
+		CollectShrine = ProductionService.CollectShrine,
 	},
 	BaseService = {
 		BuildShrine = BaseService.BuildShrine,

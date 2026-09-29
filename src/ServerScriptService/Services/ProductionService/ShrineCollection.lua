@@ -1,6 +1,6 @@
 --!strict
 -- ServerScriptService/Services/ProductionService/ShrineCollection
--- Detached settlement and whole-Material transfer; the live adapter must commit both together.
+-- Detached settlement and whole-Material transfer; ShrineCollector commits both together.
 
 local ServerScriptService = game:GetService("ServerScriptService")
 

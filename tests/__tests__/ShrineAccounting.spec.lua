@@ -435,20 +435,22 @@ describe("ShrineAccounting.SettleToDraft", function()
 	)
 end)
 
-describe("ShrineAccounting.ChangeAssignmentsToDraft", function()
-	it(
-		"provides a fresh frozen snapshot and leaves the draft untouched on reducer rejection",
-		function()
-			local data = fixture()
-			local previous: ShrineAccrual.State? = nil
-			for _, stored in { 0, 12 } do
-				data.base.shrines.first.stored = stored
-				local before = copy(data)
-				local base, workers, clock = data.base, data.mythlings, data.productionClock
-				local ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(
-					data,
-					0.5,
-					function(state)
+local bridges: { { name: string, apply: typeof(ShrineAccounting.ChangeAssignmentsToDraft) } } = {
+	{ name = "ChangeAssignmentsToDraft", apply = ShrineAccounting.ChangeAssignmentsToDraft },
+	{ name = "ChangeStorageToDraft", apply = ShrineAccounting.ChangeStorageToDraft },
+}
+for _, bridge in bridges do
+	describe(`ShrineAccounting.{bridge.name}`, function()
+		it(
+			"provides a fresh frozen snapshot and leaves the draft untouched on reducer rejection",
+			function()
+				local data = fixture()
+				local previous: ShrineAccrual.State? = nil
+				for _, stored in { 0, 12 } do
+					data.base.shrines.first.stored = stored
+					local before = copy(data)
+					local base, workers, clock = data.base, data.mythlings, data.productionClock
+					local ok, problem = bridge.apply(data, 0.5, function(state)
 						expect(state).never.toBe(previous)
 						expect(state.shrines).never.toBe(data.base.shrines)
 						expect(state.workers).never.toBe(data.mythlings)
@@ -467,110 +469,113 @@ describe("ShrineAccounting.ChangeAssignmentsToDraft", function()
 						end
 						previous = state
 						return nil, "RejectedByReducer"
-					end
+					end)
+					expect(ok).toBe(false)
+					expect(problem).toBe("RejectedByReducer")
+					expect(data).toEqual(before)
+					expect(data.base).toBe(base)
+					expect(data.mythlings).toBe(workers)
+					expect(data.productionClock).toBe(clock)
+					expect(table.isfrozen(data.base.shrines.first)).toBe(false)
+				end
+			end
+		)
+
+		local unsupportedChanges: { { name: string, mutate: (ShrineAccrual.State) -> () } } = {
+			{
+				name = "added Shrine",
+				mutate = function(state)
+					state.shrines.extra = copy(state.shrines.first)
+					state.shrines.extra.workerIdsBySlot = {}
+				end,
+			},
+			{
+				name = "removed Shrine",
+				mutate = function(state)
+					state.shrines.first = nil
+				end,
+			},
+			{
+				name = "added worker",
+				mutate = function(state)
+					state.workers.extra = copy(state.workers.worker)
+				end,
+			},
+			{
+				name = "removed worker",
+				mutate = function(state)
+					state.shrines.first.workerIdsBySlot = {}
+					state.workers.worker = nil
+				end,
+			},
+			{
+				name = "changed form",
+				mutate = function(state)
+					state.workers.worker.formId = "other_fire_form"
+				end,
+			},
+			{
+				name = "changed Shrine definition",
+				mutate = function(state)
+					state.shrines.first.shrineId = "other_fire_shrine"
+				end,
+			},
+			{
+				name = "changed Shrine level",
+				mutate = function(state)
+					state.shrines.first.level = 2
+				end,
+			},
+			{
+				name = "wrong returned time",
+				mutate = function(state)
+					state.lastAccruedAt = 0.25
+				end,
+			},
+		}
+		for _, case in unsupportedChanges do
+			it(`rejects a valid-looking {case.name} without installing any accounting`, function()
+				local data = fixture("test_fire_form")
+				local definitions = metadata()
+				definitions.forms.other_fire_form = copy(definitions.forms.test_fire_form)
+				definitions.shrines.other_fire_shrine = copy(definitions.shrines.fire_shrine)
+				local before = copy(data)
+				local ok, problem = bridge.apply(
+					data,
+					0.5,
+					function(state, now, config, production, progression)
+						local result =
+							ShrineAccrual.Accrue(state, now, config, production, progression)
+						assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+						case.mutate(result)
+						expect(ShrineAccrual.Validate(result, now, config, production, progression)).toBeNil()
+						return result, nil
+					end,
+					definitions
 				)
 				expect(ok).toBe(false)
-				expect(problem).toBe("RejectedByReducer")
+				expect(problem).toBe("InvalidAccountingChange")
 				expect(data).toEqual(before)
-				expect(data.base).toBe(base)
-				expect(data.mythlings).toBe(workers)
-				expect(data.productionClock).toBe(clock)
-				expect(table.isfrozen(data.base.shrines.first)).toBe(false)
-			end
+			end)
 		end
-	)
 
-	local unsupportedChanges: { { name: string, mutate: (ShrineAccrual.State) -> () } } = {
-		{
-			name = "added Shrine",
-			mutate = function(state)
-				state.shrines.extra = copy(state.shrines.first)
-				state.shrines.extra.workerIdsBySlot = {}
-			end,
-		},
-		{
-			name = "removed Shrine",
-			mutate = function(state)
-				state.shrines.first = nil
-			end,
-		},
-		{
-			name = "added worker",
-			mutate = function(state)
-				state.workers.extra = copy(state.workers.worker)
-			end,
-		},
-		{
-			name = "removed worker",
-			mutate = function(state)
-				state.shrines.first.workerIdsBySlot = {}
-				state.workers.worker = nil
-			end,
-		},
-		{
-			name = "changed form",
-			mutate = function(state)
-				state.workers.worker.formId = "other_fire_form"
-			end,
-		},
-		{
-			name = "changed Shrine definition",
-			mutate = function(state)
-				state.shrines.first.shrineId = "other_fire_shrine"
-			end,
-		},
-		{
-			name = "changed Shrine level",
-			mutate = function(state)
-				state.shrines.first.level = 2
-			end,
-		},
-		{
-			name = "wrong returned time",
-			mutate = function(state)
-				state.lastAccruedAt = 0.25
-			end,
-		},
-	}
-	for _, case in unsupportedChanges do
-		it(`rejects a valid-looking {case.name} without installing any accounting`, function()
-			local data = fixture("test_fire_form")
-			local definitions = metadata()
-			definitions.forms.other_fire_form = copy(definitions.forms.test_fire_form)
-			definitions.shrines.other_fire_shrine = copy(definitions.shrines.fire_shrine)
+		it("revalidates returned accounting instead of merging invalid output", function()
+			local data = fixture()
 			local before = copy(data)
-			local ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(
-				data,
-				0.5,
-				function(state, now, config, production, progression)
-					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
-					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
-					case.mutate(result)
-					expect(ShrineAccrual.Validate(result, now, config, production, progression)).toBeNil()
-					return result, nil
-				end,
-				definitions
-			)
+			local ok, problem = bridge.apply(data, 0.5, function(state)
+				local result: ShrineAccrual.State = copy(state)
+				result.lastAccruedAt = 0.5
+				result.shrines.first.progress = -1
+				return result, nil
+			end)
 			expect(ok).toBe(false)
-			expect(problem).toBe("InvalidAccountingChange")
+			expect(problem).toBe("InvalidShrine")
 			expect(data).toEqual(before)
 		end)
-	end
-
-	it("revalidates returned accounting instead of merging invalid output", function()
-		local data = fixture()
-		local before = copy(data)
-		local ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(data, 0.5, function(state)
-			local result: ShrineAccrual.State = copy(state)
-			result.lastAccruedAt = 0.5
-			result.shrines.first.progress = -1
-			return result, nil
-		end)
-		expect(ok).toBe(false)
-		expect(problem).toBe("InvalidShrine")
-		expect(data).toEqual(before)
 	end)
+end
 
+describe("ShrineAccounting.ChangeAssignmentsToDraft", function()
 	it(
 		"composes real assignment reducers while retaining canonical and unrelated fields",
 		function()
@@ -623,6 +628,144 @@ describe("ShrineAccounting.ChangeAssignmentsToDraft", function()
 			expect(ok).toBe(true)
 			expect(problem).toBeNil()
 			expect(data).toEqual(expected)
+		end
+	)
+end)
+
+describe("ShrineAccounting.ChangeStorageToDraft", function()
+	local assignmentChanges: { { name: string, mutate: (ShrineAccrual.State) -> () } } = {
+		{
+			name = "added assignment",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot["2"] = "extra"
+			end,
+		},
+		{
+			name = "removed assignment",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot["1"] = nil
+			end,
+		},
+		{
+			name = "worker moved within a Shrine",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot["1"] = nil
+				state.shrines.first.workerIdsBySlot["2"] = "worker"
+			end,
+		},
+		{
+			name = "worker moved between Shrines",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot["1"] = nil
+				state.shrines.second.workerIdsBySlot["1"] = "worker"
+			end,
+		},
+		{
+			name = "replacement worker",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot["1"] = "extra"
+			end,
+		},
+	}
+	for _, case in assignmentChanges do
+		it(`rejects a valid-looking {case.name} without staging storage or progression`, function()
+			local data = fixture("test_fire_form")
+			data.base.shrines.first.level = 2
+			data.base.shrines.first.stored = 10
+			data.base.shrines.second = copy(data.base.shrines.first)
+			data.base.shrines.second.id = "second"
+			data.base.shrines.second.buildSlotId = 2
+			data.base.shrines.second.workerIdsBySlot = {}
+			data.mythlings.extra = copy(data.mythlings.worker)
+			local before = copy(data)
+			local base, assignments, workers, clock =
+				data.base,
+				data.base.shrines.first.workerIdsBySlot,
+				data.mythlings,
+				data.productionClock
+			local ok, problem = ShrineAccounting.ChangeStorageToDraft(
+				data,
+				1.5,
+				function(state, now, config, production, progression)
+					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+					result.shrines.first.stored -= 5
+					case.mutate(result)
+					expect(ShrineAccrual.Validate(result, now, config, production, progression)).toBeNil()
+					return result, nil
+				end,
+				metadata()
+			)
+			expect(ok).toBe(false)
+			expect(problem).toBe("InvalidAccountingChange")
+			expect(data).toEqual(before)
+			expect(data.base).toBe(base)
+			expect(data.base.shrines.first.workerIdsBySlot).toBe(assignments)
+			expect(data.mythlings).toBe(workers)
+			expect(data.productionClock).toBe(clock)
+		end)
+	end
+
+	it(
+		"merges storage and accounting while retaining assignments and unrelated saved state",
+		function()
+			local data = fixture("test_fire_form")
+			data.base.shrines.first.stored = 12
+			data.base.shrines.first.progress = 0.25
+			data.base.shrines.first.futureField = { retained = "shrine" }
+			data.mythlings.worker.luck = 91
+			data.mythlings.worker.traitIds = { "legacy_lucky" }
+			data.productionClock.futureField = { retained = "clock" }
+			data.currency.gold = 456
+			data.materials.fire_material = { total = 42 }
+			data.inventoryUpgrades = { materials = 1 }
+			data.craftingJobs = {
+				active = {
+					status = "Active",
+					reservations = { equipment = 1, materials = { fire_material = 5 } },
+				},
+			}
+			local expected = copy(data)
+			expected.base.shrines.first.stored = 8
+			expected.base.shrines.first.newWork = 0.5
+			expected.mythlings.worker.xp = 1
+			expected.mythlings.worker.pendingXp = 0.5
+			expected.productionClock.lastAccruedAt = 1.5
+			expected.productionClock.nextBatchAt = 2
+			local originalBase, originalWorker, originalClock =
+				data.base, data.mythlings.worker, data.productionClock
+			local assignments, materials, jobs, upgrades =
+				data.base.shrines.first.workerIdsBySlot,
+				data.materials,
+				data.craftingJobs,
+				data.inventoryUpgrades
+			FreezeUtil.DeepFreeze(data.base)
+			FreezeUtil.DeepFreeze(data.mythlings)
+			FreezeUtil.DeepFreeze(data.productionClock)
+			local ok, problem = ShrineAccounting.ChangeStorageToDraft(
+				data,
+				1.5,
+				function(state, now, config, production, progression)
+					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+					result.shrines.first.stored -= 5
+					return result, nil
+				end,
+				metadata()
+			)
+			expect(ok).toBe(true)
+			expect(problem).toBeNil()
+			expect(data).toEqual(expected)
+			expect(data.base.shrines.first.workerIdsBySlot).toBe(assignments)
+			expect(data.materials).toBe(materials)
+			expect(data.craftingJobs).toBe(jobs)
+			expect(data.inventoryUpgrades).toBe(upgrades)
+			expect(originalBase.shrines.first.stored).toBe(12)
+			expect(originalBase.shrines.first.newWork).toBe(0)
+			expect(originalWorker.xp).toBe(0)
+			expect(originalWorker.pendingXp).toBe(0)
+			expect(originalClock.lastAccruedAt).toBe(0)
+			expect(originalClock.nextBatchAt).toBe(1)
 		end
 	)
 end)
