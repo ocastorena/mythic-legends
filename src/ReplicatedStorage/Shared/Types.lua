@@ -297,6 +297,14 @@ export type DismantleShrineRequest = {
 	expectedLevel: number,
 }
 
+export type EvolveMythlingRequest = {
+	requestId: string,
+	expectedRevision: number,
+	workerId: string,
+	expectedFormId: string,
+	expectedTargetFormId: string,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },

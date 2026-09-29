@@ -150,9 +150,10 @@ and descriptions remain open. IDs are not player-facing names or owned-instance 
 `MythlingCatalogUtil.ValidateLaunch` validates this separate catalogue before server services start.
 Run the static suite and runtime tests above for catalogue and invalid-fixture checks. After syncing,
 a fresh Studio session should still use the unchanged three-form prototype capture/spawn and stand
-paths. The new definitions are not exposed through the service context: metadata validation does
-not activate them in the Arena, live production, evolution, sales, saves, or menus. This increment
-changes neither existing `typeId` values nor the save schema.
+paths. The definitions are not exposed through the service context: metadata validation alone does
+not activate them in the Arena or menus. Canonical Shrine commands and evolution below consume the
+relevant metadata directly; capture grants and sales remain separate integration work. The catalogue
+itself does not rewrite existing `typeId` values or change the save schema.
 
 ### Launch Material catalogue review
 
@@ -255,7 +256,8 @@ Unreferenced legacy forms without pending credit remain untouched. See the
 Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
 state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
 XP private. The server-shared adapter supports on-demand settlement, atomic assignment, collection,
-Shrine upgrades, and dismantling; it is not an automatic lifecycle hook, remote, or menu action.
+Shrine upgrades, dismantling, and Mythling evolution; it is not an automatic lifecycle hook, remote,
+or menu action.
 Callers must use it inside `DataService.Transact` or `Update`; it neither authenticates a player nor
 saves a profile by itself.
 These tests do not establish live durable persistence.
@@ -290,8 +292,8 @@ untouched. They exercise whole output, retained partial work, worker changes, ch
 levels, full/empty pauses, offline equivalence, and repeated-time safety. Long offline intervals skip
 identical batches up to the next level/storage event rather than iterating every elapsed second.
 The current live stand-production path remains unchanged. Server-only settlement, assignment,
-collection, Shrine upgrades, and dismantling use the engine through the shared adapter. Automatic
-lifecycle integration, migration of retained prototype work, and final content remain separate
+collection, Shrine upgrades, dismantling, and evolution use the engine through the shared adapter.
+Automatic lifecycle integration, migration of retained prototype work, and final content remain separate
 tasks; pure tests do not prove live persistence.
 
 Capped Mythlings continue production but stop earning new XP; any XP
@@ -479,7 +481,7 @@ schema migration. See the
 operation selecting an owned Mythling, its expected current form, and its expected next form. It
 follows the current form's optional `evolution = { targetFormId, requiredLevel }` metadata; no link
 means no further evolution, independently of rarity or stage. Required levels are configurable per
-link; synthetic launch-like tests use levels 6 and 40 without finalizing the roster.
+link; the canonical launch definitions use levels 6 and 40 without finalizing creative names/assets.
 
 Evolution is manual and free, including while assigned or while Shrine storage is full. It settles
 elapsed work under the old form before checking the earned level, then changes only that owned
@@ -489,10 +491,36 @@ early. An already-eligible Mythling can take two separate evolution actions at t
 
 Tests cover eligibility, old/new-form production within a batch, stale requests, invalid/cyclic or
 cross-element links, terminal forms, preserved inactive legacy fields, arithmetic rollback, and
-serialized continuation. The reducer validates the selected reachable chain, not the future complete
-18-form launch catalogue. It adds no live command, save-schema change, acquisition reset, or menu.
-A future authenticated service must commit the whole ledger through revision/receipt protection,
-preserving unrelated owned/profile fields. The authored Studio game and prototype roster are unchanged.
+serialized continuation. The reducer validates the selected reachable chain, while catalogue validation
+checks all six complete launch chains. The server-only command below now commits the canonical form
+change and accounting through revision/receipt protection, preserving unrelated owned/profile fields.
+The pure operation itself adds no authentication, save-schema change, acquisition reset, or menu.
+
+### Atomic Mythling-evolution command review
+
+`InventoryService.EvolveMythling(player, request)` is a server-only command for the running service
+and a connected player's already-loaded profile. `Types.EvolveMythlingRequest` contains only
+`requestId` (`<expectedRevision>:<unique token>`), `expectedRevision`, `workerId`, `expectedFormId`,
+and `expectedTargetFormId`. Retry the original request unchanged. Success returns `workerId`,
+`previousFormId`, `formId`, `level`, `xp`, and `settledAt` in transaction `values`; pending XP stays
+private.
+
+One `DataService.Transact` callback uses one server timestamp and real launch evolution links to
+settle prior work under the old form, check eligibility, and update only the selected owned `typeId`.
+Evolution is free and manual, including while assigned. Due XP can satisfy the configured level
+requirement, but unresolved partial-batch credit is never awarded early. Identity, level, XP,
+pending credit, assignments, stored output, unfinished work, inactive legacy fields, and the common
+schedule survive. A sufficiently leveled Mythling can follow the next link in a separate request
+without retraining.
+
+Failed evolution rolls back gameplay changes, including staged accounting, though DataService may
+record a rejection receipt and revision. Identity/current-form/target-bound receipts replay the
+original result without resampling time or evolving again. Run the static suite and runtime tests
+above for eligibility, all six chains, stale selections, replay, rollback, and retained-state checks.
+Actual connected/disconnected-player dispatch and durable saves still need a playtest. This adds no
+remote, menu, capture grant, schema migration, automatic production lifecycle, profile auto-load, or
+explicit save request; the prototype roster remains unchanged. See the
+[command contract](docs/TECHNICAL_DESIGN.md#atomic-mythling-evolution-command).
 
 ### Mythling-sale logic review
 

@@ -1121,6 +1121,132 @@ describe("ShrineAccounting.RemoveShrineToDraft", function()
 	)
 end)
 
+describe("ShrineAccounting.ChangeWorkerFormToDraft", function()
+	local invalidChanges: { { name: string, mutate: (ShrineAccrual.State) -> () } } = {
+		{
+			name = "unchanged form",
+			mutate = function(state)
+				state.workers.worker.formId = "test_fire_form"
+			end,
+		},
+		{
+			name = "different target",
+			mutate = function(state)
+				state.workers.worker.formId = "other_form"
+			end,
+		},
+		{
+			name = "another worker's form",
+			mutate = function(state)
+				state.workers.other.formId = "next_form"
+			end,
+		},
+		{
+			name = "added worker",
+			mutate = function(state)
+				state.workers.added = copy(state.workers.other)
+			end,
+		},
+		{
+			name = "removed worker",
+			mutate = function(state)
+				state.workers.other = nil
+			end,
+		},
+		{
+			name = "removed assignment",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot = {}
+			end,
+		},
+		{
+			name = "changed level",
+			mutate = function(state)
+				state.shrines.first.level = 2
+			end,
+		},
+		{
+			name = "changed definition",
+			mutate = function(state)
+				state.shrines.first.shrineId = "other_shrine"
+			end,
+		},
+		{
+			name = "removed Shrine",
+			mutate = function(state)
+				state.shrines.first = nil
+			end,
+		},
+		{
+			name = "added Shrine",
+			mutate = function(state)
+				state.shrines.extra = copy(state.shrines.first)
+				state.shrines.extra.workerIdsBySlot = {}
+			end,
+		},
+	}
+	for _, case in invalidChanges do
+		it(`rejects {case.name} without any draft writes`, function()
+			local data = fixture("test_fire_form")
+			data.mythlings.other = copy(data.mythlings.worker)
+			local definitions = metadata()
+			definitions.forms.next_form = { element = "Fire", baseYieldPerHour = 7_200 }
+			definitions.forms.other_form = { element = "Fire", baseYieldPerHour = 10_800 }
+			definitions.shrines.other_shrine = copy(definitions.shrines.fire_shrine)
+			local before = copy(data)
+			local base, workers, clock = data.base, data.mythlings, data.productionClock
+			local ok, problem = ShrineAccounting.ChangeWorkerFormToDraft(
+				data,
+				1,
+				"worker",
+				"next_form",
+				function(state, now, config, production, progression)
+					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+					result.workers.worker.formId = "next_form"
+					case.mutate(result)
+					expect(ShrineAccrual.Validate(result, now, config, production, progression)).toBeNil()
+					return result, nil
+				end,
+				definitions
+			)
+			expect(ok).toBe(false)
+			expect(problem).toBe("InvalidAccountingChange")
+			expect(data).toEqual(before)
+			expect(data.base).toBe(base)
+			expect(data.mythlings).toBe(workers)
+			expect(data.productionClock).toBe(clock)
+		end)
+	end
+
+	it("requires a known owned worker and valid target ID before invoking the reducer", function()
+		local cases: { { workerId: any, targetFormId: any, code: string } } = {
+			{ workerId = "missing", targetFormId = "mythling_0002", code = "WorkerNotOwned" },
+			{ workerId = "worker", targetFormId = "", code = "InvalidRequest" },
+			{ workerId = false, targetFormId = "mythling_0002", code = "InvalidRequest" },
+		}
+		for _, case in cases do
+			local data = fixture()
+			local before = copy(data)
+			local called = false
+			local ok, problem = ShrineAccounting.ChangeWorkerFormToDraft(
+				data,
+				0,
+				case.workerId,
+				case.targetFormId,
+				function()
+					called = true
+					return nil, "UnexpectedCall"
+				end
+			)
+			expect(ok).toBe(false)
+			expect(problem).toBe(case.code)
+			expect(called).toBe(false)
+			expect(data).toEqual(before)
+		end
+	end)
+end)
+
 describe("ShrineAccounting transaction integration", function()
 	it(
 		"commits exactly once while retaining live references and rejecting stale revisions",

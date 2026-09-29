@@ -14,6 +14,7 @@ local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Typ
 local Mythlings = require(script.Mythlings)
 local Materials = require(script.Materials)
 local InventoryRemotes = require(script.InventoryRemotes)
+local MythlingEvolutionCommand = require(script.MythlingEvolutionCommand)
 
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -21,12 +22,14 @@ local lifecycle = ServiceLifecycle.new("InventoryService")
 
 local InventoryService = {}
 local DataService: ServerTypes.DataApi
+local mythlingEvolution: MythlingEvolutionCommand.MythlingEvolutionCommand?
 
 -- userId -> { mythlings = table, materials = table, consumables = table }
 local sessionsByUserId: ServerTypes.InventorySessions = {}
 
 function InventoryService.Init(serviceContext: ServerTypes.Context)
 	DataService = serviceContext.Services.DataService
+	mythlingEvolution = MythlingEvolutionCommand.new(DataService)
 	Mythlings.Init(serviceContext, sessionsByUserId)
 	Materials.Init(serviceContext, sessionsByUserId)
 	InventoryRemotes.Init(serviceContext)
@@ -55,7 +58,26 @@ function InventoryService.Stop()
 		return
 	end
 	InventoryRemotes.Stop()
+	mythlingEvolution = nil
 	table.clear(sessionsByUserId)
+end
+
+-- Headless canonical command; GUI/network integration is owned separately.
+function InventoryService.EvolveMythling(
+	player: Player,
+	request: Types.EvolveMythlingRequest
+): Types.TransactionResult
+	local evolution = mythlingEvolution
+	if
+		not lifecycle:IsRunning()
+		or not evolution
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return evolution.Evolve(player, request)
 end
 
 -- Mythling inventory API used by claiming, base placement, and production.

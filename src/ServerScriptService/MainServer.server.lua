@@ -53,6 +53,7 @@ local services: ServerTypes.Services = {
 		SaveNow = DataService.SaveNow,
 	},
 	InventoryService = {
+		EvolveMythling = InventoryService.EvolveMythling,
 		GetMythlingCapacity = InventoryService.GetMythlingCapacity,
 		SaveWonMythling = InventoryService.SaveWonMythling,
 		GetMythling = InventoryService.GetMythling,

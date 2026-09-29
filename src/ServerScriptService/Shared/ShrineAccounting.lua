@@ -28,6 +28,7 @@ type ChangeScope =
 	| { kind: "Assignments" }
 	| { kind: "Upgrade", shrineInstanceId: string }
 	| { kind: "Dismantle", shrineInstanceId: string }
+	| { kind: "Evolution", workerId: string, targetFormId: string }
 
 local function defaultMetadata(): ShrineAccrual.Metadata
 	local metadata: ShrineAccrual.Metadata = { forms = {}, shrines = {} }
@@ -188,9 +189,14 @@ local function changeToDraft(
 	local changeAssignments = scope.kind == "Assignments"
 	local upgradeShrineId = if scope.kind == "Upgrade" then scope.shrineInstanceId else nil
 	local removeShrineId = if scope.kind == "Dismantle" then scope.shrineInstanceId else nil
+	local evolveWorkerId = if scope.kind == "Evolution" then scope.workerId else nil
+	local targetFormId = if scope.kind == "Evolution" then scope.targetFormId else nil
 	local selectedShrineId = upgradeShrineId or removeShrineId
 	if selectedShrineId ~= nil and not state.shrines[selectedShrineId] then
 		return false, "ShrineNotOwned"
+	end
+	if evolveWorkerId ~= nil and not state.workers[evolveWorkerId] then
+		return false, "WorkerNotOwned"
 	end
 	-- Only a fresh, immutable snapshot reaches a trusted synchronous reducer. Never accept a
 	-- precomputed ledger from a caller or expose a separate snapshot/apply pair.
@@ -207,7 +213,7 @@ local function changeToDraft(
 		return false, "InvalidAccountingChange"
 	end
 	-- Each entry point allows only its specific structural change. Never silently discard
-	-- grants, sales, evolution, or a different Shrine's level/assignment/ownership change.
+	-- grants, sales, or an unselected worker/Shrine structural change.
 	for id, before in state.shrines do
 		local after = settled.shrines[id]
 		if id == removeShrineId then
@@ -240,7 +246,12 @@ local function changeToDraft(
 	end
 	for id, before in state.workers do
 		local after = settled.workers[id]
-		if not after or after.formId ~= before.formId then
+		local expectedFormId = if id == evolveWorkerId then targetFormId else before.formId
+		if
+			not after
+			or after.formId ~= expectedFormId
+			or (id == evolveWorkerId and after.formId == before.formId)
+		then
 			return false, "InvalidAccountingChange"
 		end
 	end
@@ -280,6 +291,9 @@ local function changeToDraft(
 		entry.level = result.level
 		entry.xp = result.xp
 		entry.pendingXp = result.pendingXp
+		if id == evolveWorkerId then
+			entry.typeId = result.formId
+		end
 		mythlings[id] = entry
 	end
 	local clock = table.clone(draft.productionClock :: Types.ProductionClock)
@@ -399,6 +413,32 @@ function ShrineAccounting.RemoveShrineToDraft(
 		now,
 		change,
 		{ kind = "Dismantle", shrineInstanceId = shrineInstanceId },
+		metadata,
+		production,
+		progression
+	)
+end
+
+-- Inventory owns evolution links and eligibility. Accept only a different selected target form;
+-- every ownership key, other form, Shrine level, and assignment must survive unchanged.
+function ShrineAccounting.ChangeWorkerFormToDraft(
+	draft: Types.PlayerDoc,
+	now: number,
+	workerId: string,
+	targetFormId: string,
+	change: AccountingChange,
+	metadata: ShrineAccrual.Metadata?,
+	production: ShrineAccrual.ProductionConfig?,
+	progression: ShrineAccrual.ProgressionConfig?
+): (boolean, string?)
+	if not isId(workerId) or not isId(targetFormId) then
+		return false, "InvalidRequest"
+	end
+	return changeToDraft(
+		draft,
+		now,
+		change,
+		{ kind = "Evolution", workerId = workerId, targetFormId = targetFormId },
 		metadata,
 		production,
 		progression

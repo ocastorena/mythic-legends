@@ -39,6 +39,7 @@ export type ProductionApi = {
 	CollectShrine: (Player, SharedTypes.CollectShrineRequest) -> SharedTypes.TransactionResult,
 }
 export type InventoryApi = {
+	EvolveMythling: (Player, SharedTypes.EvolveMythlingRequest) -> SharedTypes.TransactionResult,
 	GetMythlingCapacity: (Player) -> SharedTypes.InventoryCapacity?,
 	SaveWonMythling: (Player, { typeId: string, variantId: string }) -> string?,
 	GetMythling: (Player, string) -> SharedTypes.MythlingEntry?,
