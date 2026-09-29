@@ -8,6 +8,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Bases = require(ReplicatedStorage.Shared.Configurations.Bases)
+local Production = require(ReplicatedStorage.Shared.Configurations.Production)
 local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ShrineConstruction = require(ServerScriptService.Services.BaseService.ShrineConstruction)
@@ -48,6 +49,10 @@ local function freshData(gold: number?): Types.PlayerDoc
 	data.base.craftingStation = {
 		id = "station_123",
 		craftingStationId = Bases.craftingStationId,
+	}
+	data.productionClock = {
+		lastAccruedAt = 1_000,
+		nextBatchAt = 1_000 + Production.batchIntervalSeconds,
 	}
 	return data
 end
@@ -144,6 +149,10 @@ describe("ShrineConstruction", function()
 					shrineId = shrineId,
 					buildSlotId = 1,
 					level = 1,
+					stored = 0,
+					progress = 0,
+					newWork = 0,
+					workerIdsBySlot = {},
 				})
 				expect(getmetatable(record)).toBeNil()
 				local encoded, json = pcall(function()
@@ -213,6 +222,9 @@ describe("ShrineConstruction", function()
 		)
 		expect(shrines.fire_one.shrineId).toBe("fire_shrine")
 		expect(shrines.fire_two.shrineId).toBe("fire_shrine")
+		expect(shrines.fire_one.workerIdsBySlot).never.toBe(shrines.fire_two.workerIdsBySlot)
+		expect(shrines.fire_one.workerIdsBySlot).toEqual({})
+		expect(shrines.fire_two.workerIdsBySlot).toEqual({})
 		expect(f.state.generated).toBe(2)
 	end)
 
@@ -584,6 +596,7 @@ describe("ShrineConstruction", function()
 		local mythlings = data.mythlings
 		local mythling = data.mythlings.legacy
 		local profile = data.profile
+		local clock = data.productionClock
 		local equipment = data.equipment
 		local loadout = data.combatLoadout
 		local preserved = copy({
@@ -596,6 +609,7 @@ describe("ShrineConstruction", function()
 			inventoryUpgrades = data.inventoryUpgrades,
 			craftingJobs = data.craftingJobs,
 			combatLoadout = data.combatLoadout,
+			productionClock = data.productionClock,
 		})
 		local f = fixture(data, { "preserving_build" })
 
@@ -609,6 +623,7 @@ describe("ShrineConstruction", function()
 		expect(data.mythlings).toBe(mythlings)
 		expect(data.mythlings.legacy).toBe(mythling)
 		expect(data.profile).toBe(profile)
+		expect(data.productionClock).toBe(clock)
 		expect(data.equipment).toBe(equipment)
 		expect(data.combatLoadout).toBe(loadout)
 		expect(copy({
@@ -621,6 +636,7 @@ describe("ShrineConstruction", function()
 			inventoryUpgrades = data.inventoryUpgrades,
 			craftingJobs = data.craftingJobs,
 			combatLoadout = data.combatLoadout,
+			productionClock = data.productionClock,
 		})).toEqual(preserved)
 		expect(data.currency.gold).toBe(100)
 		expect(
@@ -630,6 +646,10 @@ describe("ShrineConstruction", function()
 			shrineId = "earth_shrine",
 			buildSlotId = 1,
 			level = 1,
+			stored = 0,
+			progress = 0,
+			newWork = 0,
+			workerIdsBySlot = {},
 		})
 	end)
 end)

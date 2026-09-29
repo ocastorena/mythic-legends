@@ -8,6 +8,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Configuration = require(ReplicatedStorage.Shared.Configurations.PlayerData)
+local Production = require(ReplicatedStorage.Shared.Configurations.Production)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ProfileSchema = require(ServerScriptService.Services.DataService.ProfileSchema)
 local Projection = require(ServerScriptService.Services.DataService.Projection)
@@ -42,6 +43,12 @@ local function initializedData(version: number): Types.PlayerDoc
 		id = "retained-station",
 		craftingStationId = "basic_crafting_station",
 	}
+	if version == Configuration.schemaVersion then
+		data.productionClock = {
+			lastAccruedAt = 1_000,
+			nextBatchAt = 1_000 + Production.batchIntervalSeconds,
+		}
+	end
 	return data
 end
 
@@ -123,9 +130,13 @@ describe("MVP ProfileSchema", function()
 			expected.base.shrines = {}
 			expected.base.craftingStation =
 				{ id = stationId(), craftingStationId = "basic_crafting_station" }
+			expected.productionClock = {
+				lastAccruedAt = 1_000,
+				nextBatchAt = 1_000 + Production.batchIntervalSeconds,
+			}
 			local base, stands, jobs, receipts =
 				data.base, data.base.stands, data.craftingJobs, data.transactions
-			expect((ProfileSchema.Prepare(data, stationId))).toBe(true)
+			expect((ProfileSchema.Prepare(data, stationId, 1_000))).toBe(true)
 			expect(snapshot(data)).toEqual(expected)
 			expect(data.base).toBe(base)
 			expect(data.base.stands).toBe(stands)
@@ -141,8 +152,12 @@ describe("MVP ProfileSchema", function()
 		local station = data.base.craftingStation
 		local before = snapshot(data)
 		before.version = Configuration.schemaVersion
+		before.productionClock = {
+			lastAccruedAt = 1_000,
+			nextBatchAt = 1_000 + Production.batchIntervalSeconds,
+		}
 
-		expect((ProfileSchema.Prepare(data, neverGenerate))).toBe(true)
+		expect((ProfileSchema.Prepare(data, neverGenerate, 1_000))).toBe(true)
 		expect(snapshot(data)).toEqual(before)
 		expect(data.base).toBe(base)
 		expect(data.base.shrines).toBe(shrines)
@@ -361,6 +376,11 @@ describe("MVP ProfileSchema", function()
 				kept = { id = "kept", shrineId = "dark_shrine", buildSlotId = 1, level = 1 },
 			})
 			expect(projection.base.shrines.kept.privateLedger).toBeNil()
+			expect(projection.base.shrines.kept.stored).toBeNil()
+			expect(projection.base.shrines.kept.progress).toBeNil()
+			expect(projection.base.shrines.kept.newWork).toBeNil()
+			expect(projection.base.shrines.kept.workerIdsBySlot).toBeNil()
+			expect(projection.productionClock).toBeNil()
 			projection.base.shrines.kept.level = 3
 			expect(
 				assert(data.base.shrines, "[ProfileSchema.spec] Expected saved Shrine map").kept.level

@@ -33,6 +33,7 @@ local PlayerDataTemplate: Types.PlayerDoc = {
 		shieldInstanceId = "starter_wooden_shield",
 	},
 	mythlings = {},
+	-- ProfileSchema creates productionClock once using server time; no static accrual sentinel.
 	base = {
 		stands = {},
 		buildSlotUpgrades = 0,

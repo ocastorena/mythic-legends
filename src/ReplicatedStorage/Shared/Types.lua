@@ -217,8 +217,20 @@ export type ShrineDef = {
 	levels: { [number]: ShrineLevelDef },
 }
 
--- Construction state. Shrine-owned production/assignment ledgers are a separate increment.
-export type ShrineRecord = { id: string, shrineId: string, buildSlotId: number, level: number }
+export type ShrineRecord = {
+	id: string,
+	shrineId: string,
+	buildSlotId: number,
+	level: number,
+	-- Optional only at the legacy/load boundary; prepared schema-7 records require all four.
+	stored: number?,
+	progress: number?,
+	newWork: number?,
+	workerIdsBySlot: { [string]: string }?,
+}
+
+-- One common schedule; Shrine records never own a second independently reset clock.
+export type ProductionClock = { lastAccruedAt: number, nextBatchAt: number }
 
 export type BuildShrineRequest = {
 	requestId: string,
@@ -260,6 +272,8 @@ export type PlayerDoc = {
 	equipment: { [string]: EquipmentEntry },
 	transactions: TransactionState?,
 	craftingJobs: { [string]: CraftingJob }?,
+	-- Initialized from server time before exposure, never from a static template timestamp.
+	productionClock: ProductionClock?,
 	combatLoadout: {
 		primaryWeaponInstanceId: string?,
 		shieldInstanceId: string?,

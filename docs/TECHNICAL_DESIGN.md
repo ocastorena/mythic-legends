@@ -54,7 +54,7 @@ descendants are preserved only at explicitly mixed-ownership containers.
   `MythicLegends_MVP_v1`. It reconciles defaults, associates the user ID, handles session
   termination, and ends the session when the player leaves. The approved pre-release namespace
   leaves the old prototype store untouched. Within the MVP namespace, forward-only schema upgrades
-  add Base ownership and schema-6 Shrine slots/levels before reconciliation; the old v2-to-v3
+  add Base ownership, Shrine slots/levels, and schema-7 accounting before reconciliation; the old v2-to-v3
   prototype migration is not invoked.
   Future target-schema changes still require explicit migrations; reconciliation alone is not a
   migration. Studio uses an isolated, ephemeral mock store by default.
@@ -745,7 +745,7 @@ derive capacity solely from Shrine level, never from assigned workers or a targe
    cannot fit. Discard overflow rather than banking it as output or unfinished work. Subsequent
    full-storage time produces no Materials or XP.
 5. Commit stored output, unfinished production progress, any unresolved batch work,
-   pending XP contributions, level/XP changes, and the accrual cursor together through DataService.
+   pending XP contributions, level/XP changes, and the common accrual/batch cursors through DataService.
    Consume each pending credit once; moving, selling, or replacing a Mythling must not redirect its
    XP to a different instance. Retain sub-unit XP precision with the earned state instead of
    rounding each short interval independently.
@@ -757,8 +757,8 @@ derive capacity solely from Shrine level, never from assigned workers or a targe
    checkpoints, settle each Shrine before advancing `lastOnlineCheckpointAt`; commit both together.
    After an unclean shutdown, the precise disconnect time may be unavailable: use the last persisted
    checkpoint as an estimated offline boundary. This recovery can treat unsaved online time as
-   offline; it must never replay time before a Shrine's saved cursor. On join, settle the saved
-   offline interval before clearing `offlineSince` and starting online accounting.
+   offline; it must never replay time before the profile's saved `lastAccruedAt`. On join, settle
+   the saved offline interval before clearing `offlineSince` and starting online accounting.
 7. Collection settles accrual, computes the whole quantity that fits in destination Material
    capacity after active crafting reservations, and atomically transfers that quantity. Keep the
    uncollected Materials in the Shrine and preserve unfinished production progress and batch timing.
@@ -778,8 +778,9 @@ work and XP rather than rounding each interval or replaying its result.
 The server-shared `ShrineAccrual.Accrue` reducer implements this arithmetic with injected
 form/Shrine metadata and a profile-wide `lastAccruedAt`/`nextBatchAt` schedule. Its returned ledger is
 not a replacement PlayerDoc or owned-Mythling record. Future integration must merge the accounting
-fields into a single transaction, preserving identity and inactive legacy metadata. The adapter must
-initialize the common schedule once, retain it across calls, and settle before changing inputs;
+fields into a single transaction, preserving identity and inactive legacy metadata. ProfileSchema
+initializes the common schedule once under the [schema-7 foundation](#schema-7-shrine-accounting-foundation).
+The future adapter must retain it across calls and settle before changing inputs;
 changing cadence requires explicit schedule reconciliation, not resetting partially earned work.
 Shrine-to-Material IDs are fixed by the [launch Material catalogue](#launch-material-catalogue).
 Preserve these identities when integrating persistence so settled output cannot be reinterpreted.
@@ -1456,7 +1457,7 @@ equipment[instanceId]   -- definitionId, optional finishId, isStarterGrant, uniq
 combatLoadout           -- optional primaryWeaponInstanceId and shieldInstanceId
 mythlings[instanceId]   -- owned Mythling schema below
 base                    -- build-slot upgrades, constructed Shrines, permanent Station record
-productionClock         -- server-authored lastOnlineCheckpointAt and optional offlineSince
+productionClock         -- common lastAccruedAt/nextBatchAt; future recovery metadata below
 craftingJobs[jobId]     -- at most one active Crafting Job at launch; receipt and reservations below
 unlocks                 -- approved progression/unlock flags
 requestReceipts         -- bounded mutation IDs/results for duplicate-safe resolution
@@ -1469,11 +1470,12 @@ a newer period. Keep completed purchase results in bounded `requestReceipts` ind
 rollover. Forward-only migrations preserve Gold, Inventory, upgrades, and any existing purchase usage.
 
 `base` saves only player-specific state. Each built Shrine record contains a unique `id`, its static
-`shrineId`, a unique `buildSlotId` within unlocked capacity, current level, whole stored output
-quantity, unfinished production progress, unresolved
-batch `newWork`, last production-accrual time, and assigned Mythling instance IDs by slot. Keep prior
-unfinished progress separate from unresolved batch work so reconnects cannot replay it and worker
-changes cannot recalculate work already earned. The required permanent Crafting Station record
+`shrineId`, a unique `buildSlotId` within unlocked capacity, current level, whole `stored` output,
+unfinished `progress`, unresolved batch `newWork`, and assigned Mythling instance IDs in
+`workerIdsBySlot`. One profile-wide `productionClock.lastAccruedAt` and `nextBatchAt` schedule
+all Shrines; do not save a copied cursor on each Shrine. Keep prior unfinished progress separate
+from unresolved batch work so reconnects cannot replay it and worker changes cannot recalculate
+work already earned. The required permanent Crafting Station record
 contains a stable unique `id` and its static `craftingStationId`, independently of
 Shrine build slots. Station levels are introduced with the future upgrade system. Structure
 elements, Material output, capacities, slot grants, and Shrine build costs are resolved from metadata.
@@ -1484,6 +1486,36 @@ they must not create another Station or restart its job. Migrations reuse an exi
 identity when present and preserve active-job links, promised result/finish, paid costs, deadline,
 and reservations. Remove any legacy Station occupancy from the build-slot count without removing
 Shrines or jobs. No separate purchased-Station flag or construction receipt is required at launch.
+
+### Schema-7 Shrine accounting foundation
+
+`ProfileSchema.Prepare(data, createStationId, now?)` adds the empty Shrine accounting foundation
+within the existing MVP namespace. Server time defaults to `os.time()` and may be injected for
+deterministic tests. The schema-4/5 layout upgrades remain; schema-4–6 Shrine records with wholly
+absent accounting receive `stored = 0`, `progress = 0`, `newWork = 0`, and `workerIdsBySlot = {}`.
+The common clock is initialized once at preparation time with `lastAccruedAt = now` and
+`nextBatchAt = now + Production.batchIntervalSeconds`, never from `lastLoginAt` or a prior feature's
+cursor. Empty initialization grants no output or XP and introduces no pre-feature backfill.
+`PlayerDataTemplate` contains no static production timestamps; load creates the clock.
+
+Preparation preserves existing valid complete accounting and clocks, Station/Shrine identities,
+and unrelated fields. Ambiguous partial accounting, invalid state, or existing Shrine accounting
+without its clock is rejected without rewriting earned state. Current schema-7 profiles must
+already contain the required fields; only a genuinely new empty template profile with its original
+initialization sentinels may receive its first clock. Repeated preparation retains that clock.
+`BaseService.BuildShrine` initializes the four empty accounting fields inside its existing
+transaction without restarting or advancing the profile schedule.
+
+The existing DataService persistence path owns these fields, and its explicit client projection
+continues to omit the private Shrine accounting and root clock. This foundation creates no second
+owned-Mythling/worker map and changes no Mythling progression or inactive Luck/Trait data. The live
+accounting adapter, accrual, assignment/collection actions, and presentation remain separate work;
+prototype stand paths are untouched. The `lastOnlineCheckpointAt` and optional `offlineSince`
+bookkeeping in the [production lifecycle target](#production-accrual) is not initialized or advanced
+by this increment. Existing DataService saves are not a new production checkpoint loop, and
+serialized-state tests do not establish live durable-save behavior.
+
+### Shrine assignments and retained ownership
 
 The Shrine slot map is the sole persisted source of assignment. An owned Mythling may appear in at
 most one slot across the Base. Build reverse lookup indexes from this map on load;
@@ -1553,7 +1585,7 @@ id                 -- unique owned-Mythling instance ID
 mythlingId         -- current Mythling-form metadata ID
 level
 xp                 -- progress toward the next level, retaining earned precision
-pendingXp          -- earned credit and scheduled batch time, cleared when awarded
+pendingXp          -- earned credit, awarded on the common profile batch schedule
 acquiredAt
 ```
 
@@ -1586,7 +1618,7 @@ to resolve it, without a separate rarity roll or saved copy of the static value.
 | Game data | Metadata (static, version-controlled) | DataService player document (mutable) | Runtime-only server state |
 | --- | --- | --- | --- |
 | Mythling form | `mythlingId`, name, element, rarity, evolution stage, visuals, base Yield, shared acquisition defaults and progression curves, evolution target/level, Arena eligibility, capture tuning, optional spawn lifetime override, sell eligibility and fixed form Gold value | Owned instance ID, current `mythlingId`, level, XP with retained precision, acquisition data; inactive legacy Luck/Trait values only if already present | Spawned contest, occupancy/entry order, per-player capture meters, countdown/overtime state; reverse Shrine-assignment index |
-| Shrine-work XP | Shared activity `baseXpPerSecond` | Pending earned credit and scheduled batch time on each owned Mythling; awarded XP stays on that instance | Per-worker eligible time and resolved activity rate |
+| Shrine-work XP | Shared activity `baseXpPerSecond` | Pending earned credit on each owned Mythling; awarded XP stays on that instance; timing uses the common production clock | Per-worker eligible time and resolved activity rate |
 | Luck and Passive Traits (future) | No required launch definitions; future update needs an approved design | Existing legacy `luck` and `traitId` retained unchanged; absent on new launch captures | None at launch |
 | Material | `materialId`, element, display data, stack limit, fixed unit Gold sell/buy prices, crafting use | Quantity by `materialId` | World pickup/claim state, if introduced in an approved system |
 | Equipment | Base definition ID, stage/type, category, model, Primary Weapon hands required, base gameplay values, sell eligibility/value, supported variant IDs/elements/item names/recolors/sword effect references, fixed rarity per named item | Owned instance ID, definition ID, optional finish ID referencing the Stage 1 variant, starter-grant identity, Combat Loadout references, approved unique mutable state | Equipped selection and variant presentation, cooldowns, Shield state |
@@ -1594,8 +1626,8 @@ to resolve it, without a separate rarity roll or saved copy of the static value.
 | Inventory capacity | Initial per-tab limits, stack rules, upgrade IDs, slot grants, Gold costs and fixed Material mixes, eligibility | Purchased per-tab upgrade IDs/levels | Derived occupied/available capacity, including job reservations |
 | Shop | Refresh schedule, period/offer revisions, Material references and limits, Featured selection, Equipment references/prices/limits; Inventory-upgrade references | Current period ID and purchased quantities by stable stock key; bounded purchase results in mutation receipts | Current catalogue view, derived personal remaining stock and next refresh time |
 | Base | Build-slot upgrades with Gold costs and fixed Material mixes, slot grants/limits, Shrine eligibility, included Station definition/placement | Purchased build-slot upgrade state, constructed Shrine records, permanent Station record | Spawned Base model references and Shrine-only build-slot occupancy |
-| Shrine | `shrineId`, element, output Material, levels 1–3, storage capacities, 1/2/3 assignment slots, upgrade costs | Instance ID, level, whole stored output, unfinished progress, unresolved batch new work, last accrual time, assigned Mythling IDs | Current production resolution during accrual/collection |
-| Production clock | Batch interval and approved accrual rules | Last online checkpoint and optional offline-start timestamp | Active session/transition accounting |
+| Shrine | `shrineId`, element, output Material, levels 1–3, storage capacities, 1/2/3 assignment slots, upgrade costs | Instance ID, level, whole stored output, unfinished progress, unresolved batch new work, assigned Mythling IDs by slot | Current production resolution during accrual/collection |
+| Production clock | Batch interval and approved accrual rules | One profile-wide `lastAccruedAt`/`nextBatchAt`; future lifecycle integration adds online checkpoint/offline-start bookkeeping | Active session/transition accounting |
 | Crafting Station | `craftingStationId`, included Base placement, eligible recipes, single-job launch limit | Stable permanent instance ID and definition ID | World presentation and current menu/session references |
 | Recipe and Crafting Job | `recipeId`, fixed inputs, Gold cost, result definition/finish/quantity, duration, unlock requirement | Job ID, recipe/station instance IDs, status, start/completion time, promised result including finish, actual paid costs, output/refund reservations | Completion scheduling while a server is live |
 | Arena spawn rules | Rarity-weighted pool, capturable-population target, refill window, positions, rarity-default lifetimes and optional named-form overrides, capture rates | None | Capturable Mythlings and Capture Rings including start/expiry timestamps and overtime, initial-population readiness, pending replenishment |
@@ -1823,9 +1855,9 @@ remove each item when the implementation is aligned; these notes do not authoriz
 
 | Area | Current source | Target contract / required alignment |
 | --- | --- | --- |
-| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 6: 100 initial Gold, starter protection, Inventory-upgrade ownership, private transaction state, crafting reservation bookkeeping, and Base ownership. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) preserves v4/v5 progression, jobs, receipts, and prototype ledgers while adding missing Base ownership or deterministic Shrine slot/level fields. No new Consumables field. | Replace remaining prototype records with the target Shrine/form/complete job schema as their features ship. The deliberate fresh namespace is not permission to reset subsequent progress. |
+| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 7 with the existing initial Gold, starter protection, Inventory upgrades, transactions, crafting reservations, and Base ownership. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) preserves v4–v6 earned/unknown state, retains earlier layout upgrades, and adds empty Shrine accounting plus a once-initialized private common production clock. Partial/ambiguous accounting is rejected; no Mythling or prototype-ledger rewrite occurs. | Integrate the accounting adapter and production lifecycle separately; replace remaining prototype form/complete job records as their features ship. Schema preparation awards no work and does not prove durable persistence. The deliberate fresh namespace is not permission to reset subsequent progress. |
 | Base foundation | [BaseState](../src/ServerScriptService/Shared/BaseState.lua) derives two initial Shrine-only slots and four configurable one-slot expansions from purchased state. Load initializes one free, unique Station identity; [BaseRuntime](../src/ServerScriptService/Services/BaseService/BaseRuntime.lua) binds it to the existing authored `PB_CraftingStation_Root` model. `base.status`, allowlisted `base.shrines`, and world attributes expose presentation state, not purchase authority. | No expansion purchase or crafting action yet. Keep `base.stands` and its existing placement/collection paths functional until the replacement can preserve their earned work. Authored Shrine markers/models remain separate work; the Shrine asset is provisional. |
-| Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. No model or roster dependency. Saved records contain `id`, `shrineId`, `buildSlotId`, and `level`; projection excludes any additional private fields. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete upgrade metadata validation, Shrine production/assignment ledgers, and presentation before enabling player-facing construction. Upgrades, dismantling, and production are not implemented by this command. |
+| Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. Saved records contain identity, definition, slot, level, and empty `stored`/`progress`/`newWork`/`workerIdsBySlot` fields. Construction leaves the common clock unchanged; projection exposes only identity, definition, slot, and level. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete upgrade metadata validation, live production/assignment integration, and presentation before enabling player-facing construction. Upgrades, dismantling, and accrual are not implemented by this command. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Integrate these references into the live Shrine/save lifecycle and later recipes, upgrades, Shop, and sales in separate increments; metadata alone adds none of those actions. |
 | Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Live callers retain their prior behavior; `ValidateMaterialState` rejects malformed inputs to isolated Shrine collection/upgrades. | Add validated Inventory-capacity purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting. |

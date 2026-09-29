@@ -202,13 +202,31 @@ and `expectedGoldCost`. Reuse the original request to retry. Success returns `sh
 projection carries the confirmed Gold, owned Shrines, and capacity. A stale price is rejected,
 never silently charged. Persisted receipts prevent repeat charges even after reconnect.
 
-Schema 6 adds missing slot IDs and levels to v4/v5 records without resetting earned state. Existing
-valid slots and levels are retained; incomplete older records receive deterministic lowest-free
-slots and level 1. Corrupt or conflicting ownership is rejected rather than erased or remapped.
+The schema-6 layout upgrade adds missing slot IDs and levels to v4/v5 records without resetting
+earned state. Existing valid slots and levels are retained; incomplete older records receive
+deterministic lowest-free slots and level 1. Corrupt or conflicting ownership is rejected rather
+than erased or remapped.
 The automated suite exercises all six elements, duplicate and stale requests, full capacity,
 insufficient Gold, rollback, automatic gap filling, projection privacy, and serialized reconnects.
 Production, assignments, upgrades, dismantling, and UI integration are separate reviewable tasks.
 These checks establish in-session atomicity and serialized-state behavior, not live save durability.
+
+### Shrine-accounting save foundation review
+
+Schema 7 adds empty `stored`, `progress`, `newWork`, and `workerIdsBySlot` fields to constructed
+Shrines, plus one private profile-wide `productionClock` with `lastAccruedAt` and `nextBatchAt`.
+Load initializes that schedule once from current server time, never from an old login time. New
+Shrine construction initializes its empty fields in the existing purchase transaction without
+shifting the shared clock. No production or XP is awarded by these additions.
+
+Run the static suite and runtime tests above. Schema tests cover additive v4–v6 upgrades, repeated
+preparation, serialized-state retention, invalid/partial accounting rejection, and projection
+privacy; construction tests check empty fields and unchanged clock timing. Existing valid state,
+identities, unrelated fields, and prototype stand behavior must survive. This is the saved-state
+foundation only: no live accrual, assignment, collection, Mythling progression changes, or UI is
+enabled. Existing DataService saves own the new fields; tests and ordinary Studio mocks do not
+prove live durable persistence. See the
+[schema contract](docs/TECHNICAL_DESIGN.md#schema-7-shrine-accounting-foundation).
 
 ### Shrine-accounting logic review
 

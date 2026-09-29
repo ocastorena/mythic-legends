@@ -180,6 +180,10 @@ function ShrineConstruction.new(
 				shrineId = request.shrineId,
 				buildSlotId = buildSlotId,
 				level = initialLevel,
+				stored = 0,
+				progress = 0,
+				newWork = 0,
+				workerIdsBySlot = {},
 			}
 			if not BaseState.GetStatus(draft.base) then
 				return { ok = false, code = "InvalidBaseState" }
