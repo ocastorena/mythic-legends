@@ -49,6 +49,14 @@ describe("InventoryService canonical command gates", function()
 			expectedGoldValue = 25,
 		}
 		local function expectUnavailable(player: unknown)
+			expect(service.UpgradeCapacity(player, {
+				requestId = "0:upgrade",
+				expectedRevision = 0,
+				category = "materials",
+				expectedUpgradeCount = 0,
+				expectedGoldCost = 20_000,
+				expectedMaterialQuantity = 50,
+			})).toEqual({ ok = false, code = "DataUnavailable", revision = 0 })
 			expect(service.EvolveMythling(player, evolve)).toEqual({
 				ok = false,
 				code = "DataUnavailable",

@@ -16,6 +16,7 @@ local Materials = require(script.Materials)
 local InventoryRemotes = require(script.InventoryRemotes)
 local MythlingEvolutionCommand = require(script.MythlingEvolutionCommand)
 local MythlingSaleCommand = require(script.MythlingSaleCommand)
+local CapacityUpgradePurchase = require(script.CapacityUpgradePurchase)
 
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -25,6 +26,7 @@ local InventoryService = {}
 local DataService: ServerTypes.DataApi
 local mythlingEvolution: MythlingEvolutionCommand.MythlingEvolutionCommand?
 local mythlingSale: MythlingSaleCommand.MythlingSaleCommand?
+local capacityUpgrade: CapacityUpgradePurchase.CapacityUpgradePurchase?
 
 -- userId -> { mythlings = table, materials = table, consumables = table }
 local sessionsByUserId: ServerTypes.InventorySessions = {}
@@ -33,6 +35,7 @@ function InventoryService.Init(serviceContext: ServerTypes.Context)
 	DataService = serviceContext.Services.DataService
 	mythlingEvolution = MythlingEvolutionCommand.new(DataService)
 	mythlingSale = MythlingSaleCommand.new(DataService)
+	capacityUpgrade = CapacityUpgradePurchase.new(DataService)
 	Mythlings.Init(serviceContext, sessionsByUserId)
 	Materials.Init(serviceContext, sessionsByUserId)
 	InventoryRemotes.Init(serviceContext)
@@ -63,6 +66,7 @@ function InventoryService.Stop()
 	InventoryRemotes.Stop()
 	mythlingEvolution = nil
 	mythlingSale = nil
+	capacityUpgrade = nil
 	table.clear(sessionsByUserId)
 end
 
@@ -99,6 +103,23 @@ function InventoryService.SellMythling(
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return sale.Sell(player, request)
+end
+
+function InventoryService.UpgradeCapacity(
+	player: Player,
+	request: Types.UpgradeInventoryCapacityRequest
+): Types.TransactionResult
+	local purchase = capacityUpgrade
+	if
+		not lifecycle:IsRunning()
+		or not purchase
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return purchase.Upgrade(player, request)
 end
 
 -- Mythling inventory API used by claiming, base placement, and production.

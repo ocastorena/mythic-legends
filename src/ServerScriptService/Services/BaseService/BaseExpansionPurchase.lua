@@ -7,11 +7,9 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local Bases = require(ReplicatedStorage.Shared.Configurations.Bases)
-local Materials = require(ReplicatedStorage.Shared.Configurations.Materials)
-local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)
 local PlayerData = require(ReplicatedStorage.Shared.Configurations.PlayerData)
 local BaseState = require(ServerScriptService.Shared.BaseState)
-local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
+local UpgradePaymentUtil = require(ServerScriptService.Shared.UpgradePaymentUtil)
 
 export type DataSource = {
 	GetLoadedData: (Player) -> Types.PlayerDoc?,
@@ -33,15 +31,6 @@ local REQUEST_FIELDS = {
 	expectedGoldCost = true,
 	expectedMaterialQuantity = true,
 }
-local ELEMENTS: { [string]: boolean } = {
-	Fire = true,
-	Water = true,
-	Earth = true,
-	Air = true,
-	Light = true,
-	Dark = true,
-}
-table.freeze(ELEMENTS)
 
 local function whole(value: unknown): boolean
 	return type(value) == "number"
@@ -107,11 +96,9 @@ local function hasValidConfiguration(): boolean
 		or Bases.initialShrineSlots < 1
 		or not isPlain(Bases.buildSlotGrants)
 		or not isPlain(Bases.buildSlotUpgradeCosts)
-		or not isPlain(Bases.expansionMaterialIds)
+		or not UpgradePaymentUtil.ValidateMaterialMix(Bases.expansionMaterialIds)
 		or #Bases.buildSlotGrants == 0
 		or #Bases.buildSlotUpgradeCosts ~= #Bases.buildSlotGrants
-		or not whole(Inventory.materialStackLimit)
-		or Inventory.materialStackLimit < 1
 	then
 		return false
 	end
@@ -131,11 +118,7 @@ local function hasValidConfiguration(): boolean
 			not whole(index)
 			or index < 1
 			or index > #Bases.buildSlotGrants
-			or not isPlain(cost)
-			or not whole(cost.gold)
-			or cost.gold < 1
-			or not whole(cost.materialQuantity)
-			or cost.materialQuantity < 1
+			or not UpgradePaymentUtil.ValidateCost(cost)
 		then
 			return false
 		end
@@ -144,30 +127,7 @@ local function hasValidConfiguration(): boolean
 	if count ~= #Bases.buildSlotGrants then
 		return false
 	end
-	local elements: { [string]: boolean } = {}
-	count = 0
-	for index, materialId in Bases.expansionMaterialIds do
-		if not whole(index) or index < 1 or index > 6 or not isId(materialId) then
-			return false
-		end
-		local definition = Materials[materialId]
-		if not isPlain(definition) or definition.launchEnabled ~= true then
-			return false
-		end
-		local element = definition.element
-		if
-			not element
-			or not ELEMENTS[element]
-			or elements[element]
-			or definition.category ~= "material"
-			or definition.stackLimit ~= Inventory.materialStackLimit
-		then
-			return false
-		end
-		elements[element] = true
-		count += 1
-	end
-	return count == 6 and whole(Bases.initialShrineSlots + #Bases.buildSlotGrants)
+	return whole(Bases.initialShrineSlots + #Bases.buildSlotGrants)
 end
 
 function BaseExpansionPurchase.new(DataService: DataSource): BaseExpansionPurchase
@@ -232,41 +192,11 @@ function BaseExpansionPurchase.new(DataService: DataSource): BaseExpansionPurcha
 			then
 				return { ok = false, code = "PriceChanged" }
 			end
-			local materialError = InventoryCapacity.ValidateMaterialState(draft)
-			if materialError then
-				return { ok = false, code = materialError }
+			local paymentError =
+				UpgradePaymentUtil.PayToDraft(draft, cost, Bases.expansionMaterialIds)
+			if paymentError then
+				return { ok = false, code = paymentError }
 			end
-			if not isPlain(draft.currency) or not whole(draft.currency.gold) then
-				return { ok = false, code = "InvalidCurrency" }
-			end
-			-- The complete fixed recipe must fit before the purchase, with every active refund
-			-- reservation retained. Unrelated old holdings do not pay or substitute for it.
-			local payment = table.clone(draft)
-			payment.materials = {}
-			for _, materialId in Bases.expansionMaterialIds do
-				payment.materials[materialId] = { total = cost.materialQuantity }
-			end
-			local paymentCapacity = InventoryCapacity.GetUsage(payment, "materials")
-			if paymentCapacity.used > paymentCapacity.limit then
-				return { ok = false, code = "MaterialCapacityTooSmall" }
-			end
-			if draft.currency.gold < cost.gold then
-				return { ok = false, code = "InsufficientGold" }
-			end
-			for _, materialId in Bases.expansionMaterialIds do
-				local owned = draft.materials[materialId]
-				if not owned or owned.total < cost.materialQuantity then
-					return { ok = false, code = "InsufficientMaterials" }
-				end
-			end
-			for _, materialId in Bases.expansionMaterialIds do
-				local owned = draft.materials[materialId]
-				owned.total -= cost.materialQuantity
-				if owned.total == 0 then
-					draft.materials[materialId] = nil
-				end
-			end
-			draft.currency.gold -= cost.gold
 			base.buildSlotUpgrades = nextCount
 			local expanded = BaseState.GetStatus(base)
 			if not expanded or expanded.unlockedShrineSlots ~= status.unlockedShrineSlots + 1 then

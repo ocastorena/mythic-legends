@@ -2,6 +2,7 @@
 -- ReplicatedStorage/Shared/Configurations/Inventory
 
 local FreezeUtil = require(script.Parent.Parent.FreezeUtil)
+local UpgradeMaterials = require(script.Parent.UpgradeMaterials)
 
 local capacityByCategory: { [string]: { number } } = {
 	materials = { 12, 24, 36 },
@@ -11,6 +12,11 @@ local capacityByCategory: { [string]: { number } } = {
 
 return FreezeUtil.DeepFreeze({
 	capacityByCategory = capacityByCategory,
+	capacityUpgradeCosts = {
+		{ gold = 20_000, materialQuantity = 50 },
+		{ gold = 300_000, materialQuantity = 200 },
+	},
+	upgradeMaterialIds = UpgradeMaterials,
 	materialStackLimit = 1_000,
 	-- Compatibility for the existing capture path while consumers adopt category capacity.
 	mythlingCapacities = capacityByCategory.mythlings,

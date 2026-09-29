@@ -326,6 +326,15 @@ export type SellMythlingRequest = {
 	expectedGoldValue: number,
 }
 
+export type UpgradeInventoryCapacityRequest = {
+	requestId: string,
+	expectedRevision: number,
+	category: "materials" | "mythlings" | "equipment",
+	expectedUpgradeCount: number,
+	expectedGoldCost: number,
+	expectedMaterialQuantity: number,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },

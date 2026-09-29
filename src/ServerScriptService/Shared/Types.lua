@@ -49,6 +49,10 @@ export type ProductionApi = {
 export type InventoryApi = {
 	EvolveMythling: (Player, SharedTypes.EvolveMythlingRequest) -> SharedTypes.TransactionResult,
 	SellMythling: (Player, SharedTypes.SellMythlingRequest) -> SharedTypes.TransactionResult,
+	UpgradeCapacity: (
+		Player,
+		SharedTypes.UpgradeInventoryCapacityRequest
+	) -> SharedTypes.TransactionResult,
 	GetMythlingCapacity: (Player) -> SharedTypes.InventoryCapacity?,
 	SaveWonMythling: (Player, { typeId: string, variantId: string }) -> string?,
 	GetMythling: (Player, string) -> SharedTypes.MythlingEntry?,

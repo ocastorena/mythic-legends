@@ -573,8 +573,9 @@ release; do not infer live roster readiness from the 12-contest target or valida
 
 Capture grants now enforce the configured Mythling limits of 24/36/48, derived from optional saved
 `inventoryUpgrades.mythlings` (absent means zero purchases). Existing owned entries, including those
-assigned to Shrines or above capacity, are retained and counted. Upgrade purchasing remains a
-separate feature. The [capture-grant boundary](#canonical-capture-grant-boundary) supports the
+assigned to Shrines or above capacity, are retained and counted. The server-only
+[capacity-upgrade command](#atomic-inventory-capacity-upgrade-command) purchases the next category
+limit. The [capture-grant boundary](#canonical-capture-grant-boundary) supports the
 18 canonical forms without activating their live spawn pool. New canonical captures alone initialize
 `level = 1`, `xp = 0`, and `pendingXp = 0`; existing progression is not reset or migrated.
 
@@ -1423,6 +1424,8 @@ The closed request carries `requestId`, `expectedRevision`, `expectedUpgradeCoun
 client-selected upgrade index, Material map, build slot, or target capacity. The initial four prices
 are 10,000/50,000/150,000/500,000 Gold plus 50/100/150/200 of every normal Material respectively.
 Each purchase adds one slot to the initial two; four purchases reach six unlocked slots.
+The Material mix is shared with Inventory upgrades through `Configurations.UpgradeMaterials`;
+`UpgradePaymentUtil` validates and pays both features' fixed recipes without sharing their prices.
 
 Validate the current player-data schema, Base/Station ownership and slot assignments, saved expansion
 count, current costs, Gold, collected Material quantities, Inventory-upgrade state, and crafting
@@ -1456,6 +1459,59 @@ conflicts, and stale/evicted requests cannot purchase again. Purchased slots rem
 dismantling, reset, reconnect, and later price changes
 without retroactive payment. Runtime transaction success and serialized tests do not establish
 durable-save acknowledgement.
+
+### Atomic Inventory-capacity upgrade command
+
+`InventoryService.UpgradeCapacity(player, request)` is a server-only command for a connected player's
+already-loaded profile while InventoryService is running. Private
+`CapacityUpgradePurchase.new(dataSource).Upgrade(player, request)` owns the sequential purchase in
+one revision-bound `DataService.Transact`. It neither loads a profile nor
+adds a GUI, remote, timer, schema migration, or Shop stock mutation.
+
+The closed request carries `requestId`, `expectedRevision`, `category`, `expectedUpgradeCount`,
+`expectedGoldCost`, and `expectedMaterialQuantity`. Categories are exactly `materials`, `mythlings`,
+and `equipment`; the last field quotes the amount of each normal Material, not a combined total or
+chosen substitute. Resolve the next upgrade and full fixed mix from server configuration. Each
+category has two independent +12-slot purchases: Materials/Equipment 12/24/36 and Mythlings 24/36/48.
+First purchases cost 20,000 Gold plus 50 of each normal Material; final purchases cost 300,000 Gold
+plus 200 of each, defined by `Inventory.capacityUpgradeCosts`. The caller cannot buy multiple
+upgrades at once or skip to a later one.
+
+Validate the current player-data schema, category purchase state, quoted count/prices, owned Gold
+and Material quantities, and all active refund reservations against the same draft. Check the full
+fixed recipe plus those reservations against the Material capacity available **before** increasing
+any purchased count. A Material-capacity upgrade cannot bootstrap space for its own ingredients.
+A full category may still be upgraded when the player already owns a valid payment; no free output
+slot is required because this action acquires capacity, not an item.
+Absent saved category counts mean zero purchases. Validate every known category's present count as
+a whole value from zero through two, retaining unknown saved upgrade fields. Validate the selected
+owned collection's shape and bounded instance/Material IDs without deleting or rejecting entries
+merely because their retained count is above the current limit.
+
+`Shared.Configurations.UpgradeMaterials` owns the six-normal-Material mix, re-exported through
+`Bases.expansionMaterialIds` and `Inventory.upgradeMaterialIds`. Feature configurations retain their
+own prices. Server-shared `UpgradePaymentUtil.PayToDraft` supplies both Base expansion and Inventory
+upgrades with the same whole-cost, pre-purchase Material-capacity, and reservation-safe payment
+validation. Spend only owned collected Materials and Gold; never spend Shrine storage or reservations,
+release reservations, or resolve a Crafting Job as a side effect of payment.
+
+Commit the payment, exactly one increment to `inventoryUpgrades[category]`, and the request receipt
+together. Derive capacity from configuration and the saved purchase count; save no copied static
+limit, recipe, or price. Preserve other categories' counts, all owned Mythlings and Equipment,
+Combat Loadout, purchased Base slots, Shrines/output/XP, production clock, and crafting receipts.
+Bind the receipt to the category and all quotes so retries replay the original result and altered
+payloads conflict; stale or evicted requests cannot buy capacity twice.
+The transaction operation is `Inventory.UpgradeCapacity`; success returns `category`,
+`previousUpgradeCount`, `upgradeCount`, `limit`, `maxLimit`, `goldSpent`, and `materialsSpentPerType`.
+Changed progression/prices return `UpgradeCountChanged`/`PriceChanged`; a third purchase returns
+`MaxCapacity`. Invalid saved upgrade state fails with `InvalidInventoryUpgrade` instead of being
+coerced to a cheaper purchase. The payment helper's capacity/affordability/reservation failures roll
+back both payment and the capacity grant.
+
+These purchases consume no Shop allowance and depend on no stock period. Shop refresh, reconnect,
+reset, and later price changes neither revoke purchased capacity nor charge retroactively. The
+second purchase is that category's maximum, not an offer waiting to restock. Automated transaction
+and serialized-state tests do not establish connected-player dispatch or durable-save acknowledgement.
 
 ### Space recovery transactions
 
@@ -1648,7 +1704,8 @@ Exhausted allowances remain unavailable until their scheduled restock.
   These purchases require no available item slot or stock period and consume no Shop restock
   allowance. A full Inventory can still upgrade when it already owns all required costs; those
   ingredients must fit before the upgrade. Preserve purchased capacity through later price changes
-  without retroactive charges.
+  without retroactive charges. The [server-only capacity command](#atomic-inventory-capacity-upgrade-command)
+  implements the purchase independently of the remaining Shop view/endpoint work.
 - **Races and retries:** serialize purchases with sales, crafting, and other profile mutations.
   For stock-limited offers, check the period at transaction commit, including requests arriving
   near refresh. An uncommitted expired offer is rejected with an updated view, never replaced by the
@@ -2456,7 +2513,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. Saved records contain identity, definition, slot, level, and empty `stored`/`progress`/`newWork`/`workerIdsBySlot` fields. Construction leaves the common clock unchanged; projection exposes only identity, definition, slot, and level. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete player-facing integration separately; assignment, collection, upgrade, dismantling, and the production lifecycle share its canonical records. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. Private [ProfileSettlements](../src/ServerScriptService/Services/DataService/ProfileSettlements.lua) runs registered Ready/Checkpoint/Release hooks in one transaction before publication or finalization. `SaveNow` checkpoints before requesting the vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau)'s asynchronous save. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success, an in-memory checkpoint, or `SaveNow == true` still does not prove durable persistence. Playtest real session/shutdown/save ordering. |
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Canonical production, collection, and Shrine-upgrade commands use these references; integrate recipes, other paid upgrades, Shop, and Material sales separately. Metadata alone adds none of those actions. |
-| Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Prototype callers retain their prior behavior; `ValidateMaterialState` rejects malformed inputs to canonical Shrine collection/upgrades and their detached reducers. | Add validated Inventory-capacity purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting. |
+| Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives category limits, per-type 1,000-unit stacks, and active job reservations. Server-only `InventoryService.UpgradeCapacity` delegates to [CapacityUpgradePurchase](../src/ServerScriptService/Services/InventoryService/CapacityUpgradePurchase.lua), atomically purchasing the selected category's next +12 slots with Gold and the fixed six-Material mix. [UpgradePaymentUtil](../src/ServerScriptService/Shared/UpgradePaymentUtil.lua) shares Base/Inventory payment validation, including ingredient capacity before the grant and preserved refunds. | Add player-facing integration and the full Crafting Job lifecycle separately; reservation accounting and capacity purchases do not implement crafting. Validate connected-player dispatch and durable retention. No GUI, remote, schema migration, timer, Shop allowance use, or refresh reset is added. |
 | Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, the six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates this separate business catalogue before server services start. Canonical capture grants, Shrine commands, evolution, and Mythling sales consume the relevant metadata directly. | Finalize creative names/concepts/assets and integrate the live canonical spawn pool and remaining features separately. The catalogue is not in the service context and does not replace the three live prototype forms or expose menus; ownership changes occur only through their transactions. |
 | Capture grants | Server-only `InventoryService.SaveWonMythling` retains its loaded Inventory-session gate and delegates to private [CaptureGrant](../src/ServerScriptService/Services/InventoryService/CaptureGrant.lua). It validates supported selection, generated identity/time, and capacity before granting the exact canonical form at level 1, XP 0, and pending XP 0 through `DataService.Update`. No Luck/Trait roll or static metadata is copied into the new record; configured prototype captures remain supported temporarily. | ClaimService supplies contest-level award uniqueness; the grant is not a retryable client endpoint. Canonical model bindings and live spawn selection remain separate work. Validate connected-player capture and durable saves; injected/serialized tests and asynchronous save requests do not establish them. No GUI, remote, or schema migration is added. |
 | Mythling production | Existing [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) retains prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua) behavior. Canonical [ProfileProduction](../src/ServerScriptService/Services/ProductionService/ProfileProduction.lua) settles Ready/Checkpoint/Release through shared [ShrineAccounting](../src/ServerScriptService/Shared/ShrineAccounting.lua), with [ProfileCheckpoints](../src/ServerScriptService/Services/ProductionService/ProfileCheckpoints.lua) initially scheduling loaded-profile checkpoints every 30 seconds. Server-only `SettleShrines` and atomic assignment/collection/upgrade/dismantling/evolution/sale commands use the same accounting engine in their own transactions. | Integrate remaining features and player-facing views separately. Keep settlement and input changes in one draft; legacy stand paths and inactive Luck/Traits remain unchanged. The private clock and pending XP stay out of projection. Mock/serialized tests and asynchronous save requests do not establish live durable persistence; validate join/leave/shutdown and reconnect behavior in play. |
@@ -2468,7 +2525,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Mythling sales | Server-only `InventoryService.SellMythling` delegates to private [MythlingSaleCommand](../src/ServerScriptService/Services/InventoryService/MythlingSaleCommand.lua). It composes [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) and the shared worker-removal bridge with canonical sale definitions inside one revision-bound `DataService.Transact`. Unassignment and stale form/price checks protect the selected deletion and Gold grant; final-copy sales remain allowed. All earned Shrine work and surviving workers' XP are retained, while the sold instance's pending XP retires. | No new remote, menu, acquisition grant, schema migration, or automatic lifecycle. Add player-facing integration separately and playtest connected-player dispatch and durable saves. Legacy deletion remains blocked for canonical forms or retained entries with Shrine assignments/pending credit; it is not a sale API. Materials and crafting reservations remain unchanged. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
-| Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |
+| Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
 | Feature endpoints and transactions | [default.project.json](../default.project.json) exposes the network domains listed above, but does not declare crafting/sale/evolution/build/upgrade, Shrine dismantling, or Material discard endpoints. | Add typed, domain-specific contracts as the approved features ship; target transactional guarantees are requirements, not claims of existing implementations. |
 | Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored `Workspace.World.Arena.Markers.Bounds`, Base Islands, and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |

@@ -260,6 +260,42 @@ fixed-mix affordability, stale/replayed requests, capacity limits, and preservat
 state; they do not prove durable saves. This command adds no GUI, remote, model placement, or schema
 migration. See the [command contract](docs/TECHNICAL_DESIGN.md#atomic-base-expansion-command).
 
+### Atomic Inventory-capacity upgrade review
+
+`InventoryService.UpgradeCapacity(player, request)` buys the next capacity upgrade for exactly one
+category on the player's already-loaded profile. Materials and Equipment each progress from
+12 to 24 to 36 slots; Mythlings progress from 24 to 36 to 48. The three purchase counts are independent.
+Every category's first upgrade costs 20,000 Gold plus 50 of each normal Material, and its final
+upgrade costs 300,000 Gold plus 200 of each. The server resolves these configured prices and limits.
+
+The closed request contains `requestId` (`<expectedRevision>:<unique token>`), `expectedRevision`,
+`category` (`materials`, `mythlings`, or `equipment`), `expectedUpgradeCount`, `expectedGoldCost`,
+and `expectedMaterialQuantity`. The Material quote is per type across the fixed six-Material mix.
+No substituted ingredient, skipped upgrade, or purchase beyond the category's second upgrade is
+accepted. Reuse the original request for retries; stale counts/prices reject instead of changing
+what is purchased, and recorded receipts prevent duplicate payment or capacity grants.
+Success returns `category`, `previousUpgradeCount`, `upgradeCount`, `limit`, `maxLimit`, `goldSpent`,
+and `materialsSpentPerType` in the transaction's `values`.
+
+Payment and the selected purchased count commit in one transaction. The complete recipe plus active
+refund reservations must fit the **old** Material capacity: upgrading Materials cannot make room for
+its own payment. Gold and all ingredients must already be owned in Inventory; Shrine output and
+crafting reservations cannot pay costs. Other categories, Equipment/Loadout, Mythlings, Base state,
+Shrine accounting, and job reservations remain unchanged. No copied capacity is saved.
+
+Inventory upgrades use no Shop stock allowance, need no refresh period, and remain owned through
+refresh, reset, reconnect, and price changes. Reaching the final upgrade means maximum capacity,
+not waiting for Shop restock. The shared fixed-payment rule also preserves existing Base-expansion
+behavior; costs remain in their respective feature configurations.
+`Inventory.capacityUpgradeCosts` owns these two prices; `Configurations.UpgradeMaterials` owns
+the shared six-Material mix.
+
+Run the static suite and runtime tests above for each category's two purchases, independent limits,
+pre-upgrade payment capacity, reservation protection, stale/replayed requests, rollback, and retained
+state. Connected-player dispatch and durable persistence still require playtesting. This increment
+adds no GUI, remote, timer, Shop refresh, model, or schema migration. See the
+[command contract](docs/TECHNICAL_DESIGN.md#atomic-inventory-capacity-upgrade-command).
+
 ### Shrine-construction logic review
 
 `BaseService.BuildShrine(player, request)` is a server-only command; there is no new menu, remote, or
