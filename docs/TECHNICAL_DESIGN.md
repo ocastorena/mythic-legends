@@ -781,7 +781,7 @@ form/Shrine metadata and a profile-wide `lastAccruedAt`/`nextBatchAt` schedule. 
 not a replacement PlayerDoc or owned-Mythling record. Future integration must merge the accounting
 fields into a single transaction, preserving identity and inactive legacy metadata. ProfileSchema
 initializes the common schedule once under the [schema-7 foundation](#schema-7-shrine-accounting-foundation).
-The inactive [draft adapter](#shrine-accounting-draft-adapter) retains this schedule; future live
+The private [draft adapter](#shrine-accounting-draft-adapter) retains this schedule; future live
 callers must settle before changing inputs. Changing cadence requires explicit schedule
 reconciliation, not resetting partially earned work.
 Shrine-to-Material IDs are fixed by the [launch Material catalogue](#launch-material-catalogue).
@@ -790,12 +790,13 @@ Long intervals coalesce identical complete batches only as far as the next level
 boundary; later work uses the changed inputs. There is no offline time cap. Empty/full intervals still
 advance the cursor, and pending XP resolves even after its source Shrine is removed. Existing whole
 output and progress are retained if current capacity is reduced below stored output; it earns no new
-work until space is available. The draft adapter does not yet wire this engine into the live save
-lifecycle or player-facing commands.
+work until space is available. The [on-demand command](#on-demand-shrine-settlement) calls the adapter
+inside a profile transaction; automatic production lifecycle hooks and player-facing commands remain
+separate work.
 
 ### Shrine-accounting draft adapter
 
-`ServerScriptService.Services.ProductionService.ShrineAccounting` is a private, inactive adapter.
+`ServerScriptService.Services.ProductionService.ShrineAccounting` is a private draft adapter.
 Its `SettleToDraft(draft, now, metadata?, production?, progression?)` returns `(boolean, code?)`.
 Its input is a prepared current-schema player-document draft, not a client-supplied ledger. It
 defaults to the real `MythlingForms` and `Shrines` metadata and shared production/progression tuning;
@@ -823,12 +824,40 @@ does not add defaults to existing captures. `Projection.Build` omits pending XP 
 while preserving their other existing projected fields; private Shrine accounting and the root
 clock remain excluded by the current allowlist. No schema version change is required.
 
-Future authenticated service operations must call this helper inside `DataService.Transact` or
-`DataService.Update`, with server-owned time, and commit the result with the rest of their mutation.
+Service operations must call this helper inside `DataService.Transact` or `DataService.Update`,
+with server-owned time, and commit the result with the rest of their mutation.
 The helper itself supplies neither authorization, request receipts, persistence, nor a durable-save
-acknowledgement. It is not called by service startup or the live production lifecycle and is not a
-public service API, remote, or menu action. Tests compose it with `Transactions.Run` and serialized
-state to check atomicity/continuation without claiming live save durability.
+acknowledgement. It has no automatic startup/session/timer caller and is not itself a public service
+API, remote, or menu action. Tests compose it with `Transactions.Run` and serialized
+state to check atomicity/continuation without claiming live save durability. Its on-demand caller is
+described below; the helper itself remains private.
+
+### On-demand Shrine settlement
+
+`ProductionService.SettleShrines(player)` exposes server-only settlement through the typed
+`ProductionApi` and `MainServer` service facade. The public method requires a running service and a
+connected player. It accepts no elapsed time, timestamp, metadata, or submitted ledger, and never
+loads a profile automatically. Normal transaction failures/revisions are returned to the caller;
+success includes `values = { settledAt = timestamp }`.
+
+Private `ShrineProduction.new(DataService, clock?)` supplies `Settle(player)`, which calls
+`DataService.Update(player, "Production.SettleShrines", callback)`. Read the server clock exactly
+once inside that callback, after entering the transaction, and pass it with the detached draft to
+`ShrineAccounting.SettleToDraft`. The default clock is `workspace:GetServerTimeNow()`; deterministic
+tests may inject it. Use the loaded player's canonical state and default launch metadata; no caller
+overrides are accepted by the public service method.
+
+An accepted call participates in the existing DataService transaction/save machinery; it is not a
+durable-save acknowledgement. Repeated calls at the same timestamp accrue no duplicate output or
+XP, although each successful server-authored `Update` records its own receipt and revision. This
+command adds no explicit `SaveNow`, new save/checkpoint loop, join/leave/timer settlement, automatic
+profile load, assignment/capture action, remote, or UI. Existing stand production remains unchanged.
+Controlled DataSource tests exercise the command boundary without claiming live persistence.
+
+Future assignment, evolution, upgrade, collection, and other production mutations must compose
+settlement and their change inside one transaction draft. Do not call `SettleShrines` and then
+change inputs in a separate transaction: this command is an on-demand settlement operation, not
+the atomic mutation wrapper for another feature.
 
 ### Shrine operations over detached accounting
 
@@ -1600,8 +1629,8 @@ transaction without restarting or advancing the profile schedule.
 The existing DataService persistence path owns these fields, and its explicit client projection
 continues to omit the private Shrine accounting and root clock. This foundation creates no second
 owned-Mythling/worker map and changes no Mythling progression or inactive Luck/Trait data. The
-[draft adapter](#shrine-accounting-draft-adapter) exists separately; its live transaction/lifecycle
-integration, accrual, assignment/collection actions, and presentation remain separate work;
+[draft adapter](#shrine-accounting-draft-adapter) now has an on-demand transaction caller. Automatic
+production lifecycle integration, assignment/collection actions, and presentation remain separate work;
 prototype stand paths are untouched. The `lastOnlineCheckpointAt` and optional `offlineSince`
 bookkeeping in the [production lifecycle target](#production-accrual) is not initialized or advanced
 by this increment. Existing DataService saves are not a new production checkpoint loop, and
@@ -1947,14 +1976,14 @@ remove each item when the implementation is aligned; these notes do not authoriz
 
 | Area | Current source | Target contract / required alignment |
 | --- | --- | --- |
-| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 7 with the existing initial Gold, starter protection, Inventory upgrades, transactions, crafting reservations, and Base ownership. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) preserves v4–v6 earned/unknown state, retains earlier layout upgrades, and adds empty Shrine accounting plus a once-initialized private common production clock. Partial/ambiguous accounting is rejected; no Mythling or prototype-ledger rewrite occurs. | Wire the inactive draft adapter into authenticated transactions and the production lifecycle separately; replace remaining prototype form/complete job records as their features ship. Schema preparation awards no work and does not prove durable persistence. The deliberate fresh namespace is not permission to reset subsequent progress. |
+| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 7 with the existing initial Gold, starter protection, Inventory upgrades, transactions, crafting reservations, and Base ownership. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) preserves v4–v6 earned/unknown state, retains earlier layout upgrades, and adds empty Shrine accounting plus a once-initialized private common production clock. Partial/ambiguous accounting is rejected; no Mythling or prototype-ledger rewrite occurs. | Add automatic production lifecycle integration and atomic feature mutations beyond on-demand settlement; replace remaining prototype form/complete job records as their features ship. Schema preparation awards no work and does not prove durable persistence. The deliberate fresh namespace is not permission to reset subsequent progress. |
 | Base foundation | [BaseState](../src/ServerScriptService/Shared/BaseState.lua) derives two initial Shrine-only slots and four configurable one-slot expansions from purchased state. Load initializes one free, unique Station identity; [BaseRuntime](../src/ServerScriptService/Services/BaseService/BaseRuntime.lua) binds it to the existing authored `PB_CraftingStation_Root` model. `base.status`, allowlisted `base.shrines`, and world attributes expose presentation state, not purchase authority. | No expansion purchase or crafting action yet. Keep `base.stands` and its existing placement/collection paths functional until the replacement can preserve their earned work. Authored Shrine markers/models remain separate work; the Shrine asset is provisional. |
 | Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. Saved records contain identity, definition, slot, level, and empty `stored`/`progress`/`newWork`/`workerIdsBySlot` fields. Construction leaves the common clock unchanged; projection exposes only identity, definition, slot, and level. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete upgrade metadata validation, live production/assignment integration, and presentation before enabling player-facing construction. Upgrades, dismantling, and accrual are not implemented by this command. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Integrate these references into the live Shrine/save lifecycle and later recipes, upgrades, Shop, and sales in separate increments; metadata alone adds none of those actions. |
 | Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Live callers retain their prior behavior; `ValidateMaterialState` rejects malformed inputs to isolated Shrine collection/upgrades. | Add validated Inventory-capacity purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting. |
 | Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, the six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates this separate business catalogue before server services start. | Finalize creative names/concepts/assets and integrate the catalogue with owned records and live services separately. It is not in the service context and does not replace the three live prototype forms, change saves, or expose menus. |
-| Mythling production | Live [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua). Separately, [ShrineAccrual](../src/ServerScriptService/Shared/ShrineAccrual.lua) implements detached one-second, profile-wide production/XP accounting. Private inactive [ShrineAccounting](../src/ServerScriptService/Services/ProductionService/ShrineAccounting.lua) adapts a prepared profile draft to that engine and allowlists accounting merges, preserving legacy state. It defaults to the real launch metadata; no live service calls it. | Integrate authenticated transaction/lifecycle callers, assignments, and collection in separate increments. The adapter does not activate live production, migrate owned records, or supply authorization/save durability. Luck/Traits remain inactive, and pending XP stays private in projection. |
+| Mythling production | Existing [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua). Server-only `ProductionService.SettleShrines` now calls private [ShrineProduction](../src/ServerScriptService/Services/ProductionService/ShrineProduction.lua), which settles through [ShrineAccounting](../src/ServerScriptService/Services/ProductionService/ShrineAccounting.lua) and the shared engine inside `DataService.Update`, using one in-transaction server timestamp. | Add automatic lifecycle settlement, assignments, collection, and other atomic production mutations separately. On-demand settlement adds no client action, profile auto-load, or durable-save acknowledgement. Keep future settlement and input changes in one draft; legacy stand paths and inactive Luck/Traits remain unchanged, with pending XP private in projection. |
 | Shrine assignment | [ShrineAssignments](../src/ServerScriptService/Services/BaseService/ShrineAssignments.lua) validates empty-slot assignment and expected-worker removal, settles prior work, and returns a detached ledger with stable numbered slot identities. Unassignment is required before reassignment; occupied slots are never replaced implicitly. Tests use synthetic content. | Integrate the accounting view with authenticated profile ownership, transaction revisions/receipts, persistence, and future presentation. No live assignment command or schema migration is supplied by this pure feature increment. |
 | Shrine collection | [ShrineCollection](../src/ServerScriptService/Services/ProductionService/ShrineCollection.lua) settles prior production/XP, transfers whole Materials up to shared Inventory capacity after active refund reservations, and retains excess and unfinished work. It returns detached production and Material state; synthetic tests cover partial transfers and full-storage pauses. | Commit both returned views together through an authenticated profile transaction with revision/receipt protection using the fixed launch Material references. Live endpoint and schema integration remain separate work; the prototype collection path is unchanged. |
 | Shrine upgrades | [ShrineUpgrades](../src/ServerScriptService/Services/BaseService/ShrineUpgrades.lua) validates next-level purchases, settles at the old capacity, and returns detached production/Material/Gold state. Shared [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) owns the approved level capacities, slots, prices, and fixed launch Material output IDs. | Wire the reducer into the authenticated transaction/save lifecycle with revision-bound receipts and validated launch-form references. The pure operation does not enable a live upgrade command or new UI. |

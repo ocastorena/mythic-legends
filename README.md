@@ -253,10 +253,26 @@ Unreferenced legacy forms without pending credit remain untouched. See the
 
 Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
 state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
-XP private. The helper remains inactive and private: no bootstrap/lifecycle call, public service
-method, remote, menu, or live production change is added. Future callers must invoke it inside
-`DataService.Transact` or `Update`; it neither authenticates a player nor saves a profile by itself.
-These tests do not establish live durable persistence.
+XP private. The helper remains private and now has the on-demand service caller below; it is not
+an automatic lifecycle hook, remote, or menu action. Callers must use it inside `DataService.Transact`
+or `Update`; it neither authenticates a player nor saves a profile by itself. These tests do not
+establish live durable persistence.
+
+### On-demand Shrine settlement review
+
+`ProductionService.SettleShrines(player)` is a server-only command returning the normal transaction
+result, with `values.settledAt` on success. It uses the player's already-loaded profile and reads
+server time inside its transaction; callers cannot provide elapsed time, metadata, or a ledger.
+The service must be running and the player connected. There are no automatic join/leave/timer
+calls, new save checkpoints, remotes, menus, or changes to the existing stand paths.
+
+Run the static suite and runtime tests above. Controlled DataSource tests cover transaction results
+and repeated settlement, not live durable saves. Settling twice at the same time awards no duplicate
+work, though each accepted `Update` has its own revision/receipt. Future worker or production changes
+must settle and mutate in the same draft, not call this command before a separate transaction. See
+the [command contract](docs/TECHNICAL_DESIGN.md#on-demand-shrine-settlement).
+The disposable runner cannot create engine `Player` instances; automated service-gate tests cover
+lifecycle and impostor rejection. Actual connected/disconnected-player dispatch still needs a playtest.
 
 ### Shrine-accounting logic review
 

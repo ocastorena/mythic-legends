@@ -1,6 +1,6 @@
 --!strict
 -- ServerScriptService/Services/ProductionService/ShrineAccounting
--- Inactive bridge from canonical saved state to the detached Shrine engine; no lifecycle wiring.
+-- Bridges canonical saved state to the detached Shrine engine; no automatic lifecycle settlement.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")

@@ -35,6 +35,7 @@ export type ProductionApi = {
 	GetProduction: (Player, number) -> SharedTypes.ProductionStatus?,
 	CollectProduction: (Player, number) -> (boolean, string?, SharedTypes.ProductionCollection?),
 	SettleProduction: (Player, number) -> (boolean, string?),
+	SettleShrines: (Player) -> SharedTypes.TransactionResult,
 }
 export type InventoryApi = {
 	GetMythlingCapacity: (Player) -> SharedTypes.InventoryCapacity?,

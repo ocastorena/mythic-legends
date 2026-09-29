@@ -63,6 +63,7 @@ local services: ServerTypes.Services = {
 		GetProduction = ProductionService.GetProduction,
 		CollectProduction = ProductionService.CollectProduction,
 		SettleProduction = ProductionService.SettleProduction,
+		SettleShrines = ProductionService.SettleShrines,
 	},
 	BaseService = {
 		BuildShrine = BaseService.BuildShrine,
