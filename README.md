@@ -242,6 +242,22 @@ enabled. Existing DataService saves own the new fields; tests and ordinary Studi
 prove live durable persistence. See the
 [schema contract](docs/TECHNICAL_DESIGN.md#schema-7-shrine-accounting-foundation).
 
+### Shrine-accounting draft adapter review
+
+`ProductionService/ShrineAccounting.SettleToDraft` adapts a prepared current-schema transaction
+draft to the shared accrual engine and merges only accounting fields back on success. It defaults
+to the real launch form and Shrine metadata without changing saved `typeId` identities. Known forms
+must already have explicit level, XP, and pending XP; no capture defaults or migrations are added.
+Unreferenced legacy forms without pending credit remain untouched. See the
+[adapter contract](docs/TECHNICAL_DESIGN.md#shrine-accounting-draft-adapter) for rejection boundaries.
+
+Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
+state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
+XP private. The helper remains inactive and private: no bootstrap/lifecycle call, public service
+method, remote, menu, or live production change is added. Future callers must invoke it inside
+`DataService.Transact` or `Update`; it neither authenticates a player nor saves a profile by itself.
+These tests do not establish live durable persistence.
+
 ### Shrine-accounting logic review
 
 `ServerScriptService.Shared.ShrineAccrual.Accrue` is a pure server-side calculation, not a live

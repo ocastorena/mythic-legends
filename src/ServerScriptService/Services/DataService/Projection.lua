@@ -17,6 +17,12 @@ local function clone(value: any): any
 end
 
 function Projection.Build(data: Types.PlayerDoc): { [string]: any }
+	local mythlings = {}
+	for id, entry in data.mythlings do
+		local visible = table.clone(entry)
+		visible.pendingXp = nil
+		mythlings[id] = visible
+	end
 	local equipment = {}
 	for id, entry in pairs(data.equipment) do
 		equipment[id] = { definitionId = entry.definitionId, finishId = entry.finishId }
@@ -38,7 +44,7 @@ function Projection.Build(data: Types.PlayerDoc): { [string]: any }
 		consumables = data.consumables,
 		equipment = equipment,
 		combatLoadout = data.combatLoadout,
-		mythlings = data.mythlings,
+		mythlings = mythlings,
 		base = {
 			-- Preserve the existing stand view without exposing future private Base ledgers.
 			stands = data.base.stands,

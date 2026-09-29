@@ -62,6 +62,8 @@ export type MythlingEntry = {
 	claimedAt: number,
 	level: number?,
 	xp: number?,
+	-- Private earned batch credit; optional only for retained prototypes, never a copied rate.
+	pendingXp: number?,
 	standId: number?,
 	-- Legacy v2 cursor, consumed by the v3 migration. New work belongs to the stand.
 	lastCollectionAt: number?,
