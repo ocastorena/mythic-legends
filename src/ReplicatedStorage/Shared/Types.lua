@@ -443,6 +443,15 @@ export type SellMythlingRequest = {
 	expectedGoldValue: number,
 }
 
+export type SellEquipmentRequest = {
+	requestId: string,
+	expectedRevision: number,
+	instanceId: string,
+	expectedDefinitionId: string,
+	expectedFinishId: string?,
+	expectedGold: number,
+}
+
 export type UpgradeInventoryCapacityRequest = {
 	requestId: string,
 	expectedRevision: number,

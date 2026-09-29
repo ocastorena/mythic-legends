@@ -73,6 +73,7 @@ local services: ServerTypes.Services = {
 	InventoryService = {
 		EvolveMythling = InventoryService.EvolveMythling,
 		SellMythling = InventoryService.SellMythling,
+		SellEquipment = InventoryService.SellEquipment,
 		SellMaterial = InventoryService.SellMaterial,
 		DiscardMaterial = InventoryService.DiscardMaterial,
 		UpgradeCapacity = InventoryService.UpgradeCapacity,

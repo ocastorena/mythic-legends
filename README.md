@@ -738,6 +738,21 @@ replay/conflicts, overflow, rollback, reservation retention, and over-capacity r
 connected-player dispatch and durable retention separately. There is no new GUI, remote, schema,
 timer, profile auto-load, or explicit save request.
 
+### Equipment sale review
+
+`InventoryService.SellEquipment(player, request)` is a server-only, revision-bound command.
+Select an owned instance with its exact definition/optional finish and quoted Gold value. The
+command requires it to be unequipped, protects original starter grants, resolves the fixed sale
+value from metadata, and removes the item and credits Gold in one transaction. All twelve crafted
+variants initially sell for 25 Gold, independently of their acquisition route. Crafting refund
+headroom remains protected, and retries cannot sell twice. The sale itself never changes loadout,
+jobs, reservations, or Shrine work; shared transaction preparation may complete a due job first.
+
+See the [Equipment sale contract](docs/TECHNICAL_DESIGN.md#atomic-equipment-sale-command).
+Run the verification commands above for variant identity, ownership, starter/equipped rejection,
+quote conflicts, numeric limits, and rollback. This step adds no GUI, remote, equip/unequip action,
+asset binding, or combat effect. Connected-player and durable-persistence checks remain separate.
+
 ### Headless crafting and mutation preparation review
 
 `CraftingService.StartJob(player, request)` and `CancelJob(player, request)` are server-only,

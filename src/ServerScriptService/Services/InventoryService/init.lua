@@ -16,6 +16,7 @@ local Materials = require(script.Materials)
 local InventoryRemotes = require(script.InventoryRemotes)
 local MythlingEvolutionCommand = require(script.MythlingEvolutionCommand)
 local MythlingSaleCommand = require(script.MythlingSaleCommand)
+local EquipmentSaleCommand = require(script.EquipmentSaleCommand)
 local CapacityUpgradePurchase = require(script.CapacityUpgradePurchase)
 local MaterialDisposalCommand = require(script.MaterialDisposalCommand)
 
@@ -27,6 +28,7 @@ local InventoryService = {}
 local DataService: ServerTypes.DataApi
 local mythlingEvolution: MythlingEvolutionCommand.MythlingEvolutionCommand?
 local mythlingSale: MythlingSaleCommand.MythlingSaleCommand?
+local equipmentSale: EquipmentSaleCommand.EquipmentSaleCommand?
 local capacityUpgrade: CapacityUpgradePurchase.CapacityUpgradePurchase?
 local materialDisposal: MaterialDisposalCommand.MaterialDisposalCommand?
 
@@ -37,6 +39,7 @@ function InventoryService.Init(serviceContext: ServerTypes.Context)
 	DataService = serviceContext.Services.DataService
 	mythlingEvolution = MythlingEvolutionCommand.new(DataService)
 	mythlingSale = MythlingSaleCommand.new(DataService)
+	equipmentSale = EquipmentSaleCommand.new(DataService)
 	capacityUpgrade = CapacityUpgradePurchase.new(DataService)
 	materialDisposal = MaterialDisposalCommand.new(DataService)
 	Mythlings.Init(serviceContext, sessionsByUserId)
@@ -69,6 +72,7 @@ function InventoryService.Stop()
 	InventoryRemotes.Stop()
 	mythlingEvolution = nil
 	mythlingSale = nil
+	equipmentSale = nil
 	capacityUpgrade = nil
 	materialDisposal = nil
 	table.clear(sessionsByUserId)
@@ -97,6 +101,23 @@ function InventoryService.SellMythling(
 	request: Types.SellMythlingRequest
 ): Types.TransactionResult
 	local sale = mythlingSale
+	if
+		not lifecycle:IsRunning()
+		or not sale
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return sale.Sell(player, request)
+end
+
+function InventoryService.SellEquipment(
+	player: Player,
+	request: Types.SellEquipmentRequest
+): Types.TransactionResult
+	local sale = equipmentSale
 	if
 		not lifecycle:IsRunning()
 		or not sale

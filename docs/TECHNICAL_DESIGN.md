@@ -1570,6 +1570,32 @@ or uncollected output can be sold/discarded; collect online/offline output separ
 This adds no GUI, remote, schema migration, timer, or `SaveNow` call. Controlled transaction tests
 establish in-session atomicity, not connected-player dispatch or live durable persistence.
 
+### Atomic Equipment-sale command
+
+Server-only `InventoryService.SellEquipment` requires a running service, connected Player, and
+loaded profile. Private `EquipmentSaleCommand` accepts only `requestId`, `expectedRevision`,
+`instanceId`, `expectedDefinitionId`, optional `expectedFinishId`, and `expectedGold`, then submits
+`Inventory.SellEquipment` through `DataService.Transact`. The signature binds the exact instance,
+definition, optional-finish identity, and safe-integer quote; display names and rarity are not keys.
+
+Inside the transaction, validate the schema, owned entry, starter-grant flag, and saved loadout.
+Reject either-slot equipment until explicitly unequipped, protect original starter instances even
+when their metadata would permit a sale, and reject changed definition/finish or price selections.
+Resolve eligibility and price through `EquipmentCatalog`; crafted/Featured copies have the same
+configured value (initially 25 Gold). There is no per-copy price or rarity multiplier.
+
+Remove exactly one owned instance and credit its fixed value through `GoldCreditUtil` in the same
+draft. This preserves safe-integer headroom for active crafting refunds. Retained over-capacity
+Inventory may sell down; reservations are never owned items and cannot be sold or released by a
+sale. Return `instanceId`, `definitionId`, `finishId` when present, `goldGranted`, and `goldBalance`.
+Replays return the original receipt; failed actions roll back gameplay edits, including any shared
+due-job preparation. A rejected domain action may retain its normal decision receipt/revision.
+
+The sale itself leaves loadout, Materials, Mythlings, Shrine work, jobs, and reservations unchanged
+apart from the selected item/Gold; DataService preparation may resolve due crafting first. No
+auto-unequip, discard action, GUI, remote, model binding, or combat change is introduced here.
+Tests establish transaction behavior, not live durable persistence or connected-player dispatch.
+
 ### Space recovery transactions
 
 - **Shrine construction:** accept a Shrine definition ID, quoted Gold cost, revision, and stable
