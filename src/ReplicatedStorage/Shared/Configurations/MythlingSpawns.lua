@@ -15,7 +15,7 @@ local MythlingSpawns: Types.MythlingSpawnConfiguration = {
 	maxPlacementTries = 32,
 	fallbackStepStuds = 4,
 	-- Preserve the three existing prototype forms and their effective distribution.
-	-- The approved 75/20/5 launch pool requires the missing six-element, 18-form catalogue.
+	-- The approved 75/20/5 launch pool still requires form assets and live catalogue integration.
 	rarityWeights = {
 		Common = 100,
 		Rare = 50,

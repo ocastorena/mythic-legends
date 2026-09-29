@@ -555,11 +555,12 @@ decaying meter; these projections do not replace the independent server meters. 
 the server's `State` and fixed `ExpireAt`, including an explicit overtime label.
 
 This lifecycle repair preserves the three existing prototype form IDs and their effective spawn
-weights. It does not complete the 18-form launch catalogue or its 75%/20%/5% distribution. Ember Fang
+weights. It does not activate the separate [18-form business catalogue](#launch-mythling-form-catalogue)
+or its 75%/20%/5% launch distribution. Ember Fang
 and Shadow Satyr now use their configured 20/35-second captures; Stream Axolotl retains its prototype
 10-second capture. All three decay one second of earned progress per second absent and use a
-240-second lifetime. Replace the prototype catalogue and validate all six elements per launch
-rarity before release; do not infer catalogue completion from the 12-contest target.
+240-second lifetime. Author the launch assets and integrate the new catalogue into spawning before
+release; do not infer live roster readiness from the 12-contest target or validated business metadata.
 
 Capture grants now enforce the configured Mythling limits of 24/36/48, derived from optional saved
 `inventoryUpgrades.mythlings` (absent means zero purchases). Existing owned entries, including those
@@ -896,8 +897,9 @@ no live endpoint, model deletion, persistence migration, or UI.
 form change over the same detached accounting view. Its form definitions extend the accounting
 metadata with optional `evolution = { targetFormId, requiredLevel }`. The link owns its required
 level; there is no runtime rarity/stage formula or fallback threshold. Absence means terminal. The
-future finalized catalogue must provide the configured launch links at levels 6 and 40; this
-isolated increment injects only synthetic definitions and does not adapt the legacy prototype roster.
+separate [launch form catalogue](#launch-mythling-form-catalogue) supplies the configured links at
+levels 6 and 40. This isolated reducer's tests inject synthetic definitions; the live owned-record
+adapter and legacy prototype-roster integration remain separate work.
 
 The request selects `workerId`, `expectedFormId`, and `expectedTargetFormId`. Validate ownership,
 state, server-authored time, and both expected IDs, rejecting backdated or stale changes. Validate
@@ -990,9 +992,9 @@ accounting over the shared `ShrineAccrual.State` plus the same profile's Gold ba
 owns the removal/payout rule; the server-shared accrual engine owns settlement. The accounting view
 must include every owned worker and Shrine assignment, not a client-provided selection. Per-form
 optional `sale = { gold }` metadata provides eligibility and a positive safe whole-Gold value;
-absence means not sellable. The future launch catalogue must supply the approved per-form prices
-and validate them across all six elements.
-This increment uses synthetic metadata only and does not price or enable the legacy forms.
+absence means not sellable. The separate [launch form catalogue](#launch-mythling-form-catalogue)
+supplies and validates the approved per-form prices across all six elements. This reducer's tests
+use synthetic metadata; neither the reducer nor the catalogue prices or enables the legacy forms.
 
 The strict request is `{ workerId, expectedFormId, expectedGoldValue }`. Validate accounting,
 configuration, Gold, server-authored time, ownership, and current form. Reject an assigned worker
@@ -1410,6 +1412,54 @@ Preserve existing paid upgrades through cost changes without retroactive charges
 Luck and Passive Trait acquisition/effect definitions, Consumable definitions, buff-stack rules, and
 expanded Crafting Station queue/upgrade definitions are added with their future updates. They are
 not required launch configuration, and launch validation must accept records without Luck or a Trait.
+
+### Launch Mythling form catalogue
+
+`Shared.Configurations.MythlingForms` is the read-only business catalogue for the 18 launch forms,
+separate from the unchanged live prototype `Configurations.Mythlings`. It supplies permanent
+neutral form IDs without inventing creature concepts, display names, lore, models, thumbnails, or
+other presentation data. Those creative decisions remain open. Each key identifies one form:
+
+| Element | Internal Stage 1 / Common | Internal Stage 2 / Rare | Internal Stage 3 / Epic |
+| --- | --- | --- | --- |
+| Fire | `mythling_0001` | `mythling_0002` | `mythling_0003` |
+| Water | `mythling_0004` | `mythling_0005` | `mythling_0006` |
+| Earth | `mythling_0007` | `mythling_0008` | `mythling_0009` |
+| Air | `mythling_0010` | `mythling_0011` | `mythling_0012` |
+| Light | `mythling_0013` | `mythling_0014` | `mythling_0015` |
+| Dark | `mythling_0016` | `mythling_0017` | `mythling_0018` |
+
+IDs use `mythling_` followed by a permanent positive identifier with at least four decimal digits,
+zero-padded below 10,000. Continue with `mythling_10000` and beyond rather than truncating, renumbering,
+or reusing IDs. The number encodes no element, rarity, evolution stage, ordering rule, or future
+content limit; resolve those properties from metadata. Finalizing the same form's name or assets
+retains its ID, while a distinct form receives a new ID. A form ID is separate from the unique owned-instance
+ID of each captured copy. This increment neither renames the saved `typeId` field nor replaces its
+existing prototype values; any future owned-record adaptation must be explicit and preserve identity.
+
+Each form explicitly configures `element`, fixed `rarity`, internal `evolutionStage`,
+`baseYieldPerHour`, `sale.gold`, `captureProgressPerSecond`, and `captureDecayPerSecond`.
+The initial Common/Rare/Epic values are 12/18/32 Materials per hour and 25/100/300 Gold.
+On the existing 100-point capture scale, progress rates are `100 / 20`, `100 / 35`, and `100 / 60`
+per second respectively; decay equals progress for each form. Each first form links to the next
+through `evolution = { targetFormId, requiredLevel = 6 }`, and each second form links to its final
+form at level 40. Final forms have no `evolution` link, but still use the shared level cap.
+These values belong to each explicit definition, not a runtime stage/rarity multiplier.
+The existing spawn configuration retains 240-second rarity lifetimes and no overrides for these
+IDs; metadata capture duration is not a new lifetime timer or a request to spawn a form.
+
+`ServerScriptService.Shared.MythlingCatalogUtil.ValidateLaunch(forms, levelCap)` runs from
+`MainServer` before service startup. It checks the launch-specific cardinality, element/rarity/stage
+coverage, complete same-element chains, safe configured values, capture-rate relationships, and
+sale-price relationships. Valid tuning changes remain allowed; validation is not a hard-coded
+copy of the initial numbers. This launch-catalogue contract does not narrow the generic accrual,
+evolution, or sale reducers into a universal three-stage/rarity rule.
+
+The new catalogue is not passed into the live service context. Existing spawn definitions/weights,
+models, owned `typeId` records, save schema, prototype stand production, and menus remain unchanged.
+Validation alone does not enable capture awards, Shrine production, evolution, or sales for these
+forms. Live integration and creative asset readiness require separate reviewable increments; tests
+of metadata and invalid fixtures do not establish either.
 
 ### Launch Material catalogue
 
@@ -1861,15 +1911,16 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Integrate these references into the live Shrine/save lifecycle and later recipes, upgrades, Shop, and sales in separate increments; metadata alone adds none of those actions. |
 | Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Live callers retain their prior behavior; `ValidateMaterialState` rejects malformed inputs to isolated Shrine collection/upgrades. | Add validated Inventory-capacity purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting. |
-| Mythling production | Live [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua). Separately, [ShrineAccrual](../src/ServerScriptService/Shared/ShrineAccrual.lua) implements detached one-second, profile-wide production/XP accounting with chronological levels, individual pending credit, overflow handling, and event-based offline settlement. Tests inject synthetic forms and Materials. | Finalize launch Mythling metadata and integrate the new ledger, assignments, collection, and transaction/persistence lifecycle in separate increments, using the fixed launch Material references. The pure reducer does not change live profiles or replace the prototype roster. Luck/Traits remain inactive. |
+| Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, the six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates this separate business catalogue before server services start. | Finalize creative names/concepts/assets and integrate the catalogue with owned records and live services separately. It is not in the service context and does not replace the three live prototype forms, change saves, or expose menus. |
+| Mythling production | Live [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua). Separately, [ShrineAccrual](../src/ServerScriptService/Shared/ShrineAccrual.lua) implements detached one-second, profile-wide production/XP accounting with chronological levels, individual pending credit, overflow handling, and event-based offline settlement. Tests inject synthetic forms and Materials. | Integrate the new ledger, assignments, collection, and transaction/persistence lifecycle in separate increments, using the fixed launch form and Material references. The pure reducer and separate business catalogue do not change live profiles or replace the prototype roster. Luck/Traits remain inactive. |
 | Shrine assignment | [ShrineAssignments](../src/ServerScriptService/Services/BaseService/ShrineAssignments.lua) validates empty-slot assignment and expected-worker removal, settles prior work, and returns a detached ledger with stable numbered slot identities. Unassignment is required before reassignment; occupied slots are never replaced implicitly. Tests use synthetic content. | Integrate the accounting view with authenticated profile ownership, transaction revisions/receipts, persistence, and future presentation. No live assignment command or schema migration is supplied by this pure feature increment. |
 | Shrine collection | [ShrineCollection](../src/ServerScriptService/Services/ProductionService/ShrineCollection.lua) settles prior production/XP, transfers whole Materials up to shared Inventory capacity after active refund reservations, and retains excess and unfinished work. It returns detached production and Material state; synthetic tests cover partial transfers and full-storage pauses. | Commit both returned views together through an authenticated profile transaction with revision/receipt protection using the fixed launch Material references. Live endpoint and schema integration remain separate work; the prototype collection path is unchanged. |
 | Shrine upgrades | [ShrineUpgrades](../src/ServerScriptService/Services/BaseService/ShrineUpgrades.lua) validates next-level purchases, settles at the old capacity, and returns detached production/Material/Gold state. Shared [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) owns the approved level capacities, slots, prices, and fixed launch Material output IDs. | Wire the reducer into the authenticated transaction/save lifecycle with revision-bound receipts and validated launch-form references. The pure operation does not enable a live upgrade command or new UI. |
 | Shrine dismantling | [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua) validates matching Base/accounting views, rejects workers or settled whole output, and returns detached maps removing only the selected instance. Its build slot is freed without refund; pending worker XP survives discarded unfinished production. | Commit both maps through the authenticated profile transaction, preserve all other Base/profile fields, and remove presentation only after success. The pure reducer does not delete live models or add a network command. |
-| Mythling evolution | [MythlingEvolution](../src/ServerScriptService/Services/InventoryService/MythlingEvolution.lua) follows a validated optional same-element link, settles old-form production/XP before the level gate, and changes only the owned form ID in a detached ledger. Assigned and consecutive eligible evolutions retain work, progression, and batch timing; tests use synthetic forms. | Finalize and validate the launch catalogue, then integrate authenticated requests, revision/receipt protection, and persistence. This increment changes no live roster, owned schema, command, or menu. |
-| Mythling sales | [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) rejects assigned/stale selections, resolves the current form's fixed sale value, settles production, and returns detached worker removal plus Gold. Final-copy sales are allowed; tests use synthetic forms and preserve earned Shrine work. | Finalize per-form sale metadata and integrate canonical owned-record deletion, Gold, accounting, and revision/receipt protection in one authenticated transaction. The pure reducer adds no live sale endpoint or menu and does not replace prototype deletion. |
+| Mythling evolution | [MythlingEvolution](../src/ServerScriptService/Services/InventoryService/MythlingEvolution.lua) follows a validated optional same-element link, settles old-form production/XP before the level gate, and changes only the owned form ID in a detached ledger. Assigned and consecutive eligible evolutions retain work, progression, and batch timing; tests use synthetic forms. The separate launch catalogue now supplies the real business links. | Integrate authenticated requests, canonical owned-record adaptation, revision/receipt protection, and persistence. Catalogue validation changes no live roster, owned schema, command, or menu. |
+| Mythling sales | [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) rejects assigned/stale selections, resolves the current form's fixed sale value, settles production, and returns detached worker removal plus Gold. Final-copy sales are allowed; tests use synthetic forms and preserve earned Shrine work. The separate launch catalogue now supplies per-form sale values. | Integrate canonical owned-record deletion, Gold, accounting, and revision/receipt protection in one authenticated transaction. The pure reducer and catalogue add no live sale endpoint or menu and do not replace prototype deletion. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
-| Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. | Replace the three-form prototype catalogue with the 18 launch forms and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
+| Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
 | Feature endpoints and transactions | [default.project.json](../default.project.json) exposes the network domains listed above, but does not declare crafting/sale/evolution/build/upgrade, Shrine dismantling, or Material discard endpoints. | Add typed, domain-specific contracts as the approved features ship; target transactional guarantees are requirements, not claims of existing implementations. |

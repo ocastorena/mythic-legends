@@ -78,7 +78,23 @@ export type MythlingVariant = {
 	thumbnail: string,
 }
 
--- One entry in the Mythlings metadata table, keyed by typeId.
+export type MythlingEvolutionDefinition = { targetFormId: string, requiredLevel: number }
+export type MythlingSaleDefinition = { gold: number }
+
+-- Launch business metadata; presentation and active prototype spawning are separate concerns.
+-- The dictionary key is a permanent form ID, not the unique ID of a player-owned instance.
+export type MythlingFormDef = {
+	element: Element,
+	rarity: string,
+	evolutionStage: number,
+	baseYieldPerHour: number,
+	captureProgressPerSecond: number,
+	captureDecayPerSecond: number,
+	evolution: MythlingEvolutionDefinition?,
+	sale: MythlingSaleDefinition,
+}
+
+-- Retained prototype metadata, keyed by existing saved typeId; not the launch form catalogue.
 export type MythlingDef = {
 	displayName: string,
 	rarity: string,

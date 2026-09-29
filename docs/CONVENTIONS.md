@@ -61,6 +61,7 @@ mythic-legends/
         ShrineAccrual.lua
         MythlingProgressionUtil.lua
         MaterialCatalogUtil.lua
+        MythlingCatalogUtil.lua
       Infrastructure/             # cross-service technical runtime support
       Packages/                   # server-only vendored dependencies
       PostLaunch/                 # retained prototypes; only Blockstorm is explicitly started
@@ -248,6 +249,9 @@ top-level `Spawns`, `Visuals`, or `Environment` containers; authored markers bel
   `MythlingEntry`. Collection configuration modules are plural: `Configurations/Mythlings.lua`.
 - Use **camelCase** for serialized field and remote-payload keys. Stable metadata IDs use lowercase
   `snake_case`; they are identifiers, not display names.
+  New Mythling form IDs use permanent neutral ordinals such as `mythling_0001`, with at least four
+  digits (`mythling_10000` continues the sequence). Never renumber or reuse allocated IDs, or infer
+  element, rarity, evolution, or assets from their numeric suffix. Owned-instance IDs are separate.
 - Keep module-private state `local` without an underscore prefix: use `profiles` and `localCache`,
   not `_profiles` or `_localCache`. Private fields on a constructed object may use **_camelCase**,
   such as `self._cards` and `self._config`; these are distinct from module-local variables.

@@ -13,13 +13,21 @@ local RemoteUtil = require(infrastructure:WaitForChild("RemoteUtil"))
 local PlayerUtil = require(infrastructure:WaitForChild("PlayerUtil"))
 local Trove = require(ReplicatedStorage.Packages.Trove)
 local MaterialCatalogUtil = require(ServerScriptService.Shared.MaterialCatalogUtil)
+local MythlingCatalogUtil = require(ServerScriptService.Shared.MythlingCatalogUtil)
 local Materials = require(ReplicatedStorage.Shared.Configurations.Materials)
+local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
+local MythlingProgression = require(ReplicatedStorage.Shared.Configurations.MythlingProgression)
 local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)
 
 local validMaterials, materialProblem =
 	MaterialCatalogUtil.Validate(Materials, Shrines, Inventory.materialStackLimit)
 assert(validMaterials, `[MainServer] Invalid Material catalogue: {materialProblem}`)
+
+-- Validate business definitions without exposing unfinished forms to the prototype spawner/UI.
+local validForms, formProblem =
+	MythlingCatalogUtil.ValidateLaunch(MythlingForms, MythlingProgression.levelCap)
+assert(validForms, `[MainServer] Invalid Mythling catalogue: {formProblem}`)
 
 local log = LogUtil.For("MainServer")
 local ServerTypes = require(ServerScriptService.Shared.Types)

@@ -2,12 +2,14 @@
 -- ServerScriptService/Services/InventoryService/MythlingSales
 -- Detached removal and fixed-price Gold grants; the live adapter owns the atomic profile commit.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local Types = require(ReplicatedStorage.Shared.Types)
 local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 export type State = ShrineAccrual.State
-export type SaleDefinition = { gold: number }
+export type SaleDefinition = Types.MythlingSaleDefinition
 export type FormDefinition = ShrineAccrual.FormDefinition & { sale: SaleDefinition? }
 export type Metadata = {
 	forms: { [string]: FormDefinition },

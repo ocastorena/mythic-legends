@@ -140,6 +140,20 @@ sync the intended checkout into the authored development place and use a fresh p
 that the existing service bootstrap, prototype flows, and authored dependencies still load. A Rojo
 build alone does not establish that Studio-authored content or live gameplay survived the move.
 
+### Launch Mythling form catalogue review
+
+`Shared.Configurations.MythlingForms` contains the 18 permanent, neutrally identified launch forms
+and their approved business values; the [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-mythling-form-catalogue)
+lists the exact six evolution chains and scalable ID rules. Creature names, concepts, models, icons,
+and descriptions remain open. IDs are not player-facing names or owned-instance IDs.
+
+`MythlingCatalogUtil.ValidateLaunch` validates this separate catalogue before server services start.
+Run the static suite and runtime tests above for catalogue and invalid-fixture checks. After syncing,
+a fresh Studio session should still use the unchanged three-form prototype capture/spawn and stand
+paths. The new definitions are not exposed through the service context: metadata validation does
+not activate them in the Arena, live production, evolution, sales, saves, or menus. This increment
+changes neither existing `typeId` values nor the save schema.
+
 ### Launch Material catalogue review
 
 The six normal Materials now have stable element-based IDs and matching Shrine output references;

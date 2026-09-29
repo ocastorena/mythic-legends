@@ -6,10 +6,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local MythlingProgression = require(ReplicatedStorage.Shared.Configurations.MythlingProgression)
+local Types = require(ReplicatedStorage.Shared.Types)
 local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 export type State = ShrineAccrual.State
-export type EvolutionDefinition = { targetFormId: string, requiredLevel: number }
+export type EvolutionDefinition = Types.MythlingEvolutionDefinition
 export type FormDefinition = ShrineAccrual.FormDefinition & { evolution: EvolutionDefinition? }
 export type Metadata = {
 	forms: { [string]: FormDefinition },
