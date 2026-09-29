@@ -305,6 +305,14 @@ export type EvolveMythlingRequest = {
 	expectedTargetFormId: string,
 }
 
+export type SellMythlingRequest = {
+	requestId: string,
+	expectedRevision: number,
+	workerId: string,
+	expectedFormId: string,
+	expectedGoldValue: number,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },

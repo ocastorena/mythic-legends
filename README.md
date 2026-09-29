@@ -151,9 +151,9 @@ and descriptions remain open. IDs are not player-facing names or owned-instance 
 Run the static suite and runtime tests above for catalogue and invalid-fixture checks. After syncing,
 a fresh Studio session should still use the unchanged three-form prototype capture/spawn and stand
 paths. The definitions are not exposed through the service context: metadata validation alone does
-not activate them in the Arena or menus. Canonical Shrine commands and evolution below consume the
-relevant metadata directly; capture grants and sales remain separate integration work. The catalogue
-itself does not rewrite existing `typeId` values or change the save schema.
+not activate them in the Arena or menus. Canonical Shrine commands, evolution, and Mythling sales
+below consume the relevant metadata directly; capture grants remain separate integration work. The
+catalogue itself does not rewrite existing `typeId` values or change the save schema.
 
 ### Launch Material catalogue review
 
@@ -256,8 +256,8 @@ Unreferenced legacy forms without pending credit remain untouched. See the
 Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
 state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
 XP private. The server-shared adapter supports on-demand settlement, atomic assignment, collection,
-Shrine upgrades, dismantling, and Mythling evolution; it is not an automatic lifecycle hook, remote,
-or menu action.
+Shrine upgrades, dismantling, Mythling evolution, and sales; it is not an automatic lifecycle hook,
+remote, or menu action.
 Callers must use it inside `DataService.Transact` or `Update`; it neither authenticates a player nor
 saves a profile by itself.
 These tests do not establish live durable persistence.
@@ -292,7 +292,7 @@ untouched. They exercise whole output, retained partial work, worker changes, ch
 levels, full/empty pauses, offline equivalence, and repeated-time safety. Long offline intervals skip
 identical batches up to the next level/storage event rather than iterating every elapsed second.
 The current live stand-production path remains unchanged. Server-only settlement, assignment,
-collection, Shrine upgrades, dismantling, and evolution use the engine through the shared adapter.
+collection, Shrine upgrades, dismantling, evolution, and sales use the engine through the shared adapter.
 Automatic lifecycle integration, migration of retained prototype work, and final content remain separate
 tasks; pure tests do not prove live persistence.
 
@@ -541,11 +541,37 @@ remaining pending XP leaves with the sold instance and never transfers to a repl
 does not force a partial batch, collect Shrine output, or touch crafting reservations.
 
 Tests cover fixed prices, assignment/removal and evolution sequences, stale/repeated requests,
-accounting boundaries, final-copy sales, overflow rollback, and detached serialized results. A future
-authenticated adapter must commit the ledger, canonical owned-record deletion, Gold, and request
-receipt atomically, serialized with assignment/evolution. This increment adds no live sale endpoint,
-save-schema change, catalogue change, or menu. Prototype deletion remains separate and now rejects
-canonical forms or retained entries with Shrine assignments/pending credit; it is not a sale API.
+accounting boundaries, final-copy sales, overflow rollback, and detached serialized results. The
+server-only command below commits the ledger, canonical owned-record deletion, Gold, and request
+receipt atomically, serialized with assignment/evolution. The pure operation itself adds no
+authentication, save-schema change, catalogue change, or menu. Prototype deletion remains separate
+and rejects canonical forms or retained entries with Shrine assignments/pending credit; it is not a
+sale API.
+
+### Atomic Mythling-sale command review
+
+`InventoryService.SellMythling(player, request)` is a server-only command for the running service
+and a connected player's already-loaded profile. `Types.SellMythlingRequest` contains only
+`requestId` (`<expectedRevision>:<unique token>`), `expectedRevision`, `workerId`, `expectedFormId`,
+and `expectedGoldValue`. Retry the original request unchanged. Success returns `workerId`, `formId`,
+`goldGranted`, and `settledAt` in transaction `values`.
+
+One `DataService.Transact` callback uses one server timestamp and the current canonical form's sale
+metadata to validate ownership, unassignment, and the expected form/price. It settles accounting,
+removes exactly the selected owned Mythling, and credits Gold with the receipt in the same draft.
+Final-copy sales are allowed; assigned workers must first be unassigned, even if storage is full.
+Level, XP, acquisition route, and inactive legacy values never modify the payout. The sold worker's
+remaining pending XP retires with that instance; every other worker's progression, earned Shrine
+work, Materials, jobs, reservations, and unrelated currency fields survive.
+
+Failed sales roll back gameplay changes, including staged accounting, though DataService may record
+a rejection receipt and revision. Identity/form/price-bound receipts replay without resampling time,
+settling again, or paying twice. Run the static suite and runtime tests above for configured payouts,
+stale selections, assignment gates, replay, rollback, and retained-state checks. Actual connected/
+disconnected-player dispatch and durable saves still need a playtest. There is no new remote, menu,
+capture grant, schema migration, production timer, profile auto-load, or explicit save request.
+Prototype capture/stand paths remain unchanged. See the
+[command contract](docs/TECHNICAL_DESIGN.md#atomic-mythling-sale-command).
 
 ### Admin commands
 

@@ -39,7 +39,7 @@ local function hasProtectedShrineWork(
 	mythlingId: string,
 	entry: Types.MythlingEntry
 ): boolean
-	-- Prototype deletion does not settle Shrine work. Permanent forms must use a future atomic
+	-- Prototype deletion does not settle Shrine work. Permanent forms must use the atomic
 	-- sale/removal command, even while unassigned; pending XP can outlive its original Shrine.
 	if MythlingForms[entry.typeId] ~= nil or (entry.pendingXp ~= nil and entry.pendingXp ~= 0) then
 		return true

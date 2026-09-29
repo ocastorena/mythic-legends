@@ -15,6 +15,7 @@ local Mythlings = require(script.Mythlings)
 local Materials = require(script.Materials)
 local InventoryRemotes = require(script.InventoryRemotes)
 local MythlingEvolutionCommand = require(script.MythlingEvolutionCommand)
+local MythlingSaleCommand = require(script.MythlingSaleCommand)
 
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -23,6 +24,7 @@ local lifecycle = ServiceLifecycle.new("InventoryService")
 local InventoryService = {}
 local DataService: ServerTypes.DataApi
 local mythlingEvolution: MythlingEvolutionCommand.MythlingEvolutionCommand?
+local mythlingSale: MythlingSaleCommand.MythlingSaleCommand?
 
 -- userId -> { mythlings = table, materials = table, consumables = table }
 local sessionsByUserId: ServerTypes.InventorySessions = {}
@@ -30,6 +32,7 @@ local sessionsByUserId: ServerTypes.InventorySessions = {}
 function InventoryService.Init(serviceContext: ServerTypes.Context)
 	DataService = serviceContext.Services.DataService
 	mythlingEvolution = MythlingEvolutionCommand.new(DataService)
+	mythlingSale = MythlingSaleCommand.new(DataService)
 	Mythlings.Init(serviceContext, sessionsByUserId)
 	Materials.Init(serviceContext, sessionsByUserId)
 	InventoryRemotes.Init(serviceContext)
@@ -59,6 +62,7 @@ function InventoryService.Stop()
 	end
 	InventoryRemotes.Stop()
 	mythlingEvolution = nil
+	mythlingSale = nil
 	table.clear(sessionsByUserId)
 end
 
@@ -78,6 +82,23 @@ function InventoryService.EvolveMythling(
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return evolution.Evolve(player, request)
+end
+
+function InventoryService.SellMythling(
+	player: Player,
+	request: Types.SellMythlingRequest
+): Types.TransactionResult
+	local sale = mythlingSale
+	if
+		not lifecycle:IsRunning()
+		or not sale
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return sale.Sell(player, request)
 end
 
 -- Mythling inventory API used by claiming, base placement, and production.

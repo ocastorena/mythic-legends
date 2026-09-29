@@ -1247,6 +1247,131 @@ describe("ShrineAccounting.ChangeWorkerFormToDraft", function()
 	end)
 end)
 
+describe("ShrineAccounting.RemoveWorkerToDraft", function()
+	local invalidChanges: { { name: string, mutate: (ShrineAccrual.State, ShrineAccrual.State) -> () } } =
+		{
+			{
+				name = "retained selected worker",
+				mutate = function(state, before)
+					state.workers.worker = copy(before.workers.worker)
+				end,
+			},
+			{
+				name = "deleted other worker",
+				mutate = function(state)
+					state.workers.other = nil
+				end,
+			},
+			{
+				name = "granted worker",
+				mutate = function(state)
+					state.workers.added = copy(state.workers.other)
+				end,
+			},
+			{
+				name = "changed other form",
+				mutate = function(state)
+					state.workers.other.formId = "other_form"
+				end,
+			},
+			{
+				name = "new assignment",
+				mutate = function(state)
+					state.shrines.first.workerIdsBySlot["1"] = "other"
+				end,
+			},
+			{
+				name = "upgraded Shrine",
+				mutate = function(state)
+					state.shrines.first.level = 2
+				end,
+			},
+			{
+				name = "changed Shrine definition",
+				mutate = function(state)
+					state.shrines.first.shrineId = "other_shrine"
+				end,
+			},
+			{
+				name = "dismantled Shrine",
+				mutate = function(state)
+					state.shrines.first = nil
+				end,
+			},
+			{
+				name = "created Shrine",
+				mutate = function(state)
+					state.shrines.added = copy(state.shrines.first)
+				end,
+			},
+		}
+	for _, case in invalidChanges do
+		it(`rejects {case.name} without staged accounting or deletion`, function()
+			local data = fixture("test_fire_form")
+			data.base.shrines.first.workerIdsBySlot = {}
+			data.mythlings.other = copy(data.mythlings.worker)
+			data.mythlings.other.pendingXp = 0.5
+			local definitions = metadata()
+			definitions.forms.other_form = copy(definitions.forms.test_fire_form)
+			definitions.shrines.other_shrine = copy(definitions.shrines.fire_shrine)
+			local before = copy(data)
+			local base, workers, clock = data.base, data.mythlings, data.productionClock
+			local ok, problem = ShrineAccounting.RemoveWorkerToDraft(
+				data,
+				1,
+				"worker",
+				function(state, now, config, production, progression)
+					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+					result.workers.worker = nil
+					case.mutate(result, state)
+					expect(ShrineAccrual.Validate(result, now, config, production, progression)).toBeNil()
+					return result, nil
+				end,
+				definitions
+			)
+			expect(ok).toBe(false)
+			expect(problem).toBe("InvalidAccountingChange")
+			expect(data).toEqual(before)
+			expect(data.base).toBe(base)
+			expect(data.mythlings).toBe(workers)
+			expect(data.productionClock).toBe(clock)
+		end)
+	end
+
+	it("never makes opaque prototype ownership eligible for canonical removal", function()
+		local data = fixture()
+		data.mythlings.legacy = { typeId = "prototype", variantId = "retained", claimedAt = 1 }
+		local before = copy(data)
+		local called = false
+		local ok, problem = ShrineAccounting.RemoveWorkerToDraft(data, 0, "legacy", function()
+			called = true
+			return nil, "UnexpectedCall"
+		end)
+		expect(ok).toBe(false)
+		expect(problem).toBe("WorkerNotOwned")
+		expect(called).toBe(false)
+		expect(data).toEqual(before)
+	end)
+
+	it("rejects invalid selected IDs before invoking the trusted reducer", function()
+		local ids: { any } = { "", false, 3, string.rep("x", 129) }
+		for _, id in ids do
+			local data = fixture()
+			local before = copy(data)
+			local called = false
+			local ok, problem = ShrineAccounting.RemoveWorkerToDraft(data, 0, id, function()
+				called = true
+				return nil, "UnexpectedCall"
+			end)
+			expect(ok).toBe(false)
+			expect(problem).toBe("InvalidRequest")
+			expect(called).toBe(false)
+			expect(data).toEqual(before)
+		end
+	end)
+end)
+
 describe("ShrineAccounting transaction integration", function()
 	it(
 		"commits exactly once while retaining live references and rejecting stale revisions",

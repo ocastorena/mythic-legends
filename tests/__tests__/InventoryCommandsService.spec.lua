@@ -41,8 +41,20 @@ describe("InventoryService canonical command gates", function()
 			expectedFormId = "mythling_0001",
 			expectedTargetFormId = "mythling_0002",
 		}
+		local sell: Types.SellMythlingRequest = {
+			requestId = "0:sell",
+			expectedRevision = 0,
+			workerId = "owned_worker",
+			expectedFormId = "mythling_0001",
+			expectedGoldValue = 25,
+		}
 		local function expectUnavailable(player: unknown)
 			expect(service.EvolveMythling(player, evolve)).toEqual({
+				ok = false,
+				code = "DataUnavailable",
+				revision = 0,
+			})
+			expect(service.SellMythling(player, sell)).toEqual({
 				ok = false,
 				code = "DataUnavailable",
 				revision = 0,
