@@ -172,7 +172,91 @@ export type EquipmentConfiguration = {
 		arenaHeightAllowanceStuds: number,
 	},
 	profiles: { [string]: EquipmentProfile },
+	definitions: { [string]: EquipmentDefinition },
 }
+
+export type EquipmentFinishDef = {
+	displayName: string,
+	description: string,
+	rarity: string,
+	element: Element,
+	thumbnail: string?,
+	effectId: string?,
+}
+
+export type EquipmentDefinition = EquipmentProfile & {
+	equipmentType: "Sword" | "Shield",
+	stage: number?,
+	handsRequired: number?,
+	sale: { gold: number }?,
+	finishes: { [string]: EquipmentFinishDef }?,
+}
+
+export type ResolvedEquipment = {
+	definitionId: string,
+	finishId: string?,
+	displayName: string,
+	description: string,
+	rarity: string,
+	element: Element?,
+	thumbnail: string,
+	profile: EquipmentDefinition,
+	effectId: string?,
+	sellGold: number?,
+}
+
+export type EquipmentRecipe = {
+	craftingStationId: string,
+	goldCost: number,
+	materials: { [string]: number },
+	resultDefinitionId: string,
+	resultFinishId: string,
+	quantity: number,
+	durationSeconds: number,
+}
+
+export type ElementalSwordEffect =
+	{
+		element: "Fire",
+		kind: "Burn",
+		description: string,
+		staminaPerSecond: number,
+		durationSeconds: number,
+	}
+	| {
+		element: "Water",
+		kind: "Slow",
+		description: string,
+		walkSpeedMultiplier: number,
+		durationSeconds: number,
+	}
+	| {
+		element: "Earth",
+		kind: "Root",
+		description: string,
+		rootSeconds: number,
+		landingTimeoutSeconds: number,
+		recoverySeconds: number,
+	}
+	| {
+		element: "Air",
+		kind: "Push",
+		description: string,
+		horizontalMultiplier: number,
+	}
+	| {
+		element: "Light",
+		kind: "Weaken",
+		description: string,
+		horizontalMultiplier: number,
+		durationSeconds: number,
+	}
+	| {
+		element: "Dark",
+		kind: "Refund",
+		description: string,
+		stamina: number,
+	}
 
 export type TransactionValues = { [string]: string | number | boolean }
 export type TransactionOutcome = { ok: boolean, code: string?, values: TransactionValues? }

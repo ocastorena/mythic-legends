@@ -14,11 +14,16 @@ local PlayerUtil = require(infrastructure:WaitForChild("PlayerUtil"))
 local Trove = require(ReplicatedStorage.Packages.Trove)
 local MaterialCatalogUtil = require(ServerScriptService.Shared.MaterialCatalogUtil)
 local MythlingCatalogUtil = require(ServerScriptService.Shared.MythlingCatalogUtil)
+local EquipmentCatalogUtil = require(ServerScriptService.Shared.EquipmentCatalogUtil)
 local Materials = require(ReplicatedStorage.Shared.Configurations.Materials)
 local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
 local MythlingProgression = require(ReplicatedStorage.Shared.Configurations.MythlingProgression)
 local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)
+local Equipment = require(ReplicatedStorage.Shared.Configurations.Equipment)
+local EquipmentRecipes = require(ReplicatedStorage.Shared.Configurations.EquipmentRecipes)
+local ElementalSwordEffects = require(ReplicatedStorage.Shared.Configurations.ElementalSwordEffects)
+local CraftingStations = require(ReplicatedStorage.Shared.Configurations.CraftingStations)
 
 local validMaterials, materialProblem =
 	MaterialCatalogUtil.Validate(Materials, Shrines, Inventory.materialStackLimit)
@@ -28,6 +33,15 @@ assert(validMaterials, `[MainServer] Invalid Material catalogue: {materialProble
 local validForms, formProblem =
 	MythlingCatalogUtil.ValidateLaunch(MythlingForms, MythlingProgression.levelCap)
 assert(validForms, `[MainServer] Invalid Mythling catalogue: {formProblem}`)
+
+local validEquipment, equipmentProblem = EquipmentCatalogUtil.ValidateLaunch(
+	Equipment,
+	EquipmentRecipes,
+	ElementalSwordEffects,
+	Materials,
+	CraftingStations
+)
+assert(validEquipment, `[MainServer] Invalid Equipment catalogue: {equipmentProblem}`)
 
 local log = LogUtil.For("MainServer")
 local ServerTypes = require(ServerScriptService.Shared.Types)
@@ -140,7 +154,7 @@ local serviceContext: ServerTypes.Context = {
 		Materials = Materials,
 		Consumables = require(configurations:WaitForChild("Consumables")),
 		MythlingSpawns = require(configurations:WaitForChild("MythlingSpawns")),
-		Equipment = require(configurations:WaitForChild("Equipment")),
+		Equipment = Equipment,
 	},
 	Remotes = RemoteUtil.Resolve(ReplicatedStorage),
 	Services = services,

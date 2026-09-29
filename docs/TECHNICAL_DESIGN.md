@@ -2132,6 +2132,40 @@ migration, gameplay action, menu change, or Mythling-roster replacement. Canonic
 and [Material-disposal commands](#atomic-material-sale-and-discard-commands) consume these references;
 Shop and crafting remain separate integrations.
 
+### Launch Equipment catalogue
+
+`Shared.Configurations.Equipment.definitions` contains `wooden_sword`, `wooden_shield`,
+`elemental_sword`, and `elemental_shield`. The compatibility `profiles` map still exposes only the
+same two wooden objects to existing combat consumers; new catalogue entries do not silently activate
+unfinished Equipment. The crafted definitions share base gameplay by type, with swords retaining
+the wooden sword's values and crafted Shields owning their configured impact cost/guard minimum.
+
+Each crafted definition has six named `finishes`, keyed `fire`, `water`, `earth`, `air`, `light`, and
+`dark`. A finish owns its name, description, fixed rarity, element, optional thumbnail, and sword
+effect reference—not independent gameplay overrides. Static rarity remains Common for the wooden
+pair and Rare for the named crafted items. Stage is internal; no owned rarity, copied statistics,
+new saved field, or automatic equip is introduced. Crafted model names/thumbnails remain explicitly
+unbound until assets are approved; there is no implicit wooden-model substitution.
+
+`Shared.EquipmentCatalog.Resolve(definitionId, finishId)` returns immutable derived item metadata
+with its shared definition as `profile`, or nil for an unknown/invalid pair. Crafted definitions
+require a valid finish; plain definitions reject unexpected finishes. The owning definition supplies
+`sellGold` when sellable, while original starter protection remains an owned-instance rule.
+
+`Configurations.EquipmentRecipes` contains twelve fixed matching-Material recipes, keyed by base
+definition plus finish (for example `elemental_sword_fire`). Each references the included Station,
+Gold/Material costs, exact result IDs, quantity, and duration. `ElementalSwordEffects` owns the six
+approved effect roles, descriptions, and tuning. These are static definitions only: active effect
+accounting, Crafting Job receipts, Shop grants, and variant-aware combat integration remain separate.
+Existing jobs must snapshot promises when that lifecycle is implemented; the catalogue never
+rewrites owned records or infers missing historical receipts from today's recipes.
+
+`ServerScriptService.Shared.EquipmentCatalogUtil.ValidateLaunch` checks launch coverage, compatible
+base profiles, finish/effect roles, references, safe recipe arithmetic, and resale relationships
+before services start. Balance values remain configurable; real-catalogue tests assert the GDD's
+initial tuning separately. Catalogue verification does not prove asset readiness, accepted-hit
+effect behavior, connected-player integration, or durable persistence, and adds no GUI behavior.
+
 ## Player save data
 
 The persistent player document stores lightweight, mutable player state. It references static
@@ -2571,7 +2605,8 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Shrine dismantling | Server-only `BaseService.DismantleShrine` delegates to private [ShrineRemoval](../src/ServerScriptService/Services/BaseService/ShrineRemoval.lua). It composes [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua) and the shared removal bridge inside one revision-bound `DataService.Transact`, rejecting assigned workers or settled whole output before removing only the selected canonical record. Unfinished Shrine work is discarded without erasing owned workers or their pending XP; identity/level-bound receipts protect a replacement in the freed slot. | No new remote, schema, automatic lifecycle, or presentation/model deletion. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Purchased slots, surviving accounting, Station identity, currency, Materials, and crafting reservations remain intact; no refund is granted. |
 | Mythling evolution | Server-only `InventoryService.EvolveMythling` delegates to private [MythlingEvolutionCommand](../src/ServerScriptService/Services/InventoryService/MythlingEvolutionCommand.lua). It composes [MythlingEvolution](../src/ServerScriptService/Services/InventoryService/MythlingEvolution.lua) with the shared form-change bridge and canonical launch links inside one revision-bound `DataService.Transact`. Old-form settlement, eligibility, selected `typeId`, and identity/form/target-bound receipts commit together. Assigned and consecutive eligible evolutions retain work, progression, inactive legacy fields, and batch timing. | No new remote, menu, acquisition grant, schema migration, or automatic lifecycle. Add player-facing integration separately and playtest connected-player dispatch and durable saves. Prototype capture/stand paths remain unchanged; pending XP stays private. |
 | Mythling sales | Server-only `InventoryService.SellMythling` delegates to private [MythlingSaleCommand](../src/ServerScriptService/Services/InventoryService/MythlingSaleCommand.lua). It composes [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) and the shared worker-removal bridge with canonical sale definitions inside one revision-bound `DataService.Transact`. Unassignment and stale form/price checks protect the selected deletion and Gold grant; final-copy sales remain allowed. All earned Shrine work and surviving workers' XP are retained, while the sold instance's pending XP retires. | No new remote, menu, acquisition grant, schema migration, or automatic lifecycle. Add player-facing integration separately and playtest connected-player dispatch and durable saves. Legacy deletion remains blocked for canonical forms or retained entries with Shrine assignments/pending credit; it is not a sale API. Materials and crafting reservations remain unchanged. |
-| Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
+| Equipment catalogue | [Equipment](../src/ReplicatedStorage/Shared/Configurations/Equipment.lua) defines the wooden pair and twelve named elemental items through shared bases and explicit finishes. [EquipmentCatalog](../src/ReplicatedStorage/Shared/EquipmentCatalog.lua) resolves fixed item metadata by IDs; recipes and effect tuning have separate static owners and startup validation. Existing combat still receives the wooden-only compatibility map. | Implement Crafting Jobs, Shop delivery, variant-aware Loadout/combat, and elemental-effect accounting. Bind approved assets separately; empty crafted model names are not a fallback. No GUI, saved-stat copy, or acquisition is added by the catalogue. |
+| Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Integrate the first-crafted Shield catalogue and elemental-effect accounting; metadata alone does not complete the combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |

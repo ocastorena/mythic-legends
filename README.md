@@ -196,6 +196,22 @@ the existing prototype capture/stand-production/collection flow. The retained pr
 are marked `launchEnabled = false`, but this flag does not disable or rewrite those existing paths.
 Catalogue validation adds no save-schema change, UI, Shop, or crafting integration.
 
+### Launch Equipment catalogue review
+
+`Equipment.definitions` and `EquipmentRecipes` describe the wooden pair and twelve named elemental
+items without granting or equipping them. `EquipmentCatalog.Resolve(definitionId, finishId)` returns
+their fixed rarity, name, element, sword-effect reference, sell value, and shared base profile.
+Crafted definitions require a valid finish; plain wooden items reject one. Names are not lookup keys.
+
+`EquipmentCatalogUtil.ValidateLaunch` checks definitions, recipes, effects, Material references,
+and resale relationships before startup. Run the verification commands above; real-catalogue tests
+also pin the approved initial values and unchanged wooden gameplay. The compatibility `profiles`
+map still contains only the wooden pair, so this increment does not activate crafted combat.
+
+Crafted model bindings and thumbnails are explicitly empty while assets remain undecided. There is
+no wooden-model fallback, GUI change, saved-stat copy, crafting job, Shop purchase, or active elemental
+effect yet. See the [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-equipment-catalogue).
+
 ### Player-data foundation review
 
 The pre-release foundation uses the intentionally fresh `MythicLegends_MVP_v1` data namespace;

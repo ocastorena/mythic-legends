@@ -3,6 +3,7 @@
 
 local FreezeUtil = require(script.Parent.Parent.FreezeUtil)
 local Types = require(script.Parent.Parent.Types)
+local ElementalSwordEffects = require(script.Parent.ElementalSwordEffects)
 -- Canonical static metadata for Model-based Arena combat equipment.
 
 -- Client fallbacks and the prototype wooden profiles share one set of tuning values.
@@ -38,6 +39,8 @@ local Equipment: Types.EquipmentConfiguration = {
 			description = "A dependable starter sword for non-lethal Arena knockback.",
 			rarity = "Common",
 			kind = "PrimaryWeapon",
+			equipmentType = "Sword",
+			handsRequired = 1,
 			modelName = "WoodenSword",
 			thumbnail = "",
 
@@ -66,6 +69,7 @@ local Equipment: Types.EquipmentConfiguration = {
 			description = "A sturdy starter shield that trades Stamina for protection.",
 			rarity = "Common",
 			kind = "Shield",
+			equipmentType = "Shield",
 			modelName = "WoodenShield",
 			thumbnail = "",
 
@@ -83,6 +87,119 @@ local Equipment: Types.EquipmentConfiguration = {
 			lowerAnimationId = "rbxassetid://13382274130",
 		},
 	},
+	definitions = {},
 }
+
+-- Existing combat consumers still see only the wooden profiles. The complete catalogue is
+-- separate until finish-aware combat and authored crafted models are integrated deliberately.
+-- These objects add static classification to the same wooden profiles, not replacement copies.
+local woodenSword = Equipment.profiles.wooden_sword :: Types.EquipmentDefinition
+local woodenShield = Equipment.profiles.wooden_shield :: Types.EquipmentDefinition
+local elementalSword: Types.EquipmentDefinition = table.clone(woodenSword)
+elementalSword.displayName = "Elemental Sword"
+elementalSword.description = "A crafted one-handed sword with a fixed elemental effect."
+elementalSword.rarity = "Rare"
+elementalSword.stage = 1
+elementalSword.modelName = ""
+elementalSword.thumbnail = ""
+elementalSword.sale = { gold = 25 }
+elementalSword.finishes = {
+	fire = {
+		displayName = "Vulcan Sword",
+		description = ElementalSwordEffects.fire_burn.description,
+		rarity = "Rare",
+		element = "Fire",
+		effectId = "fire_burn",
+	},
+	water = {
+		displayName = "Triton Sword",
+		description = ElementalSwordEffects.water_slow.description,
+		rarity = "Rare",
+		element = "Water",
+		effectId = "water_slow",
+	},
+	earth = {
+		displayName = "Atlas Sword",
+		description = ElementalSwordEffects.earth_root.description,
+		rarity = "Rare",
+		element = "Earth",
+		effectId = "earth_root",
+	},
+	air = {
+		displayName = "Aura Sword",
+		description = ElementalSwordEffects.air_knockback.description,
+		rarity = "Rare",
+		element = "Air",
+		effectId = "air_knockback",
+	},
+	light = {
+		displayName = "Sol Sword",
+		description = ElementalSwordEffects.light_weaken.description,
+		rarity = "Rare",
+		element = "Light",
+		effectId = "light_weaken",
+	},
+	dark = {
+		displayName = "Nyx Sword",
+		description = ElementalSwordEffects.dark_refund.description,
+		rarity = "Rare",
+		element = "Dark",
+		effectId = "dark_refund",
+	},
+}
+
+local elementalShield: Types.EquipmentDefinition = table.clone(woodenShield)
+elementalShield.displayName = "Elemental Shield"
+elementalShield.description = "A crafted Shield with improved Stamina efficiency."
+elementalShield.rarity = "Rare"
+elementalShield.stage = 1
+elementalShield.modelName = ""
+elementalShield.thumbnail = ""
+elementalShield.sale = { gold = 25 }
+elementalShield.impactStaminaCost = 25
+elementalShield.minimumGuardStamina = 25
+elementalShield.finishes = {
+	fire = {
+		displayName = "Vulcan Shield",
+		description = elementalShield.description,
+		rarity = "Rare",
+		element = "Fire",
+	},
+	water = {
+		displayName = "Triton Shield",
+		description = elementalShield.description,
+		rarity = "Rare",
+		element = "Water",
+	},
+	earth = {
+		displayName = "Atlas Shield",
+		description = elementalShield.description,
+		rarity = "Rare",
+		element = "Earth",
+	},
+	air = {
+		displayName = "Aura Shield",
+		description = elementalShield.description,
+		rarity = "Rare",
+		element = "Air",
+	},
+	light = {
+		displayName = "Sol Shield",
+		description = elementalShield.description,
+		rarity = "Rare",
+		element = "Light",
+	},
+	dark = {
+		displayName = "Nyx Shield",
+		description = elementalShield.description,
+		rarity = "Rare",
+		element = "Dark",
+	},
+}
+
+Equipment.definitions.wooden_sword = woodenSword
+Equipment.definitions.wooden_shield = woodenShield
+Equipment.definitions.elemental_sword = elementalSword
+Equipment.definitions.elemental_shield = elementalShield
 
 return FreezeUtil.DeepFreeze(Equipment)
