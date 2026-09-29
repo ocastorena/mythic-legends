@@ -93,7 +93,7 @@ local function oneWorkerState(
 			hearth = {
 				shrineId = shrineId,
 				level = 1,
-				workerIds = { "worker" },
+				workerIdsBySlot = { ["1"] = "worker" },
 				stored = 0,
 				progress = 0,
 				newWork = 0,
@@ -233,7 +233,11 @@ describe("ShrineAccrual chronological launch tuning", function()
 	it("fills a level-3 store with three leveling Epics near 24.2 hours, then pauses", function()
 		local definitions = metadata()
 		local initial = oneWorkerState("fire_epic", "daily_fire_shrine", 50, 0)
-		initial.shrines.hearth.workerIds = { "worker_a", "worker_b", "worker_c" }
+		initial.shrines.hearth.workerIdsBySlot = {
+			["1"] = "worker_a",
+			["2"] = "worker_b",
+			["3"] = "worker_c",
+		}
 		initial.workers = {
 			worker_a = { formId = "fire_epic", level = 50, xp = 0, pendingXp = 0 },
 			worker_b = { formId = "fire_epic", level = 50, xp = 0, pendingXp = 0 },
@@ -296,7 +300,7 @@ describe("ShrineAccrual chronological launch tuning", function()
 				initial.shrines[shrineInstanceId] = {
 					shrineId = SMALL_SHRINE_IDS[element],
 					level = 1,
-					workerIds = { workerId },
+					workerIdsBySlot = { ["1"] = workerId },
 					stored = nextInt(capacity),
 					progress = FRACTIONS[1 + nextInt(#FRACTIONS)],
 					newWork = FRACTIONS[1 + nextInt(#FRACTIONS)] / 4,

@@ -14,7 +14,7 @@ export type Worker = { formId: string, level: number, xp: number, pendingXp: num
 export type Shrine = {
 	shrineId: string,
 	level: number,
-	workerIds: { string },
+	workerIdsBySlot: { [string]: string },
 	stored: number,
 	progress: number,
 	newWork: number,
@@ -49,6 +49,17 @@ end
 
 local function isId(value: unknown): boolean
 	return type(value) == "string" and #value > 0 and #value <= 128
+end
+
+local function canonicalSlotNumber(value: unknown): number?
+	if type(value) ~= "string" then
+		return nil
+	end
+	local slot = tonumber(value)
+	if slot == nil or not isInteger(slot) or slot < 1 or tostring(slot) ~= value then
+		return nil
+	end
+	return slot
 end
 
 -- Only correct floating-point noise immediately adjacent to an integer, not meaningful fractions.
@@ -149,7 +160,7 @@ local function validate(
 			or not isNumber(shrine.progress)
 			or shrine.progress >= 1
 			or not isNumber(shrine.newWork)
-			or type(shrine.workerIds) ~= "table"
+			or type(shrine.workerIdsBySlot) ~= "table"
 		then
 			return "InvalidShrine"
 		end
@@ -173,13 +184,9 @@ local function validate(
 			return "InvalidShrineCapacity"
 		end
 		local count = 0
-		for index, workerId in shrine.workerIds do
-			if
-				not isInteger(index)
-				or index < 1
-				or index > #shrine.workerIds
-				or not isId(workerId)
-			then
+		for slotKey, workerId in shrine.workerIdsBySlot do
+			local slot = canonicalSlotNumber(slotKey)
+			if not slot or slot > level.workerSlots or not isId(workerId) then
 				return "InvalidAssignment"
 			end
 			local worker = state.workers[workerId]
@@ -193,7 +200,7 @@ local function validate(
 			assigned[workerId] = true
 			count += 1
 		end
-		if count ~= #shrine.workerIds or count > level.workerSlots then
+		if count > level.workerSlots then
 			return "InvalidAssignment"
 		end
 	end
@@ -206,13 +213,22 @@ local function cloneState(state: State): State
 	result.workers = {}
 	for id, shrine in state.shrines do
 		local copy = table.clone(shrine)
-		copy.workerIds = table.clone(shrine.workerIds)
+		copy.workerIdsBySlot = table.clone(shrine.workerIdsBySlot)
 		result.shrines[id] = copy
 	end
 	for id, worker in state.workers do
 		result.workers[id] = table.clone(worker)
 	end
 	return result
+end
+
+local function getOrderedSlots(shrine: Shrine): { number }
+	local slots = {}
+	for slotKey in shrine.workerIdsBySlot do
+		table.insert(slots, tonumber(slotKey) :: number)
+	end
+	table.sort(slots)
+	return slots
 end
 
 local function getCapacity(shrine: Shrine, metadata: Metadata): number
@@ -228,7 +244,8 @@ local function getRates(
 	for id, shrine in state.shrines do
 		local rate = 0
 		if shrine.stored < getCapacity(shrine, metadata) then
-			for _, workerId in shrine.workerIds do
+			for _, slot in getOrderedSlots(shrine) do
+				local workerId = shrine.workerIdsBySlot[tostring(slot)]
 				local worker = state.workers[workerId]
 				rate += MythlingProgressionUtil.GetYield(
 					metadata.forms[worker.formId].baseYieldPerHour,
@@ -266,7 +283,8 @@ local function getBatchCount(
 				)
 			end
 			if xpPerBatch > 0 then
-				for _, workerId in shrine.workerIds do
+				for _, slot in getOrderedSlots(shrine) do
+					local workerId = shrine.workerIdsBySlot[tostring(slot)]
 					local worker = state.workers[workerId]
 					if worker.level < progression.levelCap then
 						local needed = MythlingProgressionUtil.GetNextLevelXp(
@@ -296,7 +314,8 @@ local function accumulate(
 			if not isNumber(shrine.newWork) then
 				return false
 			end
-			for _, workerId in shrine.workerIds do
+			for _, slot in getOrderedSlots(shrine) do
+				local workerId = shrine.workerIdsBySlot[tostring(slot)]
 				local worker = state.workers[workerId]
 				if worker.level < progression.levelCap then
 					worker.pendingXp += production.baseXpPerSecond * elapsed
@@ -347,6 +366,22 @@ end
 -- now is server-authored. This ledger is NOT a PlayerDoc or an owned-Mythling replacement record.
 -- A future transaction adapter must merge these accounting fields with the existing owned state.
 -- Keep the explicit profile schedule through swaps, reconnects, collection, and empty/full time.
+function ShrineAccrual.Validate(
+	state: State,
+	now: number,
+	metadata: Metadata,
+	productionConfig: ProductionConfig?,
+	progressionConfig: ProgressionConfig?
+): string?
+	return validate(
+		state,
+		now,
+		metadata,
+		productionConfig or Production,
+		progressionConfig or MythlingProgression
+	)
+end
+
 function ShrineAccrual.Accrue(
 	state: State,
 	now: number,
@@ -356,7 +391,7 @@ function ShrineAccrual.Accrue(
 ): (State?, string?)
 	local production = productionConfig or Production
 	local progression = progressionConfig or MythlingProgression
-	local problem = validate(state, now, metadata, production, progression)
+	local problem = ShrineAccrual.Validate(state, now, metadata, production, progression)
 	if problem then
 		return nil, problem
 	end

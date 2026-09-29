@@ -32,6 +32,7 @@ local function metadata(): ShrineAccrual.Metadata
 				levels = {
 					[1] = { capacity = 10, workerSlots = 1 },
 					[2] = { capacity = 20, workerSlots = 2 },
+					[3] = { capacity = 30, workerSlots = 3 },
 				},
 			},
 			test_tiny_fire_shrine = {
@@ -67,7 +68,7 @@ local function state(formId: string?): ShrineAccrual.State
 			hearth = {
 				shrineId = "test_fire_shrine",
 				level = 1,
-				workerIds = { "worker_a" },
+				workerIdsBySlot = { ["1"] = "worker_a" },
 				stored = 0,
 				progress = 0,
 				newWork = 0,
@@ -154,7 +155,7 @@ describe("ShrineAccrual", function()
 		expect(halfway.shrines.hearth.newWork).toBeCloseTo(0.5)
 		expect(halfway.workers.worker_a.pendingXp).toBeCloseTo(0.5)
 
-		halfway.shrines.hearth.workerIds = { "worker_b" }
+		halfway.shrines.hearth.workerIdsBySlot = { ["1"] = "worker_b" }
 		local resolved = accrue(halfway, 1)
 
 		expect(resolved.shrines.hearth.stored).toBe(1)
@@ -171,14 +172,14 @@ describe("ShrineAccrual", function()
 		input.shrines.destination = {
 			shrineId = "test_fire_shrine",
 			level = 1,
-			workerIds = {},
+			workerIdsBySlot = {},
 			stored = 0,
 			progress = 0,
 			newWork = 0,
 		}
 		local halfway = accrue(input, 0.5)
-		halfway.shrines.hearth.workerIds = {}
-		halfway.shrines.destination.workerIds = { "worker_a" }
+		halfway.shrines.hearth.workerIdsBySlot = {}
+		halfway.shrines.destination.workerIdsBySlot = { ["1"] = "worker_a" }
 
 		local resolved = accrue(halfway, 1)
 
@@ -202,7 +203,7 @@ describe("ShrineAccrual", function()
 	it("sums concurrent worker Yield while granting each worker independent XP", function()
 		local input = state()
 		input.shrines.hearth.level = 2
-		input.shrines.hearth.workerIds = { "worker_a", "worker_b" }
+		input.shrines.hearth.workerIdsBySlot = { ["1"] = "worker_a", ["2"] = "worker_b" }
 		input.workers.worker_b = {
 			formId = "test_fire_medium",
 			level = 1,
@@ -216,6 +217,38 @@ describe("ShrineAccrual", function()
 		expect(result.shrines.hearth.progress).toBeCloseTo(0.3)
 		expect(result.workers.worker_a.xp).toBe(1)
 		expect(result.workers.worker_b.xp).toBe(1)
+	end)
+
+	it("preserves stable assignment gaps and clones the slot map", function()
+		local input = state()
+		input.shrines.hearth.level = 3
+		input.shrines.hearth.workerIdsBySlot = {
+			["1"] = "worker_a",
+			["3"] = "worker_c",
+		}
+		input.workers.worker_c = {
+			formId = "test_fire_medium",
+			level = 1,
+			xp = 0,
+			pendingXp = 0,
+		}
+
+		local result = accrue(input, 1)
+
+		expect(result.shrines.hearth.workerIdsBySlot).toEqual({
+			["1"] = "worker_a",
+			["3"] = "worker_c",
+		})
+		expect(result.shrines.hearth.workerIdsBySlot["2"]).toBeNil()
+		expect(result.shrines.hearth.workerIdsBySlot).never.toBe(
+			input.shrines.hearth.workerIdsBySlot
+		)
+		expect(result.shrines.hearth.progress).toBeCloseTo(0.3)
+		expect(result.workers.worker_a.xp).toBe(1)
+		expect(result.workers.worker_c.xp).toBe(1)
+
+		result.shrines.hearth.workerIdsBySlot["2"] = "worker_a"
+		expect(input.shrines.hearth.workerIdsBySlot["2"]).toBeNil()
 	end)
 
 	it("grants the filling batch's XP, discards overflow, then pauses while full", function()
@@ -254,9 +287,9 @@ describe("ShrineAccrual", function()
 
 	it("never catches up intervals spent empty or full after work can resume", function()
 		local empty = state()
-		empty.shrines.hearth.workerIds = {}
+		empty.shrines.hearth.workerIdsBySlot = {}
 		local emptyElapsed = accrue(empty, 10)
-		emptyElapsed.shrines.hearth.workerIds = { "worker_a" }
+		emptyElapsed.shrines.hearth.workerIdsBySlot = { ["1"] = "worker_a" }
 		local emptyResumed = accrue(emptyElapsed, 11)
 		expect(emptyResumed.shrines.hearth.progress).toBeCloseTo(0.1)
 		expect(emptyResumed.workers.worker_a.xp).toBe(1)
@@ -291,7 +324,7 @@ describe("ShrineAccrual", function()
 
 	it("coalesces a century of empty elapsed time without changing earned state", function()
 		local input = state()
-		input.shrines.hearth.workerIds = {}
+		input.shrines.hearth.workerIdsBySlot = {}
 		local hundredYears = 100 * 365 * 24 * 60 * 60
 
 		local result = accrue(input, hundredYears)
@@ -319,7 +352,7 @@ describe("ShrineAccrual", function()
 	it("honors earned pending XP at the cap but adds no new capped-time XP", function()
 		local input = state("test_fire_normal")
 		input.shrines.hearth.shrineId = "test_large_fire_shrine"
-		input.shrines.hearth.workerIds = {}
+		input.shrines.hearth.workerIdsBySlot = {}
 		input.workers.worker_a.level = 99
 		input.workers.worker_a.xp = 11_879
 		input.workers.worker_a.pendingXp = 2
@@ -329,7 +362,7 @@ describe("ShrineAccrual", function()
 		expect(capped.workers.worker_a.level).toBe(100)
 		expect(capped.workers.worker_a.xp).toBe(1)
 		expect(capped.workers.worker_a.pendingXp).toBe(0)
-		capped.shrines.hearth.workerIds = { "worker_a" }
+		capped.shrines.hearth.workerIdsBySlot = { ["1"] = "worker_a" }
 		local later = accrue(capped, 11)
 		expect(later.workers.worker_a.level).toBe(100)
 		expect(later.workers.worker_a.xp).toBe(1)
@@ -352,6 +385,33 @@ describe("ShrineAccrual", function()
 		local continued = accrue(repeated, 20)
 		local uninterrupted = accrue(copy(initial), 20)
 		expect(continued).toEqual(uninterrupted)
+	end)
+
+	it("round-trips sparse canonical slot keys through JSON", function()
+		local input = state()
+		input.shrines.hearth.level = 3
+		input.shrines.hearth.workerIdsBySlot = {
+			["1"] = "worker_a",
+			["3"] = "worker_c",
+		}
+		input.workers.worker_c = {
+			formId = "test_fire_medium",
+			level = 1,
+			xp = 0,
+			pendingXp = 0,
+		}
+		local restored = copy(input)
+
+		expect(restored.shrines.hearth.workerIdsBySlot["1"]).toBe("worker_a")
+		expect(restored.shrines.hearth.workerIdsBySlot["2"]).toBeNil()
+		expect(restored.shrines.hearth.workerIdsBySlot["3"]).toBe("worker_c")
+		expect(ShrineAccrual.Validate(restored, 0, metadata())).toBeNil()
+
+		local result = accrue(restored, 1)
+		expect(result.shrines.hearth.workerIdsBySlot).toEqual(
+			restored.shrines.hearth.workerIdsBySlot
+		)
+		expect(result.shrines.hearth.progress).toBeCloseTo(0.3)
 	end)
 
 	it(
@@ -431,14 +491,17 @@ describe("ShrineAccrual", function()
 	it("rejects duplicate, cross-Shrine, and over-capacity worker assignments", function()
 		local duplicate = state()
 		duplicate.shrines.hearth.level = 2
-		duplicate.shrines.hearth.workerIds = { "worker_a", "worker_a" }
+		duplicate.shrines.hearth.workerIdsBySlot = {
+			["1"] = "worker_a",
+			["2"] = "worker_a",
+		}
 		expectRejected(duplicate, 1, metadata())
 
 		local crossShrine = state()
 		crossShrine.shrines.second = {
 			shrineId = "test_fire_shrine",
 			level = 1,
-			workerIds = { "worker_a" },
+			workerIdsBySlot = { ["1"] = "worker_a" },
 			stored = 0,
 			progress = 0,
 			newWork = 0,
@@ -452,7 +515,38 @@ describe("ShrineAccrual", function()
 			xp = 0,
 			pendingXp = 0,
 		}
-		tooMany.shrines.hearth.workerIds = { "worker_a", "worker_b" }
+		tooMany.shrines.hearth.workerIdsBySlot = {
+			["1"] = "worker_a",
+			["2"] = "worker_b",
+		}
 		expectRejected(tooMany, 1, metadata())
+	end)
+
+	it("rejects invalid, noncanonical, and locked slot keys", function()
+		local definitions = metadata()
+		local numericKey = state()
+		local numericAssignments = numericKey.shrines.hearth.workerIdsBySlot :: any
+		numericAssignments["1"] = nil
+		numericAssignments[1] = "worker_a"
+		expect(ShrineAccrual.Validate(numericKey, 0, definitions)).toBe("InvalidAssignment")
+
+		for _, slotKey in { "slot", "01", "1.0", "+1" } do
+			local noncanonical = state()
+			noncanonical.shrines.hearth.workerIdsBySlot = { [slotKey] = "worker_a" }
+			expect(ShrineAccrual.Validate(noncanonical, 0, definitions)).toBe("InvalidAssignment")
+		end
+
+		local locked = state()
+		locked.shrines.hearth.workerIdsBySlot = { ["2"] = "worker_a" }
+		expect(ShrineAccrual.Validate(locked, 0, definitions)).toBe("InvalidAssignment")
+	end)
+
+	it("does not treat the retired dense assignment field as a fallback", function()
+		local input = state()
+		local shrine = input.shrines.hearth :: any
+		shrine.workerIds = { "worker_a" }
+		shrine.workerIdsBySlot = nil
+
+		expect(ShrineAccrual.Validate(input, 0, metadata())).toBe("InvalidShrine")
 	end)
 end)

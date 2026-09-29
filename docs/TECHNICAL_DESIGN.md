@@ -686,7 +686,9 @@ Initial evolution links require level 6 for Common-to-Rare and level 40 for Rare
 At the initial activity rate, levels 6/40/100 take 1,800/93,600/594,000 eligible working seconds,
 resolved at normal batch boundaries. Keep these values configurable; chronological accrual must
 process every earned level before subsequent batches, including during offline settlement.
-Reaching the level cap does not stop Material production when storage is available. Yield, form,
+Reaching the level cap stops new XP accrual but not Material production when storage is available.
+Preserve already-earned XP, including unresolved pending credit and the cap-reaching batch's
+remainder. Capped working time does not bank additional XP. Yield, form,
 rarity, and online/offline status do not modify the activity's XP rate. No additional activity system
 or player XP is needed for launch.
 
@@ -772,7 +774,28 @@ Long intervals coalesce identical complete batches only as far as the next level
 boundary; later work uses the changed inputs. There is no offline time cap. Empty/full intervals still
 advance the cursor, and pending XP resolves even after its source Shrine is removed. Existing whole
 output and progress are retained if current capacity is reduced below stored output; it earns no new
-work until space is available. This engine is not yet wired to live saves, assignments, or collection.
+work until space is available. This engine is not yet wired to live saves or player-facing commands.
+
+`ShrineAssignments.Assign` and `.Remove` compose that same reducer with validated slot changes.
+Their input is one server-selected profile's accounting view, not a client-submitted ownership map.
+`workerIdsBySlot` uses canonical string keys (`"1"`, `"2"`, `"3"` for the launch levels), preserving
+empty gaps and JSON round trips. It is the sole assignment map; worker records carry no mirrored
+assignment authority. Accrual sums workers in numeric slot order and rejects duplicate ownership
+links, locked/noncanonical slots, or element mismatches. The earlier detached dense `workerIds`
+test-ledger shape was never saved or used by the live game; replacing it requires no save migration.
+
+Assignment takes `workerId`, `shrineInstanceId`, and numeric `slotId`; it rejects any already-assigned
+worker or occupied target. Removal takes `shrineInstanceId`, `slotId`, and `expectedWorkerId` and
+rejects stale occupants. Both validate before accrual, then settle the preceding interval and change
+only the selected slot in a detached result. Reject backdated changes; two accepted commands at the
+same time do not earn additional work. Unassigning leaves the Mythling owned, retains its pending XP,
+and preserves all Shrine output/progress and other slot identities. The caller must commit the whole
+returned ledger, never only the slot change. The pure operations provide neither authentication nor
+request receipts: a future service must supply its authenticated loaded profile, serialized
+DataService transaction, revision/receipt checks, and server-authored time. No live schema, remote,
+prototype stand-assignment path, or final content catalogue changes in this increment.
+While the prototype stand path coexists, the live adapter must also reject any worker still assigned
+to a legacy stand; the isolated Shrine view alone cannot prove that no such second assignment exists.
 
 ### Space recovery transactions
 
@@ -1286,6 +1309,11 @@ saved authority. Validate ownership, matching elements, and valid slots before c
 Resolve invalid legacy links without deleting the owned Mythling. Assignment or removal settles
 affected production and changes the slot map in one transaction.
 
+Require explicit unassignment before assigning an already-working Mythling elsewhere. Assign only
+to an empty unlocked slot; never move, swap, or replace workers as a side effect. Removal identifies
+the selected Shrine, slot, and expected worker, rejecting a changed occupant instead of removing
+someone else. Slot identities remain stable when another slot is emptied; do not compact the map.
+
 The originally granted sword and shield carry server-owned `isStarterGrant` identity in their
 Equipment records. Initialize that pair once per profile, retain its identity through migrations,
 and reject sales or destructive removals of those instances even after unequip or reconnect. Clients
@@ -1618,6 +1646,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
 | Inventory capacity | [Capacity](../src/ServerScriptService/Services/InventoryService/Capacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Collection transfers only what fits and retains the rest in stand storage. | Add validated upgrade purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting; the final Material catalogue remains pending. |
 | Mythling production | Live [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua). Separately, [ShrineAccrual](../src/ServerScriptService/Domain/Production/ShrineAccrual.lua) implements detached one-second, profile-wide production/XP accounting with chronological levels, individual pending credit, overflow handling, and event-based offline settlement. Tests inject synthetic forms and Materials. | Finalize launch metadata and integrate the new ledger, assignments, collection, and transaction/persistence lifecycle in separate increments. The pure reducer does not change live profiles or replace the prototype roster. Luck/Traits remain inactive. |
+| Shrine assignment | [ShrineAssignments](../src/ServerScriptService/Domain/Production/ShrineAssignments.lua) validates empty-slot assignment and expected-worker removal, settles prior work, and returns a detached ledger with stable numbered slot identities. Unassignment is required before reassignment; occupied slots are never replaced implicitly. Tests use synthetic content. | Integrate the accounting view with authenticated profile ownership, transaction revisions/receipts, persistence, and future presentation. No live assignment command or schema migration is supplied by this pure domain increment. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. | Replace the three-form prototype catalogue with the 18 launch forms and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |

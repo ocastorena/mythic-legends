@@ -194,13 +194,31 @@ Tests use synthetic Mythlings and Materials, leaving the unfinished roster and p
 untouched. They exercise whole output, retained partial work, worker changes, chronological XP and
 levels, full/empty pauses, offline equivalence, and repeated-time safety. Long offline intervals skip
 identical batches up to the next level/storage event rather than iterating every elapsed second.
-The current live stand-production path remains unchanged. Assignment/collection commands, save
+The current live stand-production path remains unchanged. Live assignment/collection commands, save
 integration, migration of retained work, and final content remain separate reviewable tasks; this
 increment does not claim live persistence or gameplay integration.
 
-For this isolated review, capped Mythlings continue production but stop earning new XP; any XP
+Capped Mythlings continue production but stop earning new XP; any XP
 already earned (including pending credit and the cap-reaching batch's remainder) is retained.
-This cap behavior is provisional pending confirmation before live integration.
+
+### Shrine-assignment logic review
+
+`Domain.Production.ShrineAssignments.Assign` and `.Remove` are pure server-domain operations on one
+profile's accounting view. Assignment requires an owned, unassigned Mythling and an empty unlocked
+slot in a matching-element Shrine. Remove the current worker first before moving it elsewhere or
+replacing it. Removal checks the expected worker so an outdated selection cannot remove a different
+Mythling. Emptying slot 1 leaves any worker in slot 2 in slot 2.
+
+Accepted changes settle prior production and XP before changing the slot map. Unassignment retains
+ownership, pending XP, stored Materials, unfinished work, and the shared batch schedule. Invalid
+requests return an error without changing the input, and backdated changes are rejected. Tests cover
+all six elements with synthetic content; there are no new catalogue entries, menus, or model changes.
+
+The isolated ledger now uses `workerIdsBySlot` with string slot keys instead of its former dense
+array. That test-ledger shape was never persisted, so no player-data migration is needed. The live
+stand path and player schema remain unchanged. A future service must derive this view from the
+authenticated player's loaded profile and commit the entire result through the existing transaction
+and duplicate-request protection. This step adds neither a network endpoint nor live save wiring.
 
 ### Admin commands
 

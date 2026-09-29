@@ -636,6 +636,9 @@ knockback still require tuning together in the Arena.
   storage. All six elements use one upgrade path, ending at level 3 in the MVP.
 - Only matching-element Mythlings may be assigned. Each owned Mythling occupies at most one slot
   across the Base; the player must own both it and the Shrine.
+- Unassign a Mythling before assigning it to another slot or Shrine. Assignment fills an empty
+  unlocked slot only; it never automatically moves, swaps, or replaces a working Mythling. Remove
+  the current worker before assigning a different Mythling to an occupied slot.
 - Assigned Mythlings supply Yield from their current form and level. The Shrine determines the
   Material produced.
 - Players may build duplicate-element Shrines within Base build capacity.
@@ -780,6 +783,9 @@ progression persists between sessions.
   XP for its own time actively working, including work toward an unfinished item; concurrent workers
   earn independently. Award this XP at the normal batch boundary. If workers change within a batch,
   each keeps the XP earned during its own working time.
+  At level 100, stop earning new XP while continuing Material production whenever storage has space.
+  Preserve already-earned XP, including pending credit and any remainder from the batch reaching
+  the cap; do not erase it or bank new XP for time worked after reaching the cap.
 - **Evolution:** from Inventory, an owned Mythling with a configured next form can immediately evolve
   for free at its required level. The launch paths are Stage 1 to 2, then Stage 2 to 3; launch Stage 3
   forms have no next target. A form's evolution link determines whether it can evolve, independently
