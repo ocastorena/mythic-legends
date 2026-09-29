@@ -279,6 +279,27 @@ authenticated service must commit both returned maps with the profile's revision
 only then may it remove the runtime model. Rejections leave every input unchanged. No live command,
 save-schema migration, model deletion, or menu is introduced by this increment.
 
+### Mythling-evolution logic review
+
+`Domain.Production.MythlingEvolution.Evolve` is a pure server-domain operation selecting an owned
+Mythling, its expected current form, and its expected next form. It follows the current form's
+optional `evolution = { targetFormId, requiredLevel }` metadata; no link means no further evolution,
+independently of rarity or stage. Required levels are configurable per link; synthetic launch-like
+tests use levels 6 and 40 without finalizing the roster.
+
+Evolution is manual and free, including while assigned or while Shrine storage is full. It settles
+elapsed work under the old form before checking the earned level, then changes only that owned
+worker's form ID. Identity, level, XP, pending credit, assignment slot, completed Materials, unfinished
+work, and batch timing survive. Due XP can unlock evolution; incomplete batches are never awarded
+early. An already-eligible Mythling can take two separate evolution actions at the same timestamp.
+
+Tests cover eligibility, old/new-form production within a batch, stale requests, invalid/cyclic or
+cross-element links, terminal forms, preserved inactive legacy fields, arithmetic rollback, and
+serialized continuation. The reducer validates the selected reachable chain, not the future complete
+18-form launch catalogue. It adds no live command, save-schema change, acquisition reset, or menu.
+A future authenticated service must commit the whole ledger through revision/receipt protection,
+preserving unrelated owned/profile fields. The authored Studio game and prototype roster are unchanged.
+
 ### Admin commands
 
 Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:
