@@ -19,6 +19,7 @@ local StandPlacement = require(script.StandPlacement)
 local BaseRuntime = require(script.BaseRuntime)
 local ShrineConstruction = require(script.ShrineConstruction)
 local ShrineWorkers = require(script.ShrineWorkers)
+local ShrineUpgradePurchase = require(script.ShrineUpgradePurchase)
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local Trove = require(game:GetService("ReplicatedStorage").Packages.Trove)
@@ -45,6 +46,7 @@ local MythlingsMeta: { [string]: Types.MythlingDef }
 local DataService: ServerTypes.DataApi
 local shrineConstruction: ShrineConstruction.ShrineConstruction?
 local shrineWorkers: ShrineWorkers.ShrineWorkers?
+local shrineUpgradePurchase: ShrineUpgradePurchase.ShrineUpgradePurchase?
 local InventoryService: ServerTypes.InventoryApi
 local ProductionService: ServerTypes.ProductionApi
 local placementLimiter = RateLimiter.new(6, 2)
@@ -144,6 +146,23 @@ function BaseService.RemoveShrineWorker(
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return workers.Remove(player, request)
+end
+
+function BaseService.UpgradeShrine(
+	player: Player,
+	request: Types.UpgradeShrineRequest
+): Types.TransactionResult
+	local purchase = shrineUpgradePurchase
+	if
+		not lifecycle:IsRunning()
+		or not purchase
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return purchase.Upgrade(player, request)
 end
 
 local function bindCharacterSpawn(
@@ -381,6 +400,7 @@ function BaseService.Init(context: ServerTypes.Context)
 	resolveAssets()
 	shrineConstruction = ShrineConstruction.new(DataService)
 	shrineWorkers = ShrineWorkers.new(DataService)
+	shrineUpgradePurchase = ShrineUpgradePurchase.new(DataService)
 end
 
 function BaseService.Start()
@@ -409,6 +429,7 @@ function BaseService.Stop()
 	placementLimiter:Clear()
 	shrineConstruction = nil
 	shrineWorkers = nil
+	shrineUpgradePurchase = nil
 end
 
 return BaseService

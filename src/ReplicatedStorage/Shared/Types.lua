@@ -280,6 +280,16 @@ export type CollectShrineRequest = {
 	expectedMaterialId: string,
 }
 
+export type UpgradeShrineRequest = {
+	requestId: string,
+	expectedRevision: number,
+	shrineInstanceId: string,
+	expectedLevel: number,
+	expectedMaterialId: string,
+	expectedGoldCost: number,
+	expectedMaterialQuantity: number,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },

@@ -47,6 +47,7 @@ export type InventoryApi = {
 }
 export type BaseApi = {
 	BuildShrine: (Player, SharedTypes.BuildShrineRequest) -> SharedTypes.TransactionResult,
+	UpgradeShrine: (Player, SharedTypes.UpgradeShrineRequest) -> SharedTypes.TransactionResult,
 	AssignShrineWorker: (
 		Player,
 		SharedTypes.AssignShrineWorkerRequest

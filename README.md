@@ -253,9 +253,9 @@ Unreferenced legacy forms without pending credit remain untouched. See the
 
 Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
 state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
-XP private. The server-shared adapter supports on-demand settlement, atomic assignment, and collection;
-it is not an automatic lifecycle hook, remote, or menu action. Callers must use it inside
-`DataService.Transact` or `Update`; it neither authenticates a player nor saves a profile by itself.
+XP private. The server-shared adapter supports on-demand settlement, atomic assignment, collection,
+and Shrine upgrades; it is not an automatic lifecycle hook, remote, or menu action. Callers must use
+it inside `DataService.Transact` or `Update`; it neither authenticates a player nor saves a profile by itself.
 These tests do not establish live durable persistence.
 
 ### On-demand Shrine settlement review
@@ -287,10 +287,10 @@ Tests use synthetic Mythlings and Materials, leaving the unfinished roster and p
 untouched. They exercise whole output, retained partial work, worker changes, chronological XP and
 levels, full/empty pauses, offline equivalence, and repeated-time safety. Long offline intervals skip
 identical batches up to the next level/storage event rather than iterating every elapsed second.
-The current live stand-production path remains unchanged. Server-only settlement, assignment, and
-collection use the engine through the shared adapter. Automatic lifecycle integration, migration of
-retained prototype work, and final content remain separate tasks; pure tests do not prove live
-persistence.
+The current live stand-production path remains unchanged. Server-only settlement, assignment,
+collection, and Shrine upgrades use the engine through the shared adapter. Automatic lifecycle
+integration, migration of retained prototype work, and final content remain separate tasks; pure
+tests do not prove live persistence.
 
 Capped Mythlings continue production but stop earning new XP; any XP
 already earned (including pending credit and the cap-reaching batch's remainder) is retained.
@@ -386,8 +386,8 @@ or schema migration; prototype stand collection is unchanged. See the
 operation. It purchases only the next Shrine level using collected matching Materials and Gold:
 level 1→2 costs 1,000 Gold + 400 Materials; level 2→3 costs 15,000 Gold + 4,000 Materials. The
 shared Shrine configuration owns all six elements' 1/2/3 worker slots, 300/1,200/3,600 storage, and
-target-level costs. Material IDs and Mythling forms remain injected test content; the unfinished
-launch catalogue is not changed.
+target-level costs. Pure tests inject synthetic content; the server-only command below uses the
+existing canonical launch definitions without changing the unfinished names or prototype assets.
 
 Accepted upgrades settle the whole profile under the old storage limit before paying and increasing
 the level. Existing workers, stored output, unfinished work, earned XP, and the batch schedule survive;
@@ -396,11 +396,35 @@ time. Neither Shrine output nor crafting-refund reservations can pay the cost. T
 transitions, all six elements, stale quotes/levels, insufficient funds, reservation protection,
 full-storage pauses, and serialized mid-batch continuation.
 
-The result contains the accounting ledger, replacement Material map, and remaining Gold. A future
-authenticated service must commit them together with its revision/receipt record, preserving all
-other profile fields. Rejections leave every input unchanged. This increment adds no live upgrade
-command, save migration, timer, auto-assignment, or UI; runtime and durable-save integration remain
-separate work.
+The result contains the accounting ledger, replacement Material map, and remaining Gold. The
+server-only command below now commits them together with its revision/receipt record, preserving
+all other profile fields. Rejections leave every input unchanged. The pure reducer itself supplies
+no authentication, remote, save migration, timer, auto-assignment, or UI.
+
+### Atomic Shrine-upgrade command review
+
+`BaseService.UpgradeShrine(player, request)` is a server-only command for the running service and a
+connected player's already-loaded profile. `Types.UpgradeShrineRequest` contains `requestId`
+(`<expectedRevision>:<unique token>`), `expectedRevision`, `shrineInstanceId`, `expectedLevel`,
+`expectedMaterialId`, `expectedGoldCost`, and `expectedMaterialQuantity`. Retry the original request
+unchanged. Success returns `shrineInstanceId`, `previousLevel`, `level`, `materialId`, `goldSpent`,
+`materialsSpent`, and `settledAt` in transaction `values`.
+
+One `DataService.Transact` callback uses one server timestamp to settle at the old capacity, charge
+owned Inventory Materials and Gold, and install exactly the next level with its receipt. It derives
+resources and accounting from the same draft and resolves the quote against real launch metadata.
+The shared level bridge preserves every assignment, identity, other Shrine level, stored output,
+unfinished work, and earned/pending XP; new slots start empty. Neither uncollected Shrine output nor
+crafting-refund reservations can pay the price. A failed purchase rolls back gameplay changes,
+including staged accounting, though DataService may record the rejection receipt and revision.
+Receipt replay never resamples time or charges twice.
+
+Run the static suite and runtime tests above. Transaction fixtures cover next-level purchases,
+stale quotes, receipt safety, rollback, reservation protection, and retained work. Actual connected/
+disconnected-player dispatch and durable saves still need a playtest. There is no new remote, menu,
+model, automatic production lifecycle, profile auto-load, save request, or schema migration;
+prototype stand paths remain unchanged. See the
+[command contract](docs/TECHNICAL_DESIGN.md#atomic-shrine-upgrade-command).
 
 ### Shrine-dismantling logic review
 

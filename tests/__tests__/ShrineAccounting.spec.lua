@@ -770,6 +770,205 @@ describe("ShrineAccounting.ChangeStorageToDraft", function()
 	)
 end)
 
+describe("ShrineAccounting.ChangeShrineLevelToDraft", function()
+	local invalidChanges: { { name: string, mutate: (ShrineAccrual.State) -> () } } = {
+		{
+			name = "no level increase",
+			mutate = function(state)
+				state.shrines.first.level = 1
+			end,
+		},
+		{
+			name = "skipped level",
+			mutate = function(state)
+				state.shrines.first.level = 3
+			end,
+		},
+		{
+			name = "other Shrine level",
+			mutate = function(state)
+				state.shrines.second.level = 2
+			end,
+		},
+		{
+			name = "added assignment",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot["2"] = "extra"
+			end,
+		},
+		{
+			name = "removed assignment",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot["1"] = nil
+			end,
+		},
+		{
+			name = "moved assignment",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot["1"] = nil
+				state.shrines.first.workerIdsBySlot["2"] = "worker"
+			end,
+		},
+		{
+			name = "changed definition",
+			mutate = function(state)
+				state.shrines.second.shrineId = "other_shrine"
+			end,
+		},
+		{
+			name = "changed form",
+			mutate = function(state)
+				state.workers.worker.formId = "other_form"
+			end,
+		},
+		{
+			name = "added Shrine",
+			mutate = function(state)
+				state.shrines.extra = copy(state.shrines.second)
+			end,
+		},
+		{
+			name = "removed Shrine",
+			mutate = function(state)
+				state.shrines.second = nil
+			end,
+		},
+		{
+			name = "added worker",
+			mutate = function(state)
+				state.workers.added = copy(state.workers.extra)
+			end,
+		},
+		{
+			name = "removed worker",
+			mutate = function(state)
+				state.workers.extra = nil
+			end,
+		},
+	}
+	for _, case in invalidChanges do
+		it(`rejects {case.name} with no partial draft writes`, function()
+			local data = fixture("test_fire_form")
+			data.base.shrines.second = copy(data.base.shrines.first)
+			data.base.shrines.second.id = "second"
+			data.base.shrines.second.buildSlotId = 2
+			data.base.shrines.second.workerIdsBySlot = {}
+			data.mythlings.extra = copy(data.mythlings.worker)
+			local definitions = metadata()
+			definitions.shrines.other_shrine = copy(definitions.shrines.fire_shrine)
+			definitions.forms.other_form = copy(definitions.forms.test_fire_form)
+			local before = copy(data)
+			local base, workers, clock = data.base, data.mythlings, data.productionClock
+			local ok, problem = ShrineAccounting.ChangeShrineLevelToDraft(
+				data,
+				1.5,
+				"first",
+				function(state, now, config, production, progression)
+					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+					result.shrines.first.level = 2
+					case.mutate(result)
+					expect(ShrineAccrual.Validate(result, now, config, production, progression)).toBeNil()
+					return result, nil
+				end,
+				definitions
+			)
+			expect(ok).toBe(false)
+			expect(problem).toBe("InvalidAccountingChange")
+			expect(data).toEqual(before)
+			expect(data.base).toBe(base)
+			expect(data.mythlings).toBe(workers)
+			expect(data.productionClock).toBe(clock)
+		end)
+	end
+
+	it("requires an owned selected Shrine before calling the reducer", function()
+		local ids: { any } = { "", "missing", string.rep("x", 129), false, 7 }
+		for _, id in ids do
+			local data = fixture()
+			local before = copy(data)
+			local called = false
+			local ok, problem = ShrineAccounting.ChangeShrineLevelToDraft(data, 1, id, function()
+				called = true
+				return nil, "UnexpectedCall"
+			end)
+			expect(ok).toBe(false)
+			expect(problem).toBe(if id == "missing" then "ShrineNotOwned" else "InvalidRequest")
+			expect(called).toBe(false)
+			expect(data).toEqual(before)
+		end
+	end)
+
+	it(
+		"rejects levels outside canonical Base limits even if injected accounting accepts them",
+		function()
+			local data = fixture("test_fire_form")
+			data.base.shrines.first.level = 3
+			local before = copy(data)
+			local definitions = metadata()
+			definitions.shrines.fire_shrine.levels[4] = { capacity = 5_000, workerSlots = 4 }
+			local ok, problem = ShrineAccounting.ChangeShrineLevelToDraft(
+				data,
+				0,
+				"first",
+				function(state)
+					local result: ShrineAccrual.State = copy(state)
+					result.shrines.first.level = 4
+					return result, nil
+				end,
+				definitions
+			)
+			expect(ok).toBe(false)
+			expect(problem).toBe("InvalidBaseState")
+			expect(data).toEqual(before)
+		end
+	)
+
+	it("stages only a single level and accounting, retaining borrowed immutable data", function()
+		local data = fixture("test_fire_form")
+		data.base.shrines.first.progress = 0.25
+		data.base.shrines.first.futureField = { retained = true }
+		data.mythlings.worker.luck = 99
+		data.mythlings.worker.traitIds = { "legacy_lucky" }
+		local expected = copy(data)
+		expected.base.shrines.first.level = 2
+		expected.base.shrines.first.stored = 1
+		expected.base.shrines.first.newWork = 0.5
+		expected.mythlings.worker.xp = 1
+		expected.mythlings.worker.pendingXp = 0.5
+		expected.productionClock.lastAccruedAt = 1.5
+		expected.productionClock.nextBatchAt = 2
+		local assignments = data.base.shrines.first.workerIdsBySlot
+		local originalBase, originalWorkers, originalClock =
+			data.base, data.mythlings, data.productionClock
+		FreezeUtil.DeepFreeze(originalBase)
+		FreezeUtil.DeepFreeze(originalWorkers)
+		FreezeUtil.DeepFreeze(originalClock)
+		local ok, problem = ShrineAccounting.ChangeShrineLevelToDraft(
+			data,
+			1.5,
+			"first",
+			function(state, now, config, production, progression)
+				expect(table.isfrozen(state)).toBe(true)
+				expect(table.isfrozen(state.shrines.first)).toBe(true)
+				local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+				assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+				result.shrines.first.level += 1
+				return result, nil
+			end,
+			metadata()
+		)
+		expect(ok).toBe(true)
+		expect(problem).toBeNil()
+		expect(data).toEqual(expected)
+		expect(data.base.shrines.first.workerIdsBySlot).toBe(assignments)
+		expect(originalBase.shrines.first.level).toBe(1)
+		expect(originalBase.shrines.first.stored).toBe(0)
+		expect(originalWorkers.worker.xp).toBe(0)
+		expect(originalClock.lastAccruedAt).toBe(0)
+	end)
+end)
+
 describe("ShrineAccounting transaction integration", function()
 	it(
 		"commits exactly once while retaining live references and rejecting stale revisions",

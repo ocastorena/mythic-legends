@@ -23,7 +23,7 @@ afterEach(function()
 	table.clear(cleanup)
 end)
 
-describe("BaseService Shrine worker command gates", function()
+describe("BaseService Shrine command gates", function()
 	it("rejects stopped services and non-Player callers without touching profiles", function()
 		local root = Instance.new("Folder")
 		root.Name = "ShrineWorkerServiceFixture"
@@ -52,10 +52,20 @@ describe("BaseService Shrine worker command gates", function()
 			slotId = 1,
 			expectedWorkerId = "owned_worker",
 		}
+		local upgrade: Types.UpgradeShrineRequest = {
+			requestId = "0:upgrade",
+			expectedRevision = 0,
+			shrineInstanceId = "owned_shrine",
+			expectedLevel = 1,
+			expectedMaterialId = "fire_material",
+			expectedGoldCost = 1_000,
+			expectedMaterialQuantity = 400,
+		}
 		local function expectUnavailable(player: unknown)
 			local unavailable = { ok = false, code = "DataUnavailable", revision = 0 }
 			expect(service.AssignShrineWorker(player, assign)).toEqual(unavailable)
 			expect(service.RemoveShrineWorker(player, remove)).toEqual(unavailable)
+			expect(service.UpgradeShrine(player, upgrade)).toEqual(unavailable)
 			expect(reads).toBe(0)
 			expect(transactions).toBe(0)
 		end

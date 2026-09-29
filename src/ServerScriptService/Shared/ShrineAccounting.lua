@@ -163,6 +163,7 @@ local function changeToDraft(
 	now: number,
 	change: AccountingChange,
 	changeAssignments: boolean,
+	upgradeShrineId: string?,
 	metadata: ShrineAccrual.Metadata?,
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
@@ -179,6 +180,14 @@ local function changeToDraft(
 	if now < state.lastAccruedAt then
 		return false, "BackdatedChange"
 	end
+	if upgradeShrineId ~= nil then
+		if not isId(upgradeShrineId) then
+			return false, "InvalidRequest"
+		end
+		if not state.shrines[upgradeShrineId] then
+			return false, "ShrineNotOwned"
+		end
+	end
 	-- Only a fresh, immutable snapshot reaches a trusted synchronous reducer. Never accept a
 	-- precomputed ledger from a caller or expose a separate snapshot/apply pair.
 	FreezeUtil.DeepFreeze(state)
@@ -193,11 +202,12 @@ local function changeToDraft(
 	if settled.lastAccruedAt ~= now then
 		return false, "InvalidAccountingChange"
 	end
-	-- This bridge supports accounting and slot changes only, not grants, sales, evolution,
-	-- upgrades, or dismantling. Do not silently discard an unsupported reducer change.
+	-- Each entry point allows only its specific structural change. Never silently discard
+	-- grants, sales, evolution, dismantling, or a different Shrine's level/assignment change.
 	for id, before in state.shrines do
 		local after = settled.shrines[id]
-		if not after or after.shrineId ~= before.shrineId or after.level ~= before.level then
+		local expectedLevel = before.level + (if id == upgradeShrineId then 1 else 0)
+		if not after or after.shrineId ~= before.shrineId or after.level ~= expectedLevel then
 			return false, "InvalidAccountingChange"
 		end
 		if not changeAssignments then
@@ -240,10 +250,16 @@ local function changeToDraft(
 		shrine.stored = result.stored
 		shrine.progress = result.progress
 		shrine.newWork = result.newWork
+		if id == upgradeShrineId then
+			shrine.level = result.level
+		end
 		if changeAssignments then
 			shrine.workerIdsBySlot = table.clone(result.workerIdsBySlot)
 		end
 		shrines[id] = shrine
+	end
+	if upgradeShrineId ~= nil and not BaseState.GetStatus(base) then
+		return false, "InvalidBaseState"
 	end
 	local mythlings = table.clone(draft.mythlings)
 	for id, result in settled.workers do
@@ -271,7 +287,16 @@ function ShrineAccounting.SettleToDraft(
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
 ): (boolean, string?)
-	return changeToDraft(draft, now, ShrineAccrual.Accrue, false, metadata, production, progression)
+	return changeToDraft(
+		draft,
+		now,
+		ShrineAccrual.Accrue,
+		false,
+		nil,
+		metadata,
+		production,
+		progression
+	)
 end
 
 -- Base owns assignment policy. Its trusted pure reducer must settle on the supplied schedule
@@ -284,7 +309,7 @@ function ShrineAccounting.ChangeAssignmentsToDraft(
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
 ): (boolean, string?)
-	return changeToDraft(draft, now, change, true, metadata, production, progression)
+	return changeToDraft(draft, now, change, true, nil, metadata, production, progression)
 end
 
 -- Production owns collection/capacity policy. Its trusted pure reducer returns the settled
@@ -298,7 +323,34 @@ function ShrineAccounting.ChangeStorageToDraft(
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
 ): (boolean, string?)
-	return changeToDraft(draft, now, change, false, metadata, production, progression)
+	return changeToDraft(draft, now, change, false, nil, metadata, production, progression)
+end
+
+-- Base owns next-level and payment policy. Settle at the old level, then permit exactly one
+-- level increase on the selected Shrine, retaining every assignment. Payment belongs in the
+-- same transaction; this bridge does not authorize a purchase or expose arbitrary ledger apply.
+function ShrineAccounting.ChangeShrineLevelToDraft(
+	draft: Types.PlayerDoc,
+	now: number,
+	shrineInstanceId: string,
+	change: AccountingChange,
+	metadata: ShrineAccrual.Metadata?,
+	production: ShrineAccrual.ProductionConfig?,
+	progression: ShrineAccrual.ProgressionConfig?
+): (boolean, string?)
+	if not isId(shrineInstanceId) then
+		return false, "InvalidRequest"
+	end
+	return changeToDraft(
+		draft,
+		now,
+		change,
+		false,
+		shrineInstanceId,
+		metadata,
+		production,
+		progression
+	)
 end
 
 return table.freeze(ShrineAccounting)
