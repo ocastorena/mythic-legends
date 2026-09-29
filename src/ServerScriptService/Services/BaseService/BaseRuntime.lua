@@ -3,7 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local BaseState = require(ServerScriptService.Domain.Base.BaseState)
+local BaseState = require(ServerScriptService.Shared.BaseState)
 local CraftingStations = require(ReplicatedStorage.Shared.Configurations.CraftingStations)
 local Types = require(ReplicatedStorage.Shared.Types)
 

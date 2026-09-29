@@ -1,5 +1,5 @@
 --!strict
--- ServerScriptService/Domain/Production/ProductionLedger
+-- ServerScriptService/Shared/ProductionLedger
 -- Earned work stays at its producing stand, separated by Material ID. This bridges the
 -- prototype's single-worker stands until the full Shrine/batch/XP system is implemented.
 

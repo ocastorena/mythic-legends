@@ -10,9 +10,9 @@ local FreezeUtil = require(ReplicatedStorage.Shared.FreezeUtil)
 local Bases = require(ReplicatedStorage.Shared.Configurations.Bases)
 local ShrineConfiguration = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Types = require(ReplicatedStorage.Shared.Types)
-local BaseState = require(ServerScriptService.Domain.Base.BaseState)
-local ShrineDismantling = require(ServerScriptService.Domain.Base.ShrineDismantling)
-local ShrineAccrual = require(ServerScriptService.Domain.Production.ShrineAccrual)
+local BaseState = require(ServerScriptService.Shared.BaseState)
+local ShrineDismantling = require(ServerScriptService.Services.BaseService.ShrineDismantling)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

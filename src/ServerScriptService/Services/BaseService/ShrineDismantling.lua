@@ -1,12 +1,13 @@
 --!strict
--- ServerScriptService/Domain/Base/ShrineDismantling
+-- ServerScriptService/Services/BaseService/ShrineDismantling
 -- Detached removal of an empty Shrine and its logical build-slot ownership.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage.Shared.Types)
-local BaseState = require(script.Parent.BaseState)
-local ShrineAccrual = require(script.Parent.Parent.Production.ShrineAccrual)
+local BaseState = require(ServerScriptService.Shared.BaseState)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 export type State = ShrineAccrual.State
 export type Metadata = ShrineAccrual.Metadata

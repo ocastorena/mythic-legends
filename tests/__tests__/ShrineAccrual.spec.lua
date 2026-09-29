@@ -5,7 +5,7 @@ local HttpService = game:GetService("HttpService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
-local ShrineAccrual = require(ServerScriptService.Domain.Production.ShrineAccrual)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

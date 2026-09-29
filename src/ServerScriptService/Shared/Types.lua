@@ -1,5 +1,5 @@
 --!strict
--- ServerScriptService/Domain/Types
+-- ServerScriptService/Shared/Types
 -- Server-only protocols. Saved records and wire payloads retain their shared owner.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

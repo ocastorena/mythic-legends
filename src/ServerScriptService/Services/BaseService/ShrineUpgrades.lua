@@ -1,12 +1,13 @@
 --!strict
--- ServerScriptService/Domain/Base/ShrineUpgrades
+-- ServerScriptService/Services/BaseService/ShrineUpgrades
 -- Detached payment and level changes; live adapters must commit the complete result atomically.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage.Shared.Types)
-local InventoryCapacity = require(script.Parent.Parent.Inventory.InventoryCapacity)
-local ShrineAccrual = require(script.Parent.Parent.Production.ShrineAccrual)
+local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 export type State = ShrineAccrual.State
 export type Resources = InventoryCapacity.MaterialState & { gold: number }

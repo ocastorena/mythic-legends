@@ -10,7 +10,7 @@ local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local RateLimiter = require(infrastructure:WaitForChild("RateLimiter"))
 
 local Accrual = require(script.Accrual)
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
 local lifecycle = ServiceLifecycle.new("ProductionService")
 local accrual: Accrual.Accrual

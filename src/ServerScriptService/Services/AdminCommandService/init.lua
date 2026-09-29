@@ -11,7 +11,7 @@ local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local CommandParser = require(script.CommandParser)
 local Teleportation = require(script.Teleportation)
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local log = LogUtil.For("AdminCommandService")
 local AdminCommandService = {}

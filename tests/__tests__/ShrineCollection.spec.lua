@@ -8,7 +8,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local FreezeUtil = require(ReplicatedStorage.Shared.FreezeUtil)
 local Types = require(ReplicatedStorage.Shared.Types)
-local ShrineCollection = require(ServerScriptService.Domain.Production.ShrineCollection)
+local ShrineCollection = require(ServerScriptService.Services.ProductionService.ShrineCollection)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

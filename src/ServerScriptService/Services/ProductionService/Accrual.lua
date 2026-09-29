@@ -6,8 +6,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
-local InventoryCapacity = require(ServerScriptService.Domain.Inventory.InventoryCapacity)
-local Ledger = require(ServerScriptService.Domain.Production.ProductionLedger)
+local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
+local Ledger = require(ServerScriptService.Shared.ProductionLedger)
 
 local Accrual = {}
 export type ProductionStatus = Types.ProductionStatus

@@ -1,5 +1,5 @@
 --!strict
--- ServerScriptService/Domain/Inventory/InventoryCapacity
+-- ServerScriptService/Shared/InventoryCapacity
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)

@@ -52,12 +52,15 @@ mythic-legends/
       Services/
         <Domain>Service/
           init.lua                # public API and lifecycle entry point
-          <PrivateModule>.lua
-      Infrastructure/             # cross-service technical support
-      Domain/                     # explicitly shared server-domain contracts and pure logic
+          <PrivateModule>.lua     # feature-private runtime or pure implementation
+      Shared/                     # server-only cross-feature contracts and arithmetic
         Types.lua                 # server service protocols and injected context
-        Inventory/InventoryCapacity.lua
-        Production/ProductionLedger.lua
+        InventoryCapacity.lua
+        BaseState.lua
+        ProductionLedger.lua
+        ShrineAccrual.lua
+        MythlingProgressionUtil.lua
+      Infrastructure/             # cross-service technical runtime support
       Packages/                   # server-only vendored dependencies
       PostLaunch/                 # retained prototypes; only Blockstorm is explicitly started
     ServerStorage/
@@ -121,9 +124,18 @@ follow the README to regenerate them.
 [initial loading](TECHNICAL_DESIGN.md#initial-loading). Keep service helpers private to their service,
 character helpers client-side, and UI state adapters distinct from the authoritative client cache.
 Runtime responsibilities follow [Technical Design](TECHNICAL_DESIGN.md#runtime-architecture).
-Reusable server-side Inventory capacity and reservation accounting belongs to
-`Domain/Inventory/InventoryCapacity`, not a private InventoryService child. Both live Inventory/
-production callers and isolated Shrine collection consume that shared contract.
+
+`ServerScriptService.Shared` is server-only. It owns contracts, arithmetic, and support that are
+genuinely consumed across feature services, such as Inventory capacity and the common Shrine
+accrual engine. It does not replicate to clients. `ReplicatedStorage.Shared` remains the location
+for configuration, types, or logic that both server and client need. `Infrastructure` is reserved
+for technical runtime facilities such as logging, remotes, lifecycle orchestration, and rate
+limiting; gameplay and economy rules do not move there merely because multiple services use them.
+
+Pure modules beside a service's `init.lua` remain private implementation of that feature. Their
+presence does not register a command, start a lifecycle, or add them to the service's public API.
+Tests may require those pure children directly, while production consumers go through the owning
+service unless a contract is deliberately promoted to server-only `Shared`.
 
 ## Roblox Explorer hierarchy
 
@@ -150,8 +162,8 @@ ReplicatedStorage
 ServerScriptService
   MainServer          -- only server bootstrap
   Services            -- authoritative domain services
-  Infrastructure      -- logging, rate limits, remotes, and server utilities
-  Domain              -- explicitly shared server-domain contracts and pure accounting
+  Shared              -- server-only cross-feature contracts, arithmetic, and support
+  Infrastructure      -- logging, rate limits, remotes, lifecycle, and server utilities
   Packages            -- server-only external libraries such as ProfileStore
   PostLaunch          -- retained prototypes; only Blockstorm is explicitly started
 ServerStorage
@@ -191,7 +203,7 @@ top-level `Spawns`, `Visuals`, or `Environment` containers; authored markers bel
 | Role | Server | Client |
 | --- | --- | --- |
 | Bootstrap | `MainServer.server.lua` | `MainClient.client.lua` |
-| Domain module | `<Domain>Service/init.lua` | `<Domain>Controller.lua` |
+| Feature owner | `<Domain>Service/init.lua` | `<Domain>Controller.lua` |
 | Stateless helper namespace | `<Thing>Util.lua` | `<Thing>Util.lua` |
 | Constructed object or subsystem | Precise noun such as `RateLimiter.lua` | Precise noun such as `CardList.lua` |
 | Shared state or event channel | Precise noun such as `<Thing>State.lua` | Precise noun such as `ModalState.lua` or `ToastBus.lua` |
@@ -257,13 +269,16 @@ top-level `Spawns`, `Visuals`, or `Environment` containers; authored markers bel
 - A controller or component may begin as one file. When it needs cohesive private children, turn it
   into a same-named folder with `init.lua`, preserving its public Roblox instance path. Server
   services always use the folder form.
-- Keep helpers under their owning domain and require them through `script`. Treat private children
-  as implementation details; another domain consumes the public API or an explicitly shared
-  contract instead of reaching into those children.
+- Keep feature-specific helpers and pure operations beside their owning service and require them
+  through `script`. Treat these children as implementation details: another feature consumes the
+  service's public API or an explicitly shared contract instead of reaching into them. Tests may
+  require a deterministic pure child directly without making it a public or automatically enabled
+  runtime API.
 - Put a module in `ReplicatedStorage.Shared` when both client and server need it. Server-only
-  helpers stay server-side; tests alone do not justify client replication. Cross-domain server
-  logic needs an explicit owner or shared location consistent with Technical Design. Do not place
-  gameplay logic in generic infrastructure solely to avoid a dependency decision.
+  helpers stay server-side; tests alone do not justify client replication. Put genuinely
+  cross-feature server contracts, arithmetic, and support in `ServerScriptService.Shared`.
+  `Infrastructure` owns technical runtime mechanisms, not gameplay rules or a generic dumping
+  ground used to avoid an ownership decision.
 - Split modules by responsibility, ownership, or independently testable behavior. There is no fixed
   line-count limit. Keep a small public entry point when extracting cohesive private modules, and
   avoid creating a service/controller for every helper or visual widget.
@@ -311,8 +326,10 @@ adding the directive. Vendored/generated dependencies retain their upstream chec
   Let Luau infer obvious local values rather than repeating annotations everywhere.
 - Define each shared contract once. Import or alias the canonical type at consumers instead of
   copying declarations such as `StatePacket` or `Network` between client and server.
-- Keep domain-private types with their owner; place genuinely shared types in the shared types
-  module. Do not move every internal implementation detail into a global type registry.
+- Keep feature-private types with their owner. Server service protocols shared across features
+  belong in `ServerScriptService.Shared.Types`; saved-state, payload, and configuration contracts
+  needed by both server and client belong in `ReplicatedStorage.Shared.Types`. Do not move every
+  internal implementation detail into either shared type registry.
 - Type a required configuration by the table it returns, not as `ModuleScript`. Give constructed
   objects and service dependencies their actual API types.
 - Use `unknown` for untrusted values where practical, then narrow them with runtime validation.

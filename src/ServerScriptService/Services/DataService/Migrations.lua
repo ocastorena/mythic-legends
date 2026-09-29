@@ -2,8 +2,7 @@
 -- ServerScriptService/Services/DataService/Migrations
 -- Forward-only profile migrations. Stage changes before touching the loaded document.
 
-local ProductionLedger =
-	require(game:GetService("ServerScriptService").Domain.Production.ProductionLedger)
+local ProductionLedger = require(game:GetService("ServerScriptService").Shared.ProductionLedger)
 
 local Migrations = {}
 

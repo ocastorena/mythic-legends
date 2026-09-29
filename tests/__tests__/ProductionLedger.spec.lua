@@ -4,8 +4,7 @@
 local FreezeUtil = require(game:GetService("ReplicatedStorage").Shared.FreezeUtil)
 local HttpService = game:GetService("HttpService")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
-local ProductionLedger =
-	require(game:GetService("ServerScriptService").Domain.Production.ProductionLedger)
+local ProductionLedger = require(game:GetService("ServerScriptService").Shared.ProductionLedger)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

@@ -1,5 +1,5 @@
 --!strict
--- ServerScriptService/Domain/Production/MythlingProgressionUtil
+-- ServerScriptService/Shared/MythlingProgressionUtil
 -- Pure shared progression arithmetic; catalogue resolution and saved-state validation stay upstream.
 
 local MythlingProgressionUtil = {}

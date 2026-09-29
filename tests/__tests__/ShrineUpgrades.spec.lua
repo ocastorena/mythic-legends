@@ -10,8 +10,8 @@ local FreezeUtil = require(ReplicatedStorage.Shared.FreezeUtil)
 local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)
 local ShrineConfiguration = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Types = require(ReplicatedStorage.Shared.Types)
-local ShrineUpgrades = require(ServerScriptService.Domain.Base.ShrineUpgrades)
-local ShrineAccrual = require(ServerScriptService.Domain.Production.ShrineAccrual)
+local ShrineUpgrades = require(ServerScriptService.Services.BaseService.ShrineUpgrades)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

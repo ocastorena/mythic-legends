@@ -7,10 +7,10 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local FreezeUtil = require(ReplicatedStorage.Shared.FreezeUtil)
-local MythlingSales = require(ServerScriptService.Domain.Inventory.MythlingSales)
-local MythlingEvolution = require(ServerScriptService.Domain.Production.MythlingEvolution)
-local ShrineAccrual = require(ServerScriptService.Domain.Production.ShrineAccrual)
-local ShrineAssignments = require(ServerScriptService.Domain.Production.ShrineAssignments)
+local MythlingSales = require(ServerScriptService.Services.InventoryService.MythlingSales)
+local MythlingEvolution = require(ServerScriptService.Services.InventoryService.MythlingEvolution)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
+local ShrineAssignments = require(ServerScriptService.Services.BaseService.ShrineAssignments)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

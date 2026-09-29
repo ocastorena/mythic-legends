@@ -1,5 +1,5 @@
 --!strict
--- ServerScriptService/Domain/Production/ShrineAccrual
+-- ServerScriptService/Shared/ShrineAccrual
 -- Detached accounting only: callers must settle before changing inputs and commit the whole result.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

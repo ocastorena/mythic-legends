@@ -1,5 +1,5 @@
 --!strict
--- ServerScriptService/Domain/Base/BaseState
+-- ServerScriptService/Shared/BaseState
 -- Read-only validation and derived Shrine-only capacity shared by persistence and presentation.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

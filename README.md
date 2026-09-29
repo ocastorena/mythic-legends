@@ -126,6 +126,20 @@ Ordinary Studio sessions use an isolated, ephemeral ProfileStore mock. Restartin
 verify live cross-session persistence; persistence validation must explicitly exercise the intended
 store and save lifecycle.
 
+### Feature-first source-layout review
+
+Server feature implementations live beside their owning service; reusable server-only contracts and
+accounting live under `ServerScriptService.Shared`. These modules do not replicate through
+`ReplicatedStorage.Shared`, and technical facilities such as logging, remotes, and lifecycle support
+remain in `Infrastructure`. Moving a pure module beside a service does not expose or start it: the
+service's `init.lua` remains its public lifecycle/API boundary, while deterministic tests may require
+the private pure child directly.
+
+After a source-layout change, rerun the complete static suite and runtime tests above. Then cleanly
+sync the intended checkout into the authored development place and use a fresh play session to check
+that the existing service bootstrap, prototype flows, and authored dependencies still load. A Rojo
+build alone does not establish that Studio-authored content or live gameplay survived the move.
+
 ### Player-data foundation review
 
 The pre-release foundation uses the intentionally fresh `MythicLegends_MVP_v1` data namespace;
@@ -183,12 +197,12 @@ These checks establish in-session atomicity and serialized-state behavior, not l
 
 ### Shrine-accounting logic review
 
-`Domain.Production.ShrineAccrual.Accrue` is a pure server-side calculation, not a live service or
-player command. It accepts an accounting ledger, a server-authored time, and resolved form/Shrine
-metadata; it returns a detached updated ledger or an error without changing its inputs. Production
-configuration starts at one-second accounting batches and one XP per eligible working second;
-progression configuration supplies the shared level curve, cap, and linear Yield bonus. These
-accounting batches do not set save or replication frequency.
+`ServerScriptService.Shared.ShrineAccrual.Accrue` is a pure server-side calculation, not a live
+service or player command. It accepts an accounting ledger, a server-authored time, and resolved
+form/Shrine metadata. It returns a detached updated ledger or an error without changing its inputs.
+Production configuration starts at one-second accounting batches and one XP per eligible working
+second; progression configuration supplies the shared level curve, cap, and linear Yield bonus.
+These accounting batches do not set save or replication frequency.
 
 Tests use synthetic Mythlings and Materials, leaving the unfinished roster and prototype assets
 untouched. They exercise whole output, retained partial work, worker changes, chronological XP and
@@ -203,11 +217,12 @@ already earned (including pending credit and the cap-reaching batch's remainder)
 
 ### Shrine-assignment logic review
 
-`Domain.Production.ShrineAssignments.Assign` and `.Remove` are pure server-domain operations on one
-profile's accounting view. Assignment requires an owned, unassigned Mythling and an empty unlocked
-slot in a matching-element Shrine. Remove the current worker first before moving it elsewhere or
-replacing it. Removal checks the expected worker so an outdated selection cannot remove a different
-Mythling. Emptying slot 1 leaves any worker in slot 2 in slot 2.
+`ServerScriptService.Services.BaseService.ShrineAssignments.Assign` and `.Remove` are
+feature-private pure operations on one profile's accounting view. Assignment requires an owned,
+unassigned Mythling and an empty unlocked slot in a matching-element Shrine. Remove the current
+worker before moving it elsewhere or replacing it. Removal checks the expected worker so an
+outdated selection cannot remove a different Mythling. Emptying slot 1 leaves any worker in slot 2
+in slot 2.
 
 Accepted changes settle prior production and XP before changing the slot map. Unassignment retains
 ownership, pending XP, stored Materials, unfinished work, and the shared batch schedule. Invalid
@@ -222,11 +237,12 @@ and duplicate-request protection. This step adds neither a network endpoint nor 
 
 ### Shrine-collection logic review
 
-`Domain.Production.ShrineCollection.Collect` is a pure server-domain operation taking the selected
-Shrine and its expected Material ID. It settles elapsed production and XP, transfers every whole
-Material that fits in Inventory, and retains the remainder in the Shrine. Capacity uses the shared
-Inventory rules: separately rounded Material stacks, purchased upgrades, and active crafting-refund
-reservations. Collection neither releases reservations nor grants extra XP.
+`ServerScriptService.Services.ProductionService.ShrineCollection.Collect` is a feature-private pure
+operation taking the selected Shrine and its expected Material ID. It settles elapsed production
+and XP, transfers every whole Material that fits in Inventory, and retains the remainder in the
+Shrine. Capacity uses the shared Inventory rules: separately rounded Material stacks, purchased
+upgrades, and active crafting-refund reservations. Collection neither releases reservations nor
+grants extra XP.
 
 Tests cover partial/full bags, matching and other Material reservations, retained unfinished work,
 full-storage pauses, repeated timestamps, stale selections, and detached serialized results using
@@ -235,17 +251,19 @@ stored output with no room returns `InventoryFull`. Rejections leave both inputs
 
 The result contains the settled accounting ledger and updated Material map; a future authenticated
 service must commit both in one profile transaction with revision/receipt protection. The shared
-capacity helper now lives under `Domain/Inventory/InventoryCapacity`; existing live callers retain
-their behavior. No live Shrine collection endpoint, save-schema change, final catalogue, or menu is
-introduced here, and these isolated tests do not establish durable-save behavior.
+capacity helper now lives under `ServerScriptService/Shared/InventoryCapacity`; existing live
+callers retain their behavior. No live Shrine collection endpoint, save-schema change, final
+catalogue, or menu is introduced here, and these isolated tests do not establish durable-save
+behavior.
 
 ### Shrine-upgrade logic review
 
-`Domain.Base.ShrineUpgrades.Upgrade` is a pure server-domain operation. It purchases only the next
-Shrine level using collected matching Materials and Gold: level 1→2 costs 1,000 Gold + 400 Materials;
-level 2→3 costs 15,000 Gold + 4,000 Materials. The shared Shrine configuration now owns all six
-elements' 1/2/3 worker slots, 300/1,200/3,600 storage, and target-level costs. Material IDs and Mythling
-forms remain injected test content; the unfinished launch catalogue is not changed.
+`ServerScriptService.Services.BaseService.ShrineUpgrades.Upgrade` is a feature-private pure
+operation. It purchases only the next Shrine level using collected matching Materials and Gold:
+level 1→2 costs 1,000 Gold + 400 Materials; level 2→3 costs 15,000 Gold + 4,000 Materials. The
+shared Shrine configuration owns all six elements' 1/2/3 worker slots, 300/1,200/3,600 storage, and
+target-level costs. Material IDs and Mythling forms remain injected test content; the unfinished
+launch catalogue is not changed.
 
 Accepted upgrades settle the whole profile under the old storage limit before paying and increasing
 the level. Existing workers, stored output, unfinished work, earned XP, and the batch schedule survive;
@@ -262,10 +280,11 @@ separate work.
 
 ### Shrine-dismantling logic review
 
-`Domain.Base.ShrineDismantling.Dismantle` is a pure server-domain operation selecting a built Shrine
-instance and its expected level. It requires matching Base/accounting views for every constructed
-Shrine, no assigned workers, and no completed Materials after settling elapsed production. A due
-batch can complete output even after unassignment; collect that output before dismantling.
+`ServerScriptService.Services.BaseService.ShrineDismantling.Dismantle` is a feature-private pure
+operation selecting a built Shrine instance and its expected level. It requires matching
+Base/accounting views for every constructed Shrine, no assigned workers, and no completed
+Materials after settling elapsed production. A due batch can complete output even after
+unassignment; collect that output before dismantling.
 
 Success removes only the selected Shrine from the returned accounting ledger and built-Shrine map.
 Its unfinished progress and unresolved work are discarded; owned Mythlings and their earned/pending
@@ -281,11 +300,11 @@ save-schema migration, model deletion, or menu is introduced by this increment.
 
 ### Mythling-evolution logic review
 
-`Domain.Production.MythlingEvolution.Evolve` is a pure server-domain operation selecting an owned
-Mythling, its expected current form, and its expected next form. It follows the current form's
-optional `evolution = { targetFormId, requiredLevel }` metadata; no link means no further evolution,
-independently of rarity or stage. Required levels are configurable per link; synthetic launch-like
-tests use levels 6 and 40 without finalizing the roster.
+`ServerScriptService.Services.InventoryService.MythlingEvolution.Evolve` is a feature-private pure
+operation selecting an owned Mythling, its expected current form, and its expected next form. It
+follows the current form's optional `evolution = { targetFormId, requiredLevel }` metadata; no link
+means no further evolution, independently of rarity or stage. Required levels are configurable per
+link; synthetic launch-like tests use levels 6 and 40 without finalizing the roster.
 
 Evolution is manual and free, including while assigned or while Shrine storage is full. It settles
 elapsed work under the old form before checking the earned level, then changes only that owned
@@ -302,10 +321,11 @@ preserving unrelated owned/profile fields. The authored Studio game and prototyp
 
 ### Mythling-sale logic review
 
-`Domain.Inventory.MythlingSales.Sell` is a pure server-domain operation selecting one owned Mythling
-with its expected current form and quoted Gold value. The current form's optional `sale = { gold }`
-metadata owns eligibility and payout; no sale definition means not sellable. Tests use synthetic
-forms with the approved 25/100/300-Gold launch prices, without changing the unfinished roster.
+`ServerScriptService.Services.InventoryService.MythlingSales.Sell` is a feature-private pure
+operation selecting one owned Mythling with its expected current form and quoted Gold value. The
+current form's optional `sale = { gold }` metadata owns eligibility and payout; no sale definition
+means not sellable. Tests use synthetic forms with the approved 25/100/300-Gold launch prices,
+without changing the unfinished roster.
 
 The Mythling must be unassigned, including from a full Shrine. Final-copy sales are allowed. Level,
 XP, inactive legacy Luck/Traits, rarity, and acquisition route never multiply the configured value.

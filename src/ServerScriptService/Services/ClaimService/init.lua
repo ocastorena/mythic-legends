@@ -9,7 +9,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local Trove = require(ReplicatedStorage.Packages.Trove)
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local PlayerUtil = require(ServerScriptService.Infrastructure.PlayerUtil)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
 local ContestState = require(script.ContestState)

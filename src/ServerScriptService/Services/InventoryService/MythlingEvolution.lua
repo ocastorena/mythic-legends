@@ -1,11 +1,12 @@
 --!strict
--- ServerScriptService/Domain/Production/MythlingEvolution
+-- ServerScriptService/Services/InventoryService/MythlingEvolution
 -- Manual form changes over the detached production/XP ledger, never new acquisition grants.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local MythlingProgression = require(ReplicatedStorage.Shared.Configurations.MythlingProgression)
-local ShrineAccrual = require(script.Parent.ShrineAccrual)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 export type State = ShrineAccrual.State
 export type EvolutionDefinition = { targetFormId: string, requiredLevel: number }

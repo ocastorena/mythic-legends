@@ -15,7 +15,7 @@ local Mythlings = require(script.Mythlings)
 local Materials = require(script.Materials)
 local InventoryRemotes = require(script.InventoryRemotes)
 
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
 local lifecycle = ServiceLifecycle.new("InventoryService")
 

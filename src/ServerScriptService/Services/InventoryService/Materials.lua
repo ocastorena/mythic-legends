@@ -3,8 +3,8 @@
 -- Owns the Material portion of each player's inventory.
 
 local ServerScriptService = game:GetService("ServerScriptService")
-local InventoryCapacity = require(ServerScriptService.Domain.Inventory.InventoryCapacity)
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local Materials = {}
 

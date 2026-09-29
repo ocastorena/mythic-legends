@@ -14,7 +14,7 @@ local PlayerUtil = require(infrastructure:WaitForChild("PlayerUtil"))
 local Trove = require(ReplicatedStorage.Packages.Trove)
 
 local log = LogUtil.For("MainServer")
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local DataService = require(ServerScriptService.Services.DataService)
 local CharacterService = require(ServerScriptService.Services.CharacterService)
 local InventoryService = require(ServerScriptService.Services.InventoryService)

@@ -1,9 +1,11 @@
 --!strict
--- ServerScriptService/Domain/Production/ShrineCollection
+-- ServerScriptService/Services/ProductionService/ShrineCollection
 -- Detached settlement and whole-Material transfer; the live adapter must commit both together.
 
-local InventoryCapacity = require(script.Parent.Parent.Inventory.InventoryCapacity)
-local ShrineAccrual = require(script.Parent.ShrineAccrual)
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 export type State = ShrineAccrual.State
 export type Metadata = ShrineAccrual.Metadata

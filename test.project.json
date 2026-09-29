@@ -18,7 +18,7 @@
       "$className": "ServerScriptService",
       "Services": { "$path": "src/ServerScriptService/Services" },
       "Infrastructure": { "$path": "src/ServerScriptService/Infrastructure" },
-      "Domain": { "$path": "src/ServerScriptService/Domain" },
+      "Shared": { "$path": "src/ServerScriptService/Shared" },
       "Packages": { "$path": "src/ServerScriptService/Packages" }
     },
     "ServerStorage": {

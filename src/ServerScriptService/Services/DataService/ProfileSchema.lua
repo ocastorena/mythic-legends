@@ -9,7 +9,7 @@ local Configuration = require(ReplicatedStorage.Shared.Configurations.PlayerData
 local Bases = require(ReplicatedStorage.Shared.Configurations.Bases)
 local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Types = require(ReplicatedStorage.Shared.Types)
-local BaseState = require(ServerScriptService.Domain.Base.BaseState)
+local BaseState = require(ServerScriptService.Shared.BaseState)
 
 local ProfileSchema = {}
 

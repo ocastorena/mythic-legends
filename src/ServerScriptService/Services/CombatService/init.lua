@@ -17,7 +17,7 @@ local log = LogUtil.For("CombatService")
 type TroveInstance = Trove.Trove
 
 local Types = require(ReplicatedStorage.Shared.Types)
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
 local EquipmentPresentation = require(script.EquipmentPresentation)
 local ArenaBounds = require(script.ArenaBounds)

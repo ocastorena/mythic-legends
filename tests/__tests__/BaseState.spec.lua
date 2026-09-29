@@ -5,7 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
-local BaseState = require(ServerScriptService.Domain.Base.BaseState)
+local BaseState = require(ServerScriptService.Shared.BaseState)
 local Bases = require(ReplicatedStorage.Shared.Configurations.Bases)
 local CraftingStations = require(ReplicatedStorage.Shared.Configurations.CraftingStations)
 local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)

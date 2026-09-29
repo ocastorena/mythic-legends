@@ -5,9 +5,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Types = require(ReplicatedStorage.Shared.Types)
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local Mythlings = require(ServerScriptService.Services.InventoryService.Mythlings)
-local Capacity = require(ServerScriptService.Domain.Inventory.InventoryCapacity)
+local Capacity = require(ServerScriptService.Shared.InventoryCapacity)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
 
 local describe = JestGlobals.describe

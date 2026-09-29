@@ -9,7 +9,7 @@ local Trove = require(ReplicatedStorage.Packages.Trove)
 local PlayerUtil = require(ServerScriptService.Infrastructure.PlayerUtil)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
 
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local CharacterService = {}
 local lifecycle = ServiceLifecycle.new("CharacterService")
 local playerTroves: { [Player]: Trove.Trove } = {}

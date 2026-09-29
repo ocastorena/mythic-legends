@@ -7,8 +7,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local FreezeUtil = require(ReplicatedStorage.Shared.FreezeUtil)
-local MythlingEvolution = require(ServerScriptService.Domain.Production.MythlingEvolution)
-local ShrineAccrual = require(ServerScriptService.Domain.Production.ShrineAccrual)
+local MythlingEvolution = require(ServerScriptService.Services.InventoryService.MythlingEvolution)
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

@@ -1,8 +1,10 @@
 --!strict
--- ServerScriptService/Domain/Inventory/MythlingSales
+-- ServerScriptService/Services/InventoryService/MythlingSales
 -- Detached removal and fixed-price Gold grants; the live adapter owns the atomic profile commit.
 
-local ShrineAccrual = require(script.Parent.Parent.Production.ShrineAccrual)
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 export type State = ShrineAccrual.State
 export type SaleDefinition = { gold: number }

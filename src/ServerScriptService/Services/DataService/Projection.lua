@@ -2,7 +2,7 @@
 -- ServerScriptService/Services/DataService/Projection
 
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
-local BaseState = require(game:GetService("ServerScriptService").Domain.Base.BaseState)
+local BaseState = require(game:GetService("ServerScriptService").Shared.BaseState)
 local Projection = {}
 
 local function clone(value: any): any

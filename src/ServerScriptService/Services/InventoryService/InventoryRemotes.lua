@@ -8,7 +8,7 @@ local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local RateLimiter = require(infrastructure:WaitForChild("RateLimiter"))
 
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local Mythlings = require(script.Parent.Mythlings)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
 local lifecycle = ServiceLifecycle.new("InventoryRemotes")

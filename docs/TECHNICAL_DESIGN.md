@@ -35,6 +35,13 @@ descendants are preserved only at explicitly mixed-ownership containers.
   through the same lifecycle. No other post-launch services are auto-loaded.
 - **Server services** own validation, authoritative simulation, mutations, persistence requests, and
   grants. No domain service independently loads a profile or writes a Roblox DataStore.
+- **Feature-private modules** live beside their owning service's `init.lua`. Pure reducers there are
+  directly testable but are not auto-started, remotely exposed, or part of the service's public API
+  unless `init.lua` deliberately delegates to them.
+- **Server-only shared modules** under `ServerScriptService.Shared` own contracts, arithmetic, and
+  support used across feature services. They are not client-visible. `Infrastructure` separately
+  owns technical runtime mechanisms such as logging, remotes, rate limits, and lifecycle support;
+  it does not own gameplay or economy policy.
 - **MainClient** is the only client bootstrap. It initializes state/networking before feature
   controllers under `StarterPlayerScripts.Controllers`.
 - **Client controllers** own input, UI, local animation, sound, VFX, and rendering of
@@ -71,12 +78,17 @@ Validate cold joins on target devices before claiming a load-time improvement.
 
 ## Project structure and coding conventions
 
-`ServerScriptService.Domain.Production.ProductionLedger` is the shared server-domain accounting
-contract used by production accrual and data migrations. Its placement makes this dependency
-explicit without exposing a service's private implementation or replicating it to clients.
-`Domain.Types` owns server service protocols; `StarterPlayerScripts.Types` owns client controller
-and view-prop contracts. Shared saved-state, payload, and configuration types remain in
-`ReplicatedStorage.Shared.Types`. Combat geometry helpers are private children of CombatService.
+`ServerScriptService.Shared.ProductionLedger` is the server-only accounting contract used by
+production accrual and data migrations. Its placement makes the cross-feature dependency explicit
+without exposing a service's private implementation or replicating it to clients.
+`ServerScriptService.Shared.Types` owns server service protocols;
+`StarterPlayerScripts.Types` owns client controller and view-prop contracts. Saved-state, payload,
+and configuration types needed by both runtimes remain in `ReplicatedStorage.Shared.Types`.
+Feature-specific pure operations live beside the owning service: Base owns assignment, Shrine
+upgrade, and dismantling; Production owns Shrine collection; Inventory owns Mythling evolution and
+sale. Their relocation does not change existing service public APIs or wire the currently isolated
+operations into live commands. Tests may require those pure children directly. Combat geometry
+helpers likewise remain private children of CombatService.
 
 [Conventions](CONVENTIONS.md) owns the [repository layout](CONVENTIONS.md#project-structure),
 [Roblox Explorer hierarchy](CONVENTIONS.md#roblox-explorer-hierarchy), naming, file organization,
@@ -763,7 +775,7 @@ one whole Material and zero remaining progress, assuming storage has space. Spli
 interval into smaller settlements, swapping workers, or reconnecting must preserve already earned
 work and XP rather than rounding each interval or replaying its result.
 
-The isolated server-domain `ShrineAccrual.Accrue` reducer implements this arithmetic with injected
+The server-shared `ShrineAccrual.Accrue` reducer implements this arithmetic with injected
 form/Shrine metadata and a profile-wide `lastAccruedAt`/`nextBatchAt` schedule. Its returned ledger is
 not a replacement PlayerDoc or owned-Mythling record. Future integration must merge the accounting
 fields into a single transaction, preserving identity and inactive legacy metadata. The adapter must
@@ -776,7 +788,8 @@ advance the cursor, and pending XP resolves even after its source Shrine is remo
 output and progress are retained if current capacity is reduced below stored output; it earns no new
 work until space is available. This engine is not yet wired to live saves or player-facing commands.
 
-`ShrineAssignments.Assign` and `.Remove` compose that same reducer with validated slot changes.
+`ServerScriptService.Services.BaseService.ShrineAssignments.Assign` and `.Remove` compose that same
+reducer with validated slot changes.
 Their input is one server-selected profile's accounting view, not a client-submitted ownership map.
 `workerIdsBySlot` uses canonical string keys (`"1"`, `"2"`, `"3"` for the launch levels), preserving
 empty gaps and JSON round trips. It is the sole assignment map; worker records carry no mirrored
@@ -797,21 +810,23 @@ prototype stand-assignment path, or final content catalogue changes in this incr
 While the prototype stand path coexists, the live adapter must also reject any worker still assigned
 to a legacy stand; the isolated Shrine view alone cannot prove that no such second assignment exists.
 
-`ShrineCollection.Collect` composes the same reducer with whole-Material collection. Its accounting
-and Inventory views must come from the same authenticated loaded profile. The request selects
-`shrineInstanceId` and `expectedMaterialId`; reject an unowned Shrine, changed output ID, backdated
-time, malformed Material quantities/reservations, or invalid purchased Material-capacity state
-without changing either input. Settle all prior work before calculating the selected Shrine's
-transfer, preserving unfinished work, pending XP, and the existing batch schedule. A previously full
-Shrine resumes work after collection time, never retroactively during its full-storage pause.
+`ServerScriptService.Services.ProductionService.ShrineCollection.Collect` composes the same reducer
+with whole-Material collection. Its accounting and Inventory views must come from the same
+authenticated loaded profile. The request selects `shrineInstanceId` and `expectedMaterialId`;
+reject an unowned Shrine, changed output ID, backdated time, malformed Material
+quantities/reservations, or invalid purchased Material-capacity state without changing either input.
+Settle all prior work before calculating the selected Shrine's transfer, preserving unfinished work,
+pending XP, and the existing batch schedule. A previously full Shrine resumes work after collection
+time, never retroactively during its full-storage pause.
 
-The explicitly shared `Domain/Inventory/InventoryCapacity` owns per-type stack rounding, derived
-category limits, and active crafting reservations. `ValidateMaterialState` adds strict validation
-for new collection callers; the existing capacity methods and live prototype callers retain their
-previous behavior. Refund reservations reduce available space but are never consumed or released by
-collection, and unknown retained Material IDs still occupy capacity. `NothingToCollect` takes
-precedence over `InventoryFull` when settlement leaves no whole output. Otherwise transfer all that
-fits, retaining any excess in Shrine storage. Collection itself awards no XP.
+The server-only shared `ServerScriptService/Shared/InventoryCapacity` owns per-type stack rounding,
+derived category limits, and active crafting reservations. `ValidateMaterialState` adds strict
+validation for new collection callers; the existing capacity methods and live prototype callers
+retain their previous behavior. Refund reservations reduce available space but are never consumed
+or released by collection, and unknown retained Material IDs still occupy capacity.
+`NothingToCollect` takes precedence over `InventoryFull` when settlement leaves no whole output.
+Otherwise transfer all that fits, retaining any excess in Shrine storage. Collection itself awards
+no XP.
 
 A successful result returns the detached accounting ledger, replacement Material map, actual
 collected quantity, and remaining storage. The future adapter must commit both views together,
@@ -821,10 +836,11 @@ authentication, revision/receipt persistence, remote, or live save integration. 
 tests verify accounting and capacity behavior without finalizing the Material catalogue or replacing
 the prototype stand-collection path.
 
-`Domain/Base/ShrineUpgrades.Upgrade` performs detached payment and sequential level changes over the
-same accounting engine. `Configurations/Shrines` shares one level table across all six definitions:
-levels 1/2/3 own 1/2/3 worker slots and 300/1,200/3,600 storage. `upgradeCost` belongs to the target
-level: level 2 costs 1,000 Gold plus 400 matching Materials; level 3 costs 15,000 Gold plus 4,000.
+`ServerScriptService.Services.BaseService.ShrineUpgrades.Upgrade` performs detached payment and
+sequential level changes over the same accounting engine. `Configurations/Shrines` shares one level
+table across all six definitions: levels 1/2/3 own 1/2/3 worker slots and 300/1,200/3,600 storage.
+`upgradeCost` belongs to the target level: level 2 costs 1,000 Gold plus 400 matching Materials;
+level 3 costs 15,000 Gold plus 4,000.
 Level 1 has no upgrade cost and retains its separate construction price. These static values are
 not copied into saved Shrine records. Output Material IDs remain resolved by the future content
 adapter; the new tests use synthetic IDs and forms.
@@ -847,14 +863,15 @@ commit the returned ledger, Material map, and Gold together with its revision-bo
 only those fields into the profile. The pure reducer supplies no live command, network request,
 authentication, durable save, or schema migration.
 
-`Domain/Base/ShrineDismantling.Dismantle` pairs the accounting view with the same loaded profile's
-Base ownership. Validate Base capacity/Station records and accounting first, then require a one-to-one
-match of all built/accounting Shrine instance IDs, definition IDs, and levels. A missing ledger must
-not be interpreted as an empty Shrine. This consistency check does not authenticate either view;
-the future adapter must select both from the requesting player's loaded profile and initialize
-accounting for every constructed Shrine. These are views of the same owned records, not separate
-persisted identity/level authorities. The request selects a unique instance ID and expected level,
-never a build-slot number; stale IDs cannot remove a replacement in the same slot.
+`ServerScriptService.Services.BaseService.ShrineDismantling.Dismantle` pairs the accounting view
+with the same loaded profile's Base ownership. Validate Base capacity/Station records and accounting
+first, then require a one-to-one match of all built/accounting Shrine instance IDs, definition IDs,
+and levels. A missing ledger must not be interpreted as an empty Shrine. This consistency check
+does not authenticate either view; the future adapter must select both from the requesting player's
+loaded profile and initialize accounting for every constructed Shrine. These are views of the same
+owned records, not separate persisted identity/level authorities. The request selects a unique
+instance ID and expected level, never a build-slot number; stale IDs cannot remove a replacement in
+the same slot.
 
 Reject occupied Shrines without automatically unassigning their workers. Otherwise settle the entire
 profile before checking the selected Shrine's completed storage. If settlement produces any whole
@@ -873,12 +890,12 @@ can reuse the released slot; reconstructed instances must receive new unique IDs
 adapter removes the runtime model only after the transaction succeeds. This isolated operation adds
 no live endpoint, model deletion, persistence migration, or UI.
 
-`Domain/Production/MythlingEvolution.Evolve` performs a manual, free form change over the same
-detached accounting view. Its form definitions extend the accounting metadata with optional
-`evolution = { targetFormId, requiredLevel }`. The link owns its required level; there is no runtime
-rarity/stage formula or fallback threshold. Absence means terminal. The future finalized catalogue
-must provide the configured launch links at levels 6 and 40; this isolated increment injects only
-synthetic definitions and does not adapt the legacy prototype roster.
+`ServerScriptService.Services.InventoryService.MythlingEvolution.Evolve` performs a manual, free
+form change over the same detached accounting view. Its form definitions extend the accounting
+metadata with optional `evolution = { targetFormId, requiredLevel }`. The link owns its required
+level; there is no runtime rarity/stage formula or fallback threshold. Absence means terminal. The
+future finalized catalogue must provide the configured launch links at levels 6 and 40; this
+isolated increment injects only synthetic definitions and does not adapt the legacy prototype roster.
 
 The request selects `workerId`, `expectedFormId`, and `expectedTargetFormId`. Validate ownership,
 state, server-authored time, and both expected IDs, rejecting backdated or stale changes. Validate
@@ -966,12 +983,13 @@ endpoint, schema migration, or UI.
 
 ### Isolated Mythling-sale reducer
 
-`Domain/Inventory/MythlingSales.Sell` implements detached sale accounting over the shared
-`ShrineAccrual.State` plus the same profile's Gold balance. Inventory owns the removal/payout rule;
-the shared production domain owns settlement. The accounting view must include every owned worker
-and Shrine assignment, not a client-provided selection. Per-form optional `sale = { gold }` metadata
-provides eligibility and a positive safe whole-Gold value; absence means not sellable. The future
-launch catalogue must supply the approved per-form prices and validate them across all six elements.
+`ServerScriptService.Services.InventoryService.MythlingSales.Sell` implements detached sale
+accounting over the shared `ShrineAccrual.State` plus the same profile's Gold balance. Inventory
+owns the removal/payout rule; the server-shared accrual engine owns settlement. The accounting view
+must include every owned worker and Shrine assignment, not a client-provided selection. Per-form
+optional `sale = { gold }` metadata provides eligibility and a positive safe whole-Gold value;
+absence means not sellable. The future launch catalogue must supply the approved per-form prices
+and validate them across all six elements.
 This increment uses synthetic metadata only and does not price or enable the legacy forms.
 
 The strict request is `{ workerId, expectedFormId, expectedGoldValue }`. Validate accounting,
@@ -1485,7 +1503,7 @@ per-tab upgrades. Inventory upgrades persist as ownership/level state, never as 
 or slot-grant definitions.
 
 Use one shared server-side capacity calculation for collection, capture awards, purchases, and
-crafting. Domain services supply their intended changes; they must not maintain independent copies
+crafting. Feature services supply their intended changes; they must not maintain independent copies
 of stack/slot or reservation arithmetic. Likewise, online, offline, and pre-mutation production use
 the same accrual path so collection timing cannot change how much work has already been earned.
 
@@ -1778,17 +1796,17 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Area | Current source | Target contract / required alignment |
 | --- | --- | --- |
 | Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 6: 100 initial Gold, starter protection, Inventory-upgrade ownership, private transaction state, crafting reservation bookkeeping, and Base ownership. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) preserves v4/v5 progression, jobs, receipts, and prototype ledgers while adding missing Base ownership or deterministic Shrine slot/level fields. No new Consumables field. | Replace remaining prototype records with the target Shrine/form/complete job schema as their features ship. The deliberate fresh namespace is not permission to reset subsequent progress. |
-| Base foundation | [BaseState](../src/ServerScriptService/Domain/Base/BaseState.lua) derives two initial Shrine-only slots and four configurable one-slot expansions from purchased state. Load initializes one free, unique Station identity; [BaseRuntime](../src/ServerScriptService/Services/BaseService/BaseRuntime.lua) binds it to the existing authored `PB_CraftingStation_Root` model. `base.status`, allowlisted `base.shrines`, and world attributes expose presentation state, not purchase authority. | No expansion purchase or crafting action yet. Keep `base.stands` and its existing placement/collection paths functional until the replacement can preserve their earned work. Authored Shrine markers/models remain separate work; the Shrine asset is provisional. |
+| Base foundation | [BaseState](../src/ServerScriptService/Shared/BaseState.lua) derives two initial Shrine-only slots and four configurable one-slot expansions from purchased state. Load initializes one free, unique Station identity; [BaseRuntime](../src/ServerScriptService/Services/BaseService/BaseRuntime.lua) binds it to the existing authored `PB_CraftingStation_Root` model. `base.status`, allowlisted `base.shrines`, and world attributes expose presentation state, not purchase authority. | No expansion purchase or crafting action yet. Keep `base.stands` and its existing placement/collection paths functional until the replacement can preserve their earned work. Authored Shrine markers/models remain separate work; the Shrine asset is provisional. |
 | Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. No model or roster dependency. Saved records contain `id`, `shrineId`, `buildSlotId`, and `level`; projection excludes any additional private fields. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete output/upgrade metadata validation, Shrine production/assignment ledgers, and presentation before enabling player-facing construction. Upgrades, dismantling, and production are not implemented by this command. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
-| Inventory capacity | Shared [InventoryCapacity](../src/ServerScriptService/Domain/Inventory/InventoryCapacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Live callers retain their prior behavior; `ValidateMaterialState` rejects malformed inputs to isolated Shrine collection/upgrades. | Add validated Inventory-capacity purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting; the final Material catalogue remains pending. |
-| Mythling production | Live [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua). Separately, [ShrineAccrual](../src/ServerScriptService/Domain/Production/ShrineAccrual.lua) implements detached one-second, profile-wide production/XP accounting with chronological levels, individual pending credit, overflow handling, and event-based offline settlement. Tests inject synthetic forms and Materials. | Finalize launch metadata and integrate the new ledger, assignments, collection, and transaction/persistence lifecycle in separate increments. The pure reducer does not change live profiles or replace the prototype roster. Luck/Traits remain inactive. |
-| Shrine assignment | [ShrineAssignments](../src/ServerScriptService/Domain/Production/ShrineAssignments.lua) validates empty-slot assignment and expected-worker removal, settles prior work, and returns a detached ledger with stable numbered slot identities. Unassignment is required before reassignment; occupied slots are never replaced implicitly. Tests use synthetic content. | Integrate the accounting view with authenticated profile ownership, transaction revisions/receipts, persistence, and future presentation. No live assignment command or schema migration is supplied by this pure domain increment. |
-| Shrine collection | [ShrineCollection](../src/ServerScriptService/Domain/Production/ShrineCollection.lua) settles prior production/XP, transfers whole Materials up to shared Inventory capacity after active refund reservations, and retains excess and unfinished work. It returns detached production and Material state; synthetic tests cover partial transfers and full-storage pauses. | Commit both returned views together through an authenticated profile transaction with revision/receipt protection. Live endpoint, schema integration, and final Material IDs remain separate work; the prototype collection path is unchanged. |
-| Shrine upgrades | [ShrineUpgrades](../src/ServerScriptService/Domain/Base/ShrineUpgrades.lua) validates next-level purchases, settles at the old capacity, and returns detached production/Material/Gold state. Shared [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) owns the approved level capacities, slots, and prices; no output IDs are finalized. | Wire the reducer into the authenticated transaction/save lifecycle with revision-bound receipts and finalized content references. The pure operation does not enable a live upgrade command or new UI. |
-| Shrine dismantling | [ShrineDismantling](../src/ServerScriptService/Domain/Base/ShrineDismantling.lua) validates matching Base/accounting views, rejects workers or settled whole output, and returns detached maps removing only the selected instance. Its build slot is freed without refund; pending worker XP survives discarded unfinished production. | Commit both maps through the authenticated profile transaction, preserve all other Base/profile fields, and remove presentation only after success. The pure reducer does not delete live models or add a network command. |
-| Mythling evolution | [MythlingEvolution](../src/ServerScriptService/Domain/Production/MythlingEvolution.lua) follows a validated optional same-element link, settles old-form production/XP before the level gate, and changes only the owned form ID in a detached ledger. Assigned and consecutive eligible evolutions retain work, progression, and batch timing; tests use synthetic forms. | Finalize and validate the launch catalogue, then integrate authenticated requests, revision/receipt protection, and persistence. This increment changes no live roster, owned schema, command, or menu. |
-| Mythling sales | [MythlingSales](../src/ServerScriptService/Domain/Inventory/MythlingSales.lua) rejects assigned/stale selections, resolves the current form's fixed sale value, settles production, and returns detached worker removal plus Gold. Final-copy sales are allowed; tests use synthetic forms and preserve earned Shrine work. | Finalize per-form sale metadata and integrate canonical owned-record deletion, Gold, accounting, and revision/receipt protection in one authenticated transaction. The pure reducer adds no live sale endpoint or menu and does not replace prototype deletion. |
+| Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Live callers retain their prior behavior; `ValidateMaterialState` rejects malformed inputs to isolated Shrine collection/upgrades. | Add validated Inventory-capacity purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting; the final Material catalogue remains pending. |
+| Mythling production | Live [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua). Separately, [ShrineAccrual](../src/ServerScriptService/Shared/ShrineAccrual.lua) implements detached one-second, profile-wide production/XP accounting with chronological levels, individual pending credit, overflow handling, and event-based offline settlement. Tests inject synthetic forms and Materials. | Finalize launch metadata and integrate the new ledger, assignments, collection, and transaction/persistence lifecycle in separate increments. The pure reducer does not change live profiles or replace the prototype roster. Luck/Traits remain inactive. |
+| Shrine assignment | [ShrineAssignments](../src/ServerScriptService/Services/BaseService/ShrineAssignments.lua) validates empty-slot assignment and expected-worker removal, settles prior work, and returns a detached ledger with stable numbered slot identities. Unassignment is required before reassignment; occupied slots are never replaced implicitly. Tests use synthetic content. | Integrate the accounting view with authenticated profile ownership, transaction revisions/receipts, persistence, and future presentation. No live assignment command or schema migration is supplied by this pure feature increment. |
+| Shrine collection | [ShrineCollection](../src/ServerScriptService/Services/ProductionService/ShrineCollection.lua) settles prior production/XP, transfers whole Materials up to shared Inventory capacity after active refund reservations, and retains excess and unfinished work. It returns detached production and Material state; synthetic tests cover partial transfers and full-storage pauses. | Commit both returned views together through an authenticated profile transaction with revision/receipt protection. Live endpoint, schema integration, and final Material IDs remain separate work; the prototype collection path is unchanged. |
+| Shrine upgrades | [ShrineUpgrades](../src/ServerScriptService/Services/BaseService/ShrineUpgrades.lua) validates next-level purchases, settles at the old capacity, and returns detached production/Material/Gold state. Shared [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) owns the approved level capacities, slots, and prices; no output IDs are finalized. | Wire the reducer into the authenticated transaction/save lifecycle with revision-bound receipts and finalized content references. The pure operation does not enable a live upgrade command or new UI. |
+| Shrine dismantling | [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua) validates matching Base/accounting views, rejects workers or settled whole output, and returns detached maps removing only the selected instance. Its build slot is freed without refund; pending worker XP survives discarded unfinished production. | Commit both maps through the authenticated profile transaction, preserve all other Base/profile fields, and remove presentation only after success. The pure reducer does not delete live models or add a network command. |
+| Mythling evolution | [MythlingEvolution](../src/ServerScriptService/Services/InventoryService/MythlingEvolution.lua) follows a validated optional same-element link, settles old-form production/XP before the level gate, and changes only the owned form ID in a detached ledger. Assigned and consecutive eligible evolutions retain work, progression, and batch timing; tests use synthetic forms. | Finalize and validate the launch catalogue, then integrate authenticated requests, revision/receipt protection, and persistence. This increment changes no live roster, owned schema, command, or menu. |
+| Mythling sales | [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) rejects assigned/stale selections, resolves the current form's fixed sale value, settles production, and returns detached worker removal plus Gold. Final-copy sales are allowed; tests use synthetic forms and preserve earned Shrine work. | Finalize per-form sale metadata and integrate canonical owned-record deletion, Gold, accounting, and revision/receipt protection in one authenticated transaction. The pure reducer adds no live sale endpoint or menu and does not replace prototype deletion. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. | Replace the three-form prototype catalogue with the 18 launch forms and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |

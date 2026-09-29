@@ -8,8 +8,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
-local InventoryCapacity = require(ServerScriptService.Domain.Inventory.InventoryCapacity)
-local ServerTypes = require(ServerScriptService.Domain.Types)
+local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local Mythlings = {}
 

@@ -5,7 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Types = require(ReplicatedStorage.Shared.Types)
-local InventoryCapacity = require(ServerScriptService.Domain.Inventory.InventoryCapacity)
+local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
 
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect

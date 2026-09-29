@@ -1,8 +1,10 @@
 --!strict
--- ServerScriptService/Domain/Production/ShrineAssignments
+-- ServerScriptService/Services/BaseService/ShrineAssignments
 -- Pure per-profile assignment commands. Live ownership resolution and commit belong to the adapter.
 
-local ShrineAccrual = require(script.Parent.ShrineAccrual)
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 export type State = ShrineAccrual.State
 export type Metadata = ShrineAccrual.Metadata
