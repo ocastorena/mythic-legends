@@ -1917,6 +1917,61 @@ Exhausted allowances remain unavailable until their scheduled restock.
   after refresh; do not erase its receipt merely because stock has restocked. Keep receipt history
   bounded under the existing duplicate-safe mutation rules and reject expired unresolved requests.
 
+### Headless Shop implementation
+
+Server-only `ShopService.GetShop(player)` and `BuyOffer(player, request)` require a running service,
+a connected Player, and an already-loaded profile. `Init` validates the complete launch catalogue;
+there is no refresh task, lifecycle stock mutation, new remote, or GUI binding. Private `ShopCatalog`
+derives one period and eight offers from `Configurations/Shop`: six Materials and one Featured pair.
+The launch epoch is Unix zero, with 3,600-second periods; period zero is Fire and the rotation is
+Fire → Water → Earth → Air → Light → Dark. Material prices come from their owning definitions;
+Featured references name the exact definition, finish, and matching recipe. Startup validation checks
+launch references, stock, and resale economics. Empty crafted model bindings remain unchanged.
+
+`GetShop` returns `{ ok, code?, revision, view? }`. The view includes `sampledAt`, `periodId`,
+`startsAt`, `refreshAt`, `featuredElement`, `offers`, and `upgrades`. Each offer exposes `offerId`,
+`offerRevision`, `stockKey`, `kind`, exact Material or Equipment references, `unitGold`, `stockLimit`,
+`remainingStock`, `maxPurchasable`, and optional `purchaseCode`. Exhausted Materials remain listed.
+These quotes reserve nothing and expose no raw save, private job receipt, or mutation history.
+`ShopUpgrades` derives the current/maximum/next capacity, cost, owned spendable inputs, and eligibility
+for each category using the existing payment rules on detached payment fields. Maximum capacity has
+no further quote. `InventoryService.UpgradeCapacity` remains the only upgrade mutation owner.
+
+Buy accepts only `requestId`, `expectedRevision`, `periodId`, `offerId`, `offerRevision`, and
+`quantity`. IDs/revisions are bounded, quantities are positive safe whole numbers, and signatures
+bind the exact envelope. The period and offer are resolved inside `DataService.Transact` using its
+single admitted callback timestamp after shared mutation preparation. The lossless offer revision
+binds category, stock key, exact result IDs, price, and stock limit; it is not saved in stock state.
+An expired period or changed offer rejects without silently substituting a new item. Committed
+receipt retries skip current catalogue validation and return the recorded result even after refresh.
+Existing bounded receipt/revision rules govern stale requests after receipt eviction.
+
+Success values include `offerId`, `offerRevision`, `periodId`, `quantity`, `unitGold`, `goldSpent`,
+`goldBalance`, and `remainingStock`, plus `materialId` or `instanceId`/`definitionId`/`finishId`.
+Headless rejection returns its code; the eventual remote adapter must pair expired-offer rejection
+with a fresh `GetShop` view rather than embedding mutable catalogue data in the persisted receipt.
+
+The optional saved shape is `shop = { periodId, purchased = { [stockKey] = quantity } }`. Absence
+means no purchases yet. Stable keys are the Material IDs and `featured_sword`/`featured_shield`, not
+variant IDs or catalogue revisions. `ShopStock.Read` returns detached effective usage: same-period
+valid unknown keys and over-limit historical counts survive; a newer period has an empty virtual
+allowance ledger. Only a successful purchase installs that newer period. A saved future period
+rejects with `ShopClockBehind`; partial, malformed, or unknown-root records reject with
+`InvalidShopState` rather than being repaired or discarded. No schema/store/template reset is added.
+
+Buy validates exact stock, Gold, safe arithmetic, and unreserved category capacity before delivery.
+Materials enter ordinary owned stacks. Featured grants one ordinary instance with exact definition
+and finish, `isStarterGrant = false`, and a unique ID that cannot collide with owned Equipment or
+retained crafting promises. It creates no job, XP, or automatic loadout change. Failed purchases roll
+back both the purchase and any due-job preparation; receipts still follow normal rejection rules.
+Inventory upgrades, unrelated ownership, Shrine work, and retained reservations remain independent
+of stock rollover. Success is session-atomic, not a durable-save acknowledgement.
+
+Offer revisions prevent accepting a different quote but do not synchronize rolling deployments by
+themselves. Keep catalogue values stable within a window and publish future tuning at an agreed
+shared boundary; changing a revision is never grounds for another allowance. Hot-reloaded catalogue
+distribution is not introduced by this launch implementation.
+
 ## Content configuration
 
 Content and balance data must be separate from game logic and versioned. At minimum, configuration
@@ -2287,8 +2342,8 @@ and otherwise retain their metadata. This flag is the launch-catalogue boundary,
 disabling existing prototype runtime: current Mythling production references, owned quantities,
 and stand production/collection remain unchanged. Catalogue validation itself supplies no save
 migration, gameplay action, menu change, or Mythling-roster replacement. Canonical Shrine, upgrade,
-[Material-disposal](#atomic-material-sale-and-discard-commands), and headless crafting commands consume
-these references; Shop remains a separate integration.
+[Material-disposal](#atomic-material-sale-and-discard-commands), headless crafting, and Shop commands
+consume these references. Player-facing endpoints and menus remain separate integration work.
 
 ### Launch Equipment catalogue
 
@@ -2315,8 +2370,9 @@ require a valid finish; plain definitions reject unexpected finishes. The owning
 definition plus finish (for example `elemental_sword_fire`). Each references the included Station,
 Gold/Material costs, exact result IDs, quantity, and duration. `ElementalSwordEffects` owns the six
 approved effect roles, descriptions, and tuning. The headless crafting lifecycle consumes recipes
-and snapshots agreed promises; active effect accounting, Shop grants, client combat integration,
-and approved asset bindings remain separate. The catalogue never rewrites owned records or infers missing
+and snapshots agreed promises; Shop grants retain the same definition/finish identity. Active effect
+accounting, client combat integration, and approved asset bindings remain separate. The catalogue
+never rewrites owned records or infers missing
 historical receipts from today's recipes.
 
 `ServerScriptService.Shared.EquipmentCatalogUtil.ValidateLaunch` checks launch coverage, compatible
@@ -2350,7 +2406,9 @@ unlocks                 -- approved progression/unlock flags
 requestReceipts         -- bounded mutation IDs/results for duplicate-safe resolution
 ```
 
-`shop` stores only mutable current-period usage. Derive offers, prices, limits, and refresh times
+`shop` stores only mutable current-period usage. The implemented optional record is initialized
+lazily by a successful purchase; a read returns an unused or refreshed virtual allowance without
+writing the profile. Derive offers, prices, limits, and refresh times
 from configuration. Reconnects restore usage before purchases are enabled; a new profile receives
 an unused current-period allowance, and an existing profile advances only when the schedule reaches
 a newer period. Keep completed purchase results in bounded `requestReceipts` independently of stock
@@ -2785,14 +2843,15 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Shrine dismantling | Server-only `BaseService.DismantleShrine` delegates to private [ShrineRemoval](../src/ServerScriptService/Services/BaseService/ShrineRemoval.lua). It composes [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua) and the shared removal bridge inside one revision-bound `DataService.Transact`, rejecting assigned workers or settled whole output before removing only the selected canonical record. Unfinished Shrine work is discarded without erasing owned workers or their pending XP; identity/level-bound receipts protect a replacement in the freed slot. | No new remote, schema, automatic lifecycle, or presentation/model deletion. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Purchased slots, surviving accounting, Station identity, currency, Materials, and crafting reservations remain intact; no refund is granted. |
 | Mythling evolution | Server-only `InventoryService.EvolveMythling` delegates to private [MythlingEvolutionCommand](../src/ServerScriptService/Services/InventoryService/MythlingEvolutionCommand.lua). It composes [MythlingEvolution](../src/ServerScriptService/Services/InventoryService/MythlingEvolution.lua) with the shared form-change bridge and canonical launch links inside one revision-bound `DataService.Transact`. Old-form settlement, eligibility, selected `typeId`, and identity/form/target-bound receipts commit together. Assigned and consecutive eligible evolutions retain work, progression, inactive legacy fields, and batch timing. | No new remote, menu, acquisition grant, schema migration, or automatic lifecycle. Add player-facing integration separately and playtest connected-player dispatch and durable saves. Prototype capture/stand paths remain unchanged; pending XP stays private. |
 | Mythling sales | Server-only `InventoryService.SellMythling` delegates to private [MythlingSaleCommand](../src/ServerScriptService/Services/InventoryService/MythlingSaleCommand.lua). It composes [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) and the shared worker-removal bridge with canonical sale definitions inside one revision-bound `DataService.Transact`. Unassignment and stale form/price checks protect the selected deletion and Gold grant; final-copy sales remain allowed. All earned Shrine work and surviving workers' XP are retained, while the sold instance's pending XP retires. | No new remote, menu, acquisition grant, schema migration, or automatic lifecycle. Add player-facing integration separately and playtest connected-player dispatch and durable saves. Legacy deletion remains blocked for canonical forms or retained entries with Shrine assignments/pending credit; it is not a sale API. Materials and crafting reservations remain unchanged. |
-| Equipment catalogue | [Equipment](../src/ReplicatedStorage/Shared/Configurations/Equipment.lua) defines the wooden pair and twelve named elemental items through shared bases and explicit finishes. [EquipmentCatalog](../src/ReplicatedStorage/Shared/EquipmentCatalog.lua) resolves fixed item metadata by IDs; recipes/effects have separate static owners and startup validation. Headless crafting and server loadout/combat resolution use canonical definitions; unchanged clients retain the wooden-only compatibility map. | Implement Shop delivery, client variant-aware combat, and elemental-effect accounting. Bind approved assets separately; empty crafted model names cannot authorize combat and never select a wooden fallback. No GUI or saved-stat copy is added. |
+| Equipment catalogue | [Equipment](../src/ReplicatedStorage/Shared/Configurations/Equipment.lua) defines the wooden pair and twelve named elemental items through shared bases and explicit finishes. [EquipmentCatalog](../src/ReplicatedStorage/Shared/EquipmentCatalog.lua) resolves fixed item metadata by IDs; recipes/effects have separate static owners and startup validation. Headless crafting, Shop grants, and server loadout/combat resolution use canonical definitions; unchanged clients retain the wooden-only compatibility map. | Implement client variant-aware combat and elemental-effect accounting. Bind approved assets separately; empty crafted model names cannot authorize combat and never select a wooden fallback. No GUI or saved-stat copy is added. |
 | Atomic loadout | [LoadoutCommands](../src/ServerScriptService/Services/CombatService/LoadoutCommands.lua) implements server-only revision-bound EquipEquipment/UnequipEquipment. The legacy Equip endpoint adapts to the same transaction path; Get is read-only. [LoadoutUtil](../src/ServerScriptService/Services/CombatService/LoadoutUtil.lua) binds saved, mounted, guard, and swing identities to instance/definition/finish. Fresh changed commits reconcile the current live character while retaining combat accounting; replay/no-op results skip runtime effects. | Add player-facing canonical command integration separately and verify live transition/reset behavior and durable selections. No new remote, GUI, active elemental effects, or playable crafted assets are supplied; unbound models fail closed. |
 | Crafting Jobs | Server-only [CraftingService](../src/ServerScriptService/Services/CraftingService/init.lua) supplies revision-bound StartJob/CancelJob through [CraftingCommands](../src/ServerScriptService/Services/CraftingService/CraftingCommands.lua). [CraftingJobs](../src/ServerScriptService/Services/CraftingService/CraftingJobs.lua) snapshots payments/output/deadlines, reserves capacity, and grants output or exact refund once. The same pure resolver runs before transactional mutations, at Ready/Checkpoint/Release, and on due-job timer requests. | Add Station/player-facing integration separately. Legacy reservation-only jobs remain opaque and block starts when active; no refund history is invented. No GUI, remote, model, auto-equip, or crafted-combat runtime is added. Verify connected-player dispatch and durable retention independently of session-atomic tests. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup; loadout changes retain these accounting deadlines and never refill Stamina. | Tune authored animations and transition timing in multiplayer/touch playtests. Bind crafted assets, integrate client combat profiles, and implement elemental-effect accounting; server metadata resolution alone does not complete the combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
-| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes the network domains listed above, but does not declare crafting/sale/evolution/build/upgrade, Shrine dismantling, or Material discard endpoints. | Add typed, domain-specific contracts as the approved features ship; target transactional guarantees are requirements, not claims of existing implementations. |
+| Shop | Server-only [ShopService](../src/ServerScriptService/Services/ShopService/init.lua) returns read-only offers/eligibility/upgrade quotes and revision-bound atomic purchases. A shared hourly schedule rotates the matching Featured pair; saved personal usage survives reconnects and is independent of catalogue revisions and purchased upgrades. | Add remote/menu integration and verify connected-player dispatch, live refresh boundaries, and durable retention separately. No GUI, asset activation, automatic equip, XP, or refresh timer is added. Future tuning must be deployed at a shared period boundary. |
+| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes the network domains listed above, but does not declare Shop, crafting/sale/evolution/build/upgrade, Shrine dismantling, or Material discard endpoints. | Add typed, domain-specific contracts as the approved features ship; target transactional guarantees are requirements, not claims of existing implementations. |
 | Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored `Workspace.World.Arena.Markers.Bounds`, Base Islands, and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |
 
 `HUDGui`, `StaminaGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,

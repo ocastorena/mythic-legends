@@ -125,6 +125,10 @@ export type Services = {
 		StartJob: (Player, SharedTypes.StartCraftingRequest) -> SharedTypes.TransactionResult,
 		CancelJob: (Player, SharedTypes.CancelCraftingRequest) -> SharedTypes.TransactionResult,
 	},
+	ShopService: {
+		GetShop: (Player) -> SharedTypes.ShopViewResult,
+		BuyOffer: (Player, SharedTypes.BuyShopOfferRequest) -> SharedTypes.TransactionResult,
+	},
 }
 export type Context = {
 	Instances: {

@@ -54,6 +54,7 @@ local MythlingSpawnService = require(ServerScriptService.Services.MythlingSpawnS
 local ClaimService = require(ServerScriptService.Services.ClaimService)
 local CombatService = require(ServerScriptService.Services.CombatService)
 local CraftingService = require(ServerScriptService.Services.CraftingService)
+local ShopService = require(ServerScriptService.Services.ShopService)
 local AdminCommandService = require(ServerScriptService.Services.AdminCommandService)
 local DivineInterventionService = require(ServerScriptService.PostLaunch.DivineInterventionService)
 local services: ServerTypes.Services = {
@@ -86,6 +87,10 @@ local services: ServerTypes.Services = {
 	CraftingService = {
 		StartJob = CraftingService.StartJob,
 		CancelJob = CraftingService.CancelJob,
+	},
+	ShopService = {
+		GetShop = ShopService.GetShop,
+		BuyOffer = ShopService.BuyOffer,
 	},
 	CombatService = {
 		EquipEquipment = CombatService.EquipEquipment,
@@ -122,6 +127,7 @@ local ordered: { { name: string, service: ServerTypes.Service } } = {
 	{ name = "DivineInterventionService", service = DivineInterventionService },
 	{ name = "DataService", service = DataService },
 	{ name = "CraftingService", service = CraftingService },
+	{ name = "ShopService", service = ShopService },
 	{ name = "CharacterService", service = CharacterService },
 	{ name = "InventoryService", service = InventoryService },
 	{ name = "ProductionService", service = ProductionService },

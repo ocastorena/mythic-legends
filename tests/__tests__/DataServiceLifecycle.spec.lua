@@ -13,6 +13,7 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
 local CraftingJobs = require(ServerScriptService.Services.CraftingService.CraftingJobs)
+local ShopCommands = require(ServerScriptService.Services.ShopService.ShopCommands)
 local PlayerDataTemplate = require(ServerStorage.Databases.PlayerDataTemplate)
 
 local describe = JestGlobals.describe
@@ -274,6 +275,49 @@ local function expectBlocked(result: PublicProbe)
 end
 
 describe("DataService profile lifecycle", function()
+	it(
+		"preserves personal Shop usage through reconciliation without replicating its ledger",
+		function()
+			local f = fixture()
+			f.api.Start()
+			expect(f.api.Load(f.player)).toBe(true)
+			expect(f.first.profile.Data.shop).toBeNil()
+			local saved: Types.ShopState = {
+				periodId = 6,
+				purchased = { fire_material = 10, featured_sword = 1, retired_offer = 2 },
+			}
+			expect(f.api.Update(f.player, "Test.ShopUsage", function(draft)
+				draft.shop = copy(saved)
+				return { ok = true }
+			end).ok).toBe(true)
+			f.api.Release(f.player)
+			f.second.profile.Data = copy(f.first.profile.Data)
+			expect(f.api.Load(f.player)).toBe(true)
+			expect(f.second.profile.Data.shop).toEqual(saved)
+			local now = 6 * 3_600 + 1
+			local shop = ShopCommands.new(f.api, {
+				clock = function()
+					return now
+				end,
+			})
+			local current =
+				assert(shop.Get(f.player).view, "[DataServiceLifecycle.spec] Expected Shop view")
+			expect(current.offers[1].remainingStock).toBe(0)
+			expect(current.offers[7].remainingStock).toBe(0)
+			now = 20 * 3_600
+			local refreshed = assert(
+				shop.Get(f.player).view,
+				"[DataServiceLifecycle.spec] Expected refreshed view"
+			)
+			expect(refreshed.offers[1].remainingStock).toBe(10)
+			expect(refreshed.offers[7].remainingStock).toBe(1)
+			expect(f.second.profile.Data.shop).toEqual(saved)
+			for _, packet in f.state.packets do
+				expect(packet.values.shop).toBeNil()
+			end
+		end
+	)
+
 	for _, removeOwnership in { false, true } do
 		it(
 			`preserves empty slots across reconnect reconciliation (missing ownership: {removeOwnership})`,

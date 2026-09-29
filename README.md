@@ -187,7 +187,7 @@ see the [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-material-catalogue)
 `Fire Material` are temporary and thumbnails are empty until the final names/icons are chosen.
 Each launch Material is configured to buy for 10 Gold, sell for 2 Gold, and stack to the shared
 1,000-unit limit. Metadata alone adds no purchase or sale action; the server-only Material
-sale/discard commands below consume these shared definitions.
+sale/discard and Shop commands below consume these shared definitions.
 
 `MaterialCatalogUtil.Validate` checks the real catalogue before server services start. Run the static
 suite and runtime tests above; catalogue tests include invalid element coverage, output references,
@@ -209,8 +209,8 @@ also pin the approved initial values and unchanged wooden gameplay. Server loado
 uses the canonical definitions; the unchanged client still uses the wooden-only `profiles` map.
 
 Crafted model bindings and thumbnails are explicitly empty while assets remain undecided. There is
-no wooden-model fallback, GUI change, saved-stat copy, Shop purchase, or active elemental effect yet.
-The headless crafting and atomic loadout commands consume this catalogue, but unbound crafted items
+no wooden-model fallback, GUI change, saved-stat copy, or active elemental effect yet.
+Headless crafting, Shop delivery, and atomic loadout commands consume this catalogue, but unbound crafted items
 cannot pass the server's mounted-Equipment action checks. See the
 [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-equipment-catalogue).
 
@@ -813,6 +813,30 @@ durable retention separately; a successful transaction or asynchronous save requ
 durable acknowledgement. No GUI, remote, Station prompt, model binding, or crafted combat is added.
 See the [implementation contract](docs/TECHNICAL_DESIGN.md#headless-crafting-implementation) for
 request/result fields and compatibility boundaries.
+
+### Headless Shop review
+
+`ShopService.GetShop(player)` returns the current server-derived offers, personal remaining stock,
+purchase eligibility, refresh time, and independent Inventory-upgrade quotes without changing data.
+`ShopService.BuyOffer(player, request)` is a revision-bound atomic purchase: Gold, exact item delivery,
+and personal usage commit together. The request quotes the period and lossless offer revision, never
+a client-selected result or price. All six Materials remain listed after selling out.
+
+The initial schedule uses Unix epoch zero and hourly boundaries. Featured rotates Fire, Water,
+Earth, Air, Light, Dark, with a matching sword/Shield pair at 150 Gold each and one of each per player.
+Each normal Material has ten personal units per hour at its configured buy price. Reconnects,
+server changes, catalogue revisions, Base size, and Inventory upgrades do not replenish stock;
+missed allowances never accumulate. Publish future catalogue changes at a shared period boundary.
+
+Saved `shop` state contains only a period index and purchased quantities. It is initialized or
+advanced only with a successful purchase, not by opening a view or by a reset timer. Malformed or
+future-period state fails closed without being erased. Crafting output/refund reservations remain
+protected. Featured delivery retains the exact definition/finish and never equips or grants XP.
+
+Run the verification commands above for refresh boundaries, stale quotes, retry/reconnect behavior,
+exact delivery, old capacity, crafting reservations, numeric limits, and rollback. No GUI, remote,
+asset binding, or active elemental effect is added. Connected-player dispatch and durable saves
+remain separate checks. See the [Shop implementation contract](docs/TECHNICAL_DESIGN.md#headless-shop-implementation).
 
 ### Admin commands
 

@@ -488,6 +488,75 @@ export type SellMaterialRequest = DiscardMaterialRequest & {
 	expectedUnitGold: number,
 }
 
+export type ShopState = {
+	periodId: number,
+	purchased: { [string]: number },
+}
+
+export type ShopOffer = {
+	offerId: string,
+	offerRevision: string,
+	stockKey: string,
+	kind: "Material" | "Equipment",
+	materialId: string?,
+	definitionId: string?,
+	finishId: string?,
+	unitGold: number,
+	stockLimit: number,
+}
+
+export type ShopPeriod = {
+	periodId: number,
+	startsAt: number,
+	refreshAt: number,
+	featuredElement: Element,
+	offers: { ShopOffer },
+}
+
+export type ShopOfferView = ShopOffer & {
+	remainingStock: number,
+	maxPurchasable: number,
+	purchaseCode: string?,
+}
+
+export type ShopUpgradeView = {
+	category: "materials" | "mythlings" | "equipment",
+	purchasedUpgradeCount: number,
+	capacity: number,
+	maxCapacity: number,
+	nextCapacity: number?,
+	goldCost: number?,
+	materials: { { materialId: string, quantity: number, ownedQuantity: number } },
+	canPurchase: boolean,
+	purchaseCode: string?,
+}
+
+export type ShopView = {
+	sampledAt: number,
+	periodId: number,
+	startsAt: number,
+	refreshAt: number,
+	featuredElement: Element,
+	offers: { ShopOfferView },
+	upgrades: { ShopUpgradeView },
+}
+
+export type ShopViewResult = {
+	ok: boolean,
+	code: string?,
+	revision: number,
+	view: ShopView?,
+}
+
+export type BuyShopOfferRequest = {
+	requestId: string,
+	expectedRevision: number,
+	periodId: number,
+	offerId: string,
+	offerRevision: string,
+	quantity: number,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },
@@ -521,6 +590,8 @@ export type PlayerDoc = {
 	equipment: { [string]: EquipmentEntry },
 	transactions: TransactionState?,
 	craftingJobs: { [string]: CraftingJob }?,
+	-- Created only by a successful Shop purchase; catalogue/static limits are never saved.
+	shop: ShopState?,
 	-- Initialized from server time before exposure, never from a static template timestamp.
 	productionClock: ProductionClock?,
 	combatLoadout: {
