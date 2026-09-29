@@ -38,6 +38,13 @@ describe("BaseService Shrine command gates", function()
 		local service = loadService(module)
 		local reads, transactions = 0, 0
 		local fakePlayer = { UserId = 1001, Parent = Players }
+		local expand: Types.ExpandBaseRequest = {
+			requestId = "0:expand",
+			expectedRevision = 0,
+			expectedUpgradeCount = 0,
+			expectedGoldCost = 10_000,
+			expectedMaterialQuantity = 50,
+		}
 		local assign: Types.AssignShrineWorkerRequest = {
 			requestId = "0:assign",
 			expectedRevision = 0,
@@ -69,6 +76,7 @@ describe("BaseService Shrine command gates", function()
 		}
 		local function expectUnavailable(player: unknown)
 			local unavailable = { ok = false, code = "DataUnavailable", revision = 0 }
+			expect(service.ExpandBase(player, expand)).toEqual(unavailable)
 			expect(service.AssignShrineWorker(player, assign)).toEqual(unavailable)
 			expect(service.RemoveShrineWorker(player, remove)).toEqual(unavailable)
 			expect(service.UpgradeShrine(player, upgrade)).toEqual(unavailable)

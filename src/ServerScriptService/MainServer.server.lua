@@ -71,6 +71,7 @@ local services: ServerTypes.Services = {
 		CollectShrine = ProductionService.CollectShrine,
 	},
 	BaseService = {
+		ExpandBase = BaseService.ExpandBase,
 		BuildShrine = BaseService.BuildShrine,
 		UpgradeShrine = BaseService.UpgradeShrine,
 		DismantleShrine = BaseService.DismantleShrine,

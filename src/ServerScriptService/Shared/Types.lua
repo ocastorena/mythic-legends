@@ -56,6 +56,7 @@ export type InventoryApi = {
 	AddMaterial: (Player, string, number) -> boolean,
 }
 export type BaseApi = {
+	ExpandBase: (Player, SharedTypes.ExpandBaseRequest) -> SharedTypes.TransactionResult,
 	BuildShrine: (Player, SharedTypes.BuildShrineRequest) -> SharedTypes.TransactionResult,
 	UpgradeShrine: (Player, SharedTypes.UpgradeShrineRequest) -> SharedTypes.TransactionResult,
 	DismantleShrine: (Player, SharedTypes.DismantleShrineRequest) -> SharedTypes.TransactionResult,

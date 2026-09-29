@@ -262,6 +262,14 @@ export type BuildShrineRequest = {
 	expectedGoldCost: number,
 }
 
+export type ExpandBaseRequest = {
+	requestId: string,
+	expectedRevision: number,
+	expectedUpgradeCount: number,
+	expectedGoldCost: number,
+	expectedMaterialQuantity: number,
+}
+
 export type AssignShrineWorkerRequest = {
 	requestId: string,
 	expectedRevision: number,

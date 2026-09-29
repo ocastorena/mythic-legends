@@ -18,6 +18,7 @@ local log = LogUtil.For("BaseService")
 local StandPlacement = require(script.StandPlacement)
 local BaseRuntime = require(script.BaseRuntime)
 local ShrineConstruction = require(script.ShrineConstruction)
+local BaseExpansionPurchase = require(script.BaseExpansionPurchase)
 local ShrineWorkers = require(script.ShrineWorkers)
 local ShrineUpgradePurchase = require(script.ShrineUpgradePurchase)
 local ShrineRemoval = require(script.ShrineRemoval)
@@ -46,6 +47,7 @@ local removeMythlingRemote: RemoteFunction
 local MythlingsMeta: { [string]: Types.MythlingDef }
 local DataService: ServerTypes.DataApi
 local shrineConstruction: ShrineConstruction.ShrineConstruction?
+local baseExpansion: BaseExpansionPurchase.BaseExpansionPurchase?
 local shrineWorkers: ShrineWorkers.ShrineWorkers?
 local shrineUpgradePurchase: ShrineUpgradePurchase.ShrineUpgradePurchase?
 local shrineRemoval: ShrineRemoval.ShrineRemoval?
@@ -105,6 +107,31 @@ function BaseService.BuildShrine(
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	local result = construction.Build(player, request)
+	if result.ok then
+		local base = getPlayerBase(player)
+		local data = DataService.GetLoadedData(player)
+		if base and base.Parent == basesFolder and data then
+			BaseRuntime.RefreshCapacity(base, data.base)
+		end
+	end
+	return result
+end
+
+function BaseService.ExpandBase(
+	player: Player,
+	request: Types.ExpandBaseRequest
+): Types.TransactionResult
+	local expansion = baseExpansion
+	if
+		not lifecycle:IsRunning()
+		or not expansion
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	local result = expansion.Expand(player, request)
 	if result.ok then
 		local base = getPlayerBase(player)
 		local data = DataService.GetLoadedData(player)
@@ -418,6 +445,7 @@ function BaseService.Init(context: ServerTypes.Context)
 	serviceContext = context
 	resolveAssets()
 	shrineConstruction = ShrineConstruction.new(DataService)
+	baseExpansion = BaseExpansionPurchase.new(DataService)
 	shrineWorkers = ShrineWorkers.new(DataService)
 	shrineUpgradePurchase = ShrineUpgradePurchase.new(DataService)
 	shrineRemoval = ShrineRemoval.new(DataService)
@@ -448,6 +476,7 @@ function BaseService.Stop()
 	end
 	placementLimiter:Clear()
 	shrineConstruction = nil
+	baseExpansion = nil
 	shrineWorkers = nil
 	shrineUpgradePurchase = nil
 	shrineRemoval = nil

@@ -217,8 +217,8 @@ stand production.
 A Base starts with two Shrine-only slots and one free permanent Crafting Station, whose unique saved
 identity is reused on rebuild/reconnect. The Station and legacy stands do not occupy Shrine slots.
 Capacity derives from the purchased expansion count and configuration (maximum six); it is not saved
-as a copied limit. Expansion purchases, Station interaction, and crafting remain separate work.
-Existing stand gameplay remains available; server-only Shrine construction is described below.
+as a copied limit. The server-only expansion purchase is described below; Station interaction and
+crafting remain separate work. Existing stand gameplay remains available.
 
 After syncing source and starting a fresh play session, inspect the player's runtime Base attributes:
 `UsedShrineSlots = 0`, `UnlockedShrineSlots = 2`, `MaxShrineSlots = 6`. The existing
@@ -227,6 +227,38 @@ After syncing source and starting a fresh play session, inspect the player's run
 stand assignment/collection intact. There is intentionally no new Station prompt or menu. Automated
 tests cover schema additions, identity reuse after serialization, derived capacity, safe runtime
 allocation failure, and Base reconstruction; they do not establish live save durability.
+
+### Atomic Base-expansion review
+
+`BaseService.ExpandBase(player, request)` purchases the next permanent Shrine-only build slot through
+one server-side transaction. Starting from two slots, four sequential purchases reach the six-slot
+MVP maximum. `Configurations.Bases` owns prices: 10,000/50,000/150,000/500,000 Gold plus
+50/100/150/200 of **each** normal Material respectively. The permanent Crafting Station has no cost
+and never consumes a Shrine slot.
+
+Requests contain `requestId` (`<expectedRevision>:<unique token>`), `expectedRevision`,
+`expectedUpgradeCount`, `expectedGoldCost`, and `expectedMaterialQuantity`. The Material quote is
+the quantity for each of the six fixed ingredients, not their combined total. The server resolves
+the next expansion and full Material mix; the caller cannot substitute elements, choose a target
+slot, or skip purchases. Reuse the original request for retries so its receipt returns the original
+result without spending again. Stale progression or prices are rejected rather than silently changed.
+Success returns `previousUpgradeCount`, `upgradeCount`, `unlockedShrineSlots`, `maxShrineSlots`,
+`goldSpent`, and `materialsSpentPerType` in the transaction's `values`.
+
+Only collected Inventory Materials and owned Gold pay for the expansion. Shrine storage and crafting
+refund reservations are not payment, and reservations are not released. The purchase preserves
+existing Shrine slots/workers/output/XP, the production clock, Station identity, and other upgrades.
+It adds one empty logical build slot without requiring a particular Shrine layout or ownership of
+all six elements. There is no construction timer or production multiplier.
+The full payment mix must fit the existing Material capacity alongside active refund reservations;
+the new Base slot cannot supply capacity for its own ingredients. Confirmed State exposes the
+derived Base status, and an existing runtime Base's capacity attributes refresh after success.
+
+Run the static suite and runtime tests above, then verify connected-player dispatch and saved
+purchase retention through reset/rejoin in a suitable playtest. Tests cover sequential purchases,
+fixed-mix affordability, stale/replayed requests, capacity limits, and preservation of unrelated
+state; they do not prove durable saves. This command adds no GUI, remote, model placement, or schema
+migration. See the [command contract](docs/TECHNICAL_DESIGN.md#atomic-base-expansion-command).
 
 ### Shrine-construction logic review
 
