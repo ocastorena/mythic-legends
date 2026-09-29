@@ -646,15 +646,16 @@ same target in quiet and full servers; player count does not scale availability.
 The [production calculation](GDD.md#production-calculation) and [Mythling
 progression](GDD.md#mythling-progression) rules in the GDD own Yield, XP, storage, and evolution
 behavior. The server implements those rules as fixed chronological batches on a common schedule
-across a profile's Shrines, using saved accrual time and mutable state. Worker changes do not shift
-that schedule.
+across a profile's Shrines, using saved accrual time and mutable state. The initial configured batch
+interval is **one second**; it does not require one save or network update per second. Worker changes
+do not shift that schedule.
 
 Set each launch Common/Rare/Epic form's initial unmodified base Yield to **12/18/32 Materials/hour**
 respectively in Mythling metadata, shared across the six elements. These are fixed form values,
 not an additional rarity multiplier. Convert rates consistently when accruing working seconds;
 one unchanged worker earns one Material's worth of progress in 300/200/112.5 seconds respectively
 before level scaling. These are nominal production times, not batch intervals or separate per-item
-timers. Retain the existing batch cadence for production and activity-based XP, including intervals
+timers. Use the configured batch cadence for production and activity-based XP, including intervals
 that advance unfinished progress without completing an item. Resolve completed whole output at the
 normal batch boundary; clients cannot grant it from a displayed countdown.
 
@@ -759,6 +760,19 @@ For accounting verification, 0.8 previously retained progress plus 0.2 newly ear
 one whole Material and zero remaining progress, assuming storage has space. Splitting an unchanged
 interval into smaller settlements, swapping workers, or reconnecting must preserve already earned
 work and XP rather than rounding each interval or replaying its result.
+
+The isolated server-domain `ShrineAccrual.Accrue` reducer implements this arithmetic with injected
+form/Shrine metadata and a profile-wide `lastAccruedAt`/`nextBatchAt` schedule. Its returned ledger is
+not a replacement PlayerDoc or owned-Mythling record. Future integration must merge the accounting
+fields into a single transaction, preserving identity and inactive legacy metadata. The adapter must
+initialize the common schedule once, retain it across calls, and settle before changing inputs;
+changing cadence requires explicit schedule reconciliation, not resetting partially earned work.
+Shrine-to-Material IDs must be finalized before persistence so settled output cannot be reinterpreted.
+Long intervals coalesce identical complete batches only as far as the next level or storage-fill
+boundary; later work uses the changed inputs. There is no offline time cap. Empty/full intervals still
+advance the cursor, and pending XP resolves even after its source Shrine is removed. Existing whole
+output and progress are retained if current capacity is reduced below stored output; it earns no new
+work until space is available. This engine is not yet wired to live saves, assignments, or collection.
 
 ### Space recovery transactions
 
@@ -1603,7 +1617,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. No model or roster dependency. Saved records contain `id`, `shrineId`, `buildSlotId`, and `level`; projection excludes any additional private fields. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete output/upgrade metadata validation, Shrine production/assignment ledgers, and presentation before enabling player-facing construction. Upgrades, dismantling, and production are not implemented by this command. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
 | Inventory capacity | [Capacity](../src/ServerScriptService/Services/InventoryService/Capacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Collection transfers only what fits and retains the rest in stand storage. | Add validated upgrade purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting; the final Material catalogue remains pending. |
-| Mythling production | [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) uses the [shared server production ledger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua), preserving stored output and unfinished work by stand and Material ID. The v3 migration removes the consumed legacy `lastCollectionAt` cursor. Prototype rates are explicitly named `materialsPerMinute`. | Complete the target Shrine/form/level/batch/XP model and storage configuration. Existing stand-owned accounting is partial implementation, not the full target schema; Luck/Traits remain inactive. |
+| Mythling production | Live [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Domain/Production/ProductionLedger.lua). Separately, [ShrineAccrual](../src/ServerScriptService/Domain/Production/ShrineAccrual.lua) implements detached one-second, profile-wide production/XP accounting with chronological levels, individual pending credit, overflow handling, and event-based offline settlement. Tests inject synthetic forms and Materials. | Finalize launch metadata and integrate the new ledger, assignments, collection, and transaction/persistence lifecycle in separate increments. The pure reducer does not change live profiles or replace the prototype roster. Luck/Traits remain inactive. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. | Replace the three-form prototype catalogue with the 18 launch forms and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |

@@ -713,7 +713,8 @@ the [progression rules](#mythling-progression) below. The Epic trial rate preser
 daily developed-team collection after deferring Luck and Traits; Common and Rare rates retain
 their earlier crafting and progression baselines.
 
-Production uses fixed server batches to accumulate each worker's earned output and XP. Add new
+Production uses configurable **one-second server accounting batches** initially to accumulate each
+worker's earned output and XP. This is not a save or network-update frequency. Add new
 production work to unfinished progress carried from earlier batches. Only completed, whole Materials
 enter Shrine storage; the remaining work stays internal progress toward the next item, never a
 fractional Material in storage or Inventory. There is no random bonus step.

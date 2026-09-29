@@ -181,6 +181,29 @@ insufficient Gold, rollback, automatic gap filling, projection privacy, and seri
 Production, assignments, upgrades, dismantling, and UI integration are separate reviewable tasks.
 These checks establish in-session atomicity and serialized-state behavior, not live save durability.
 
+### Shrine-accounting logic review
+
+`Domain.Production.ShrineAccrual.Accrue` is a pure server-side calculation, not a live service or
+player command. It accepts an accounting ledger, a server-authored time, and resolved form/Shrine
+metadata; it returns a detached updated ledger or an error without changing its inputs. Production
+configuration starts at one-second accounting batches and one XP per eligible working second;
+progression configuration supplies the shared level curve, cap, and linear Yield bonus. These
+accounting batches do not set save or replication frequency.
+
+Tests use synthetic Mythlings and Materials, leaving the unfinished roster and prototype assets
+untouched. They exercise whole output, retained partial work, worker changes, chronological XP and
+levels, full/empty pauses, offline equivalence, and repeated-time safety. Long offline intervals skip
+identical batches up to the next level/storage event rather than iterating every elapsed second.
+The current live stand-production path remains unchanged. Assignment/collection commands, save
+integration, migration of retained work, and final content remain separate reviewable tasks; this
+increment does not claim live persistence or gameplay integration.
+
+For this isolated review, capped Mythlings continue production but stop earning new XP; any XP
+already earned (including pending credit and the cap-reaching batch's remainder) is retained.
+This cap behavior is provisional pending confirmation before live integration.
+
+### Admin commands
+
 Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:
 
 - `/admin event blockstorm` starts the existing eight-second, non-colliding visual event. Only one
