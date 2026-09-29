@@ -18,6 +18,7 @@ local log = LogUtil.For("BaseService")
 local StandPlacement = require(script.StandPlacement)
 local BaseRuntime = require(script.BaseRuntime)
 local ShrineConstruction = require(script.ShrineConstruction)
+local ShrineWorkers = require(script.ShrineWorkers)
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local Trove = require(game:GetService("ReplicatedStorage").Packages.Trove)
@@ -43,6 +44,7 @@ local removeMythlingRemote: RemoteFunction
 local MythlingsMeta: { [string]: Types.MythlingDef }
 local DataService: ServerTypes.DataApi
 local shrineConstruction: ShrineConstruction.ShrineConstruction?
+local shrineWorkers: ShrineWorkers.ShrineWorkers?
 local InventoryService: ServerTypes.InventoryApi
 local ProductionService: ServerTypes.ProductionApi
 local placementLimiter = RateLimiter.new(6, 2)
@@ -107,6 +109,41 @@ function BaseService.BuildShrine(
 		end
 	end
 	return result
+end
+
+local function getShrineWorkers(player: Player): ShrineWorkers.ShrineWorkers?
+	if
+		not lifecycle:IsRunning()
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return nil
+	end
+	return shrineWorkers
+end
+
+-- Headless commands: the loaded profile is authoritative; no world model or client remote is used.
+function BaseService.AssignShrineWorker(
+	player: Player,
+	request: Types.AssignShrineWorkerRequest
+): Types.TransactionResult
+	local workers = getShrineWorkers(player)
+	if not workers then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return workers.Assign(player, request)
+end
+
+function BaseService.RemoveShrineWorker(
+	player: Player,
+	request: Types.RemoveShrineWorkerRequest
+): Types.TransactionResult
+	local workers = getShrineWorkers(player)
+	if not workers then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return workers.Remove(player, request)
 end
 
 local function bindCharacterSpawn(
@@ -343,6 +380,7 @@ function BaseService.Init(context: ServerTypes.Context)
 	serviceContext = context
 	resolveAssets()
 	shrineConstruction = ShrineConstruction.new(DataService)
+	shrineWorkers = ShrineWorkers.new(DataService)
 end
 
 function BaseService.Start()
@@ -370,6 +408,7 @@ function BaseService.Stop()
 	end
 	placementLimiter:Clear()
 	shrineConstruction = nil
+	shrineWorkers = nil
 end
 
 return BaseService

@@ -3,9 +3,10 @@
 -- On-demand profile settlement; DataService owns session selection, commit, and publication.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage.Shared.Types)
-local ShrineAccounting = require(script.Parent.ShrineAccounting)
+local ShrineAccounting = require(ServerScriptService.Shared.ShrineAccounting)
 
 local ShrineProduction = {}
 

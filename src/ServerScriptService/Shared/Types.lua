@@ -46,6 +46,14 @@ export type InventoryApi = {
 }
 export type BaseApi = {
 	BuildShrine: (Player, SharedTypes.BuildShrineRequest) -> SharedTypes.TransactionResult,
+	AssignShrineWorker: (
+		Player,
+		SharedTypes.AssignShrineWorkerRequest
+	) -> SharedTypes.TransactionResult,
+	RemoveShrineWorker: (
+		Player,
+		SharedTypes.RemoveShrineWorkerRequest
+	) -> SharedTypes.TransactionResult,
 	GetSpawnPoint: (Player) -> BasePart?,
 	HasStand: (Player, number) -> boolean,
 	RemoveMythlingFromStand: (Player, string) -> boolean,

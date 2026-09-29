@@ -244,19 +244,19 @@ prove live durable persistence. See the
 
 ### Shrine-accounting draft adapter review
 
-`ProductionService/ShrineAccounting.SettleToDraft` adapts a prepared current-schema transaction
-draft to the shared accrual engine and merges only accounting fields back on success. It defaults
-to the real launch form and Shrine metadata without changing saved `typeId` identities. Known forms
+`ServerScriptService.Shared.ShrineAccounting.SettleToDraft` adapts a prepared current-schema
+transaction draft to the shared accrual engine and merges only accounting fields back on success.
+It defaults to the real launch form and Shrine metadata without changing saved `typeId` identities. Known forms
 must already have explicit level, XP, and pending XP; no capture defaults or migrations are added.
 Unreferenced legacy forms without pending credit remain untouched. See the
 [adapter contract](docs/TECHNICAL_DESIGN.md#shrine-accounting-draft-adapter) for rejection boundaries.
 
 Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
 state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
-XP private. The helper remains private and now has the on-demand service caller below; it is not
-an automatic lifecycle hook, remote, or menu action. Callers must use it inside `DataService.Transact`
-or `Update`; it neither authenticates a player nor saves a profile by itself. These tests do not
-establish live durable persistence.
+XP private. The server-shared adapter supports on-demand settlement and atomic assignment commands;
+it is not an automatic lifecycle hook, remote, or menu action. Callers must use it inside
+`DataService.Transact` or `Update`; it neither authenticates a player nor saves a profile by itself.
+These tests do not establish live durable persistence.
 
 ### On-demand Shrine settlement review
 
@@ -287,9 +287,10 @@ Tests use synthetic Mythlings and Materials, leaving the unfinished roster and p
 untouched. They exercise whole output, retained partial work, worker changes, chronological XP and
 levels, full/empty pauses, offline equivalence, and repeated-time safety. Long offline intervals skip
 identical batches up to the next level/storage event rather than iterating every elapsed second.
-The current live stand-production path remains unchanged. Live assignment/collection commands, save
-integration, migration of retained work, and final content remain separate reviewable tasks; this
-increment does not claim live persistence or gameplay integration.
+The current live stand-production path remains unchanged. Server-only settlement and assignment now
+use the engine through the shared adapter. Automatic lifecycle integration, collection, migration of
+retained prototype work, and final content remain separate tasks; pure tests do not prove live
+persistence.
 
 Capped Mythlings continue production but stop earning new XP; any XP
 already earned (including pending credit and the cap-reaching batch's remainder) is retained.
@@ -308,11 +309,32 @@ ownership, pending XP, stored Materials, unfinished work, and the shared batch s
 requests return an error without changing the input, and backdated changes are rejected. Tests cover
 all six elements with synthetic content; there are no new catalogue entries, menus, or model changes.
 
-The isolated ledger now uses `workerIdsBySlot` with string slot keys instead of its former dense
-array. That test-ledger shape was never persisted, so no player-data migration is needed. The live
-stand path and player schema remain unchanged. A future service must derive this view from the
-authenticated player's loaded profile and commit the entire result through the existing transaction
-and duplicate-request protection. This step adds neither a network endpoint nor live save wiring.
+The ledger uses `workerIdsBySlot` with string slot keys instead of its former dense array. That
+earlier test-ledger shape was never persisted, so no player-data migration is needed. The server-only
+commands below now derive this view from canonical owned state and commit through the existing
+transaction and duplicate-request protection. Prototype stand assignment remains separate.
+
+### Atomic Shrine-assignment command review
+
+`BaseService.AssignShrineWorker(player, request)` and `RemoveShrineWorker(player, request)` are
+server-only commands for the running service and a connected player's already-loaded profile.
+Assignment requests contain `requestId` (`<expectedRevision>:<unique token>`), `expectedRevision`,
+`shrineInstanceId`, numeric `slotId`, and `workerId`. Removal uses `expectedWorkerId` instead of
+`workerId`. Retry the original request unchanged. Success returns `shrineInstanceId`, `slotId`,
+`workerId`, and `settledAt` in transaction `values`.
+
+Each command settles prior work and changes the slot map in one `DataService.Transact` callback,
+using one server timestamp and the real form/Shrine metadata. It never calls standalone settlement
+before a second transaction. Moving workers still requires explicit unassignment; removal retains
+ownership and earned/pending XP. The shared adapter stages only accounting, progression, and slot
+maps while preserving unrelated state. Legacy deletion rejects canonical launch forms and retained
+entries with Shrine assignments or pending credit, preventing dangling links or erased earned work.
+
+Run the static suite and runtime tests above. Transaction fixtures cover duplicate/stale requests,
+profile isolation, rollback, assignments across all six elements, and retained work. Actual connected/
+disconnected-player dispatch and durable saves still need a playtest. These commands add no remote,
+menu, model, automatic production loop, acquisition grant, profile auto-load, or schema migration.
+The [command contract](docs/TECHNICAL_DESIGN.md#atomic-shrine-assignment-commands) owns implementation details.
 
 ### Shrine-collection logic review
 
@@ -420,7 +442,8 @@ Tests cover fixed prices, assignment/removal and evolution sequences, stale/repe
 accounting boundaries, final-copy sales, overflow rollback, and detached serialized results. A future
 authenticated adapter must commit the ledger, canonical owned-record deletion, Gold, and request
 receipt atomically, serialized with assignment/evolution. This increment adds no live sale endpoint,
-save-schema change, catalogue change, or menu, and leaves the prototype deletion command unchanged.
+save-schema change, catalogue change, or menu. Prototype deletion remains separate and now rejects
+canonical forms or retained entries with Shrine assignments/pending credit; it is not a sale API.
 
 ### Admin commands
 

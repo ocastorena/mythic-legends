@@ -1,5 +1,5 @@
 --!strict
--- ServerScriptService/Services/ProductionService/ShrineAccounting
+-- ServerScriptService/Shared/ShrineAccounting
 -- Bridges canonical saved state to the detached Shrine engine; no automatic lifecycle settlement.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,6 +14,14 @@ local BaseState = require(ServerScriptService.Shared.BaseState)
 local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
 
 local ShrineAccounting = {}
+
+export type AssignmentChange = (
+	ShrineAccrual.State,
+	number,
+	ShrineAccrual.Metadata,
+	ShrineAccrual.ProductionConfig?,
+	ShrineAccrual.ProgressionConfig?
+) -> (ShrineAccrual.State?, string?)
 
 local function defaultMetadata(): ShrineAccrual.Metadata
 	local metadata: ShrineAccrual.Metadata = { forms = {}, shrines = {} }
@@ -150,9 +158,11 @@ end
 -- Use only inside a synchronous DataService.Transact/Update callback on its detached draft.
 -- The caller supplies authenticated ownership and server time; this helper neither saves nor
 -- publishes. No input defaults, acquisition grants, arbitrary-ledger Apply API, or clock reset.
-function ShrineAccounting.SettleToDraft(
+local function changeToDraft(
 	draft: Types.PlayerDoc,
 	now: number,
+	change: AssignmentChange,
+	changeAssignments: boolean,
 	metadata: ShrineAccrual.Metadata?,
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
@@ -169,14 +179,47 @@ function ShrineAccounting.SettleToDraft(
 	if now < state.lastAccruedAt then
 		return false, "BackdatedChange"
 	end
-	local settled, accrualError =
-		ShrineAccrual.Accrue(state, now, definitions, production, progression)
+	-- Only a fresh, immutable snapshot reaches a trusted synchronous reducer. Never accept a
+	-- precomputed ledger from a caller or expose a separate snapshot/apply pair.
+	FreezeUtil.DeepFreeze(state)
+	local settled, accrualError = change(state, now, definitions, production, progression)
 	if not settled then
 		return false, accrualError
 	end
+	problem = ShrineAccrual.Validate(settled, now, definitions, production, progression)
+	if problem then
+		return false, problem
+	end
+	if settled.lastAccruedAt ~= now then
+		return false, "InvalidAccountingChange"
+	end
+	-- This bridge supports accounting and slot changes only, not grants, sales, evolution,
+	-- upgrades, or dismantling. Do not silently discard an unsupported reducer change.
+	for id, before in state.shrines do
+		local after = settled.shrines[id]
+		if not after or after.shrineId ~= before.shrineId or after.level ~= before.level then
+			return false, "InvalidAccountingChange"
+		end
+	end
+	for id in settled.shrines do
+		if state.shrines[id] == nil then
+			return false, "InvalidAccountingChange"
+		end
+	end
+	for id, before in state.workers do
+		local after = settled.workers[id]
+		if not after or after.formId ~= before.formId then
+			return false, "InvalidAccountingChange"
+		end
+	end
+	for id in settled.workers do
+		if state.workers[id] == nil then
+			return false, "InvalidAccountingChange"
+		end
+	end
 
-	-- Stage shallow replacements. Only numeric accounting fields change; borrowed nested legacy
-	-- values and assignment maps are never mutated. Transactions installs the eventual live commit.
+	-- Stage shallow replacements; borrowed nested legacy values are never mutated.
+	-- Transactions installs the eventual live commit while preserving live table identities.
 	local base = table.clone(draft.base)
 	local shrines = table.clone(draft.base.shrines :: { [string]: Types.ShrineRecord })
 	base.shrines = shrines
@@ -185,6 +228,9 @@ function ShrineAccounting.SettleToDraft(
 		shrine.stored = result.stored
 		shrine.progress = result.progress
 		shrine.newWork = result.newWork
+		if changeAssignments then
+			shrine.workerIdsBySlot = table.clone(result.workerIdsBySlot)
+		end
 		shrines[id] = shrine
 	end
 	local mythlings = table.clone(draft.mythlings)
@@ -204,6 +250,29 @@ function ShrineAccounting.SettleToDraft(
 	draft.mythlings = mythlings
 	draft.productionClock = clock
 	return true, nil
+end
+
+function ShrineAccounting.SettleToDraft(
+	draft: Types.PlayerDoc,
+	now: number,
+	metadata: ShrineAccrual.Metadata?,
+	production: ShrineAccrual.ProductionConfig?,
+	progression: ShrineAccrual.ProgressionConfig?
+): (boolean, string?)
+	return changeToDraft(draft, now, ShrineAccrual.Accrue, false, metadata, production, progression)
+end
+
+-- Base owns assignment policy. Its trusted pure reducer must settle on the supplied schedule
+-- before changing slots. This runs only inside the caller's non-yielding profile transaction.
+function ShrineAccounting.ChangeAssignmentsToDraft(
+	draft: Types.PlayerDoc,
+	now: number,
+	change: AssignmentChange,
+	metadata: ShrineAccrual.Metadata?,
+	production: ShrineAccrual.ProductionConfig?,
+	progression: ShrineAccrual.ProgressionConfig?
+): (boolean, string?)
+	return changeToDraft(draft, now, change, true, metadata, production, progression)
 end
 
 return table.freeze(ShrineAccounting)

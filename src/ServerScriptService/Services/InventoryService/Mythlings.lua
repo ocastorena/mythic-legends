@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
 
 local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
 local ServerTypes = require(ServerScriptService.Shared.Types)
@@ -31,6 +32,36 @@ local function getOwnedEntry(player: Player, mythlingId: unknown): Types.Mythlin
 	end
 	local owned = getOwned(player)
 	return owned and owned[mythlingId] or nil
+end
+
+local function hasProtectedShrineWork(
+	data: Types.PlayerDoc,
+	mythlingId: string,
+	entry: Types.MythlingEntry
+): boolean
+	-- Prototype deletion does not settle Shrine work. Permanent forms must use a future atomic
+	-- sale/removal command, even while unassigned; pending XP can outlive its original Shrine.
+	if MythlingForms[entry.typeId] ~= nil or (entry.pendingXp ~= nil and entry.pendingXp ~= 0) then
+		return true
+	end
+	local shrines = data.base.shrines
+	if shrines == nil then
+		return false
+	end
+	if type(shrines) ~= "table" then
+		return true
+	end
+	for _, shrine in shrines do
+		if type(shrine) ~= "table" or type(shrine.workerIdsBySlot) ~= "table" then
+			return true
+		end
+		for _, workerId in shrine.workerIdsBySlot do
+			if type(workerId) ~= "string" or workerId == "" or workerId == mythlingId then
+				return true
+			end
+		end
+	end
+	return false
 end
 
 function Mythlings.Init(
@@ -99,6 +130,9 @@ function Mythlings.Remove(player: Player, mythlingId: string): boolean
 		local entry = draft.mythlings[mythlingId]
 		if not entry then
 			return { ok = false, code = "NotOwned" }
+		end
+		if hasProtectedShrineWork(draft, mythlingId, entry) then
+			return { ok = false, code = "ShrineWorkProtected" }
 		end
 		if entry.standId ~= nil then
 			return { ok = false, code = "Assigned" }

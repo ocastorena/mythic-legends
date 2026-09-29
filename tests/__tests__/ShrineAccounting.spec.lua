@@ -13,8 +13,9 @@ local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingFo
 local ProfileSchema = require(ServerScriptService.Services.DataService.ProfileSchema)
 local Projection = require(ServerScriptService.Services.DataService.Projection)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
-local ShrineAccounting = require(ServerScriptService.Services.ProductionService.ShrineAccounting)
+local ShrineAccounting = require(ServerScriptService.Shared.ShrineAccounting)
 local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
+local ShrineAssignments = require(ServerScriptService.Services.BaseService.ShrineAssignments)
 local PlayerDataTemplate = require(ServerStorage.Databases.PlayerDataTemplate)
 
 local describe = JestGlobals.describe
@@ -430,6 +431,198 @@ describe("ShrineAccounting.SettleToDraft", function()
 			projection.mythlings.worker.level = 99
 			expect(data.mythlings.worker.level).toBe(1)
 			expect(data.mythlings.worker.pendingXp).toBe(0.5)
+		end
+	)
+end)
+
+describe("ShrineAccounting.ChangeAssignmentsToDraft", function()
+	it(
+		"provides a fresh frozen snapshot and leaves the draft untouched on reducer rejection",
+		function()
+			local data = fixture()
+			local previous: ShrineAccrual.State? = nil
+			for _, stored in { 0, 12 } do
+				data.base.shrines.first.stored = stored
+				local before = copy(data)
+				local base, workers, clock = data.base, data.mythlings, data.productionClock
+				local ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(
+					data,
+					0.5,
+					function(state)
+						expect(state).never.toBe(previous)
+						expect(state.shrines).never.toBe(data.base.shrines)
+						expect(state.workers).never.toBe(data.mythlings)
+						expect(state.shrines.first.stored).toBe(stored)
+						for _, value in
+							{
+								state,
+								state.shrines,
+								state.shrines.first,
+								state.shrines.first.workerIdsBySlot,
+								state.workers,
+								state.workers.worker,
+							}
+						do
+							expect(table.isfrozen(value)).toBe(true)
+						end
+						previous = state
+						return nil, "RejectedByReducer"
+					end
+				)
+				expect(ok).toBe(false)
+				expect(problem).toBe("RejectedByReducer")
+				expect(data).toEqual(before)
+				expect(data.base).toBe(base)
+				expect(data.mythlings).toBe(workers)
+				expect(data.productionClock).toBe(clock)
+				expect(table.isfrozen(data.base.shrines.first)).toBe(false)
+			end
+		end
+	)
+
+	local unsupportedChanges: { { name: string, mutate: (ShrineAccrual.State) -> () } } = {
+		{
+			name = "added Shrine",
+			mutate = function(state)
+				state.shrines.extra = copy(state.shrines.first)
+				state.shrines.extra.workerIdsBySlot = {}
+			end,
+		},
+		{
+			name = "removed Shrine",
+			mutate = function(state)
+				state.shrines.first = nil
+			end,
+		},
+		{
+			name = "added worker",
+			mutate = function(state)
+				state.workers.extra = copy(state.workers.worker)
+			end,
+		},
+		{
+			name = "removed worker",
+			mutate = function(state)
+				state.shrines.first.workerIdsBySlot = {}
+				state.workers.worker = nil
+			end,
+		},
+		{
+			name = "changed form",
+			mutate = function(state)
+				state.workers.worker.formId = "other_fire_form"
+			end,
+		},
+		{
+			name = "changed Shrine definition",
+			mutate = function(state)
+				state.shrines.first.shrineId = "other_fire_shrine"
+			end,
+		},
+		{
+			name = "changed Shrine level",
+			mutate = function(state)
+				state.shrines.first.level = 2
+			end,
+		},
+		{
+			name = "wrong returned time",
+			mutate = function(state)
+				state.lastAccruedAt = 0.25
+			end,
+		},
+	}
+	for _, case in unsupportedChanges do
+		it(`rejects a valid-looking {case.name} without installing any accounting`, function()
+			local data = fixture("test_fire_form")
+			local definitions = metadata()
+			definitions.forms.other_fire_form = copy(definitions.forms.test_fire_form)
+			definitions.shrines.other_fire_shrine = copy(definitions.shrines.fire_shrine)
+			local before = copy(data)
+			local ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(
+				data,
+				0.5,
+				function(state, now, config, production, progression)
+					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+					case.mutate(result)
+					expect(ShrineAccrual.Validate(result, now, config, production, progression)).toBeNil()
+					return result, nil
+				end,
+				definitions
+			)
+			expect(ok).toBe(false)
+			expect(problem).toBe("InvalidAccountingChange")
+			expect(data).toEqual(before)
+		end)
+	end
+
+	it("revalidates returned accounting instead of merging invalid output", function()
+		local data = fixture()
+		local before = copy(data)
+		local ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(data, 0.5, function(state)
+			local result: ShrineAccrual.State = copy(state)
+			result.lastAccruedAt = 0.5
+			result.shrines.first.progress = -1
+			return result, nil
+		end)
+		expect(ok).toBe(false)
+		expect(problem).toBe("InvalidShrine")
+		expect(data).toEqual(before)
+	end)
+
+	it(
+		"composes real assignment reducers while retaining canonical and unrelated fields",
+		function()
+			local data = fixture("test_fire_form")
+			data.base.shrines.first.stored = 12
+			data.base.shrines.first.progress = 0.25
+			data.base.shrines.first.futureField = { retained = "shrine" }
+			data.mythlings.worker.luck = 91
+			data.mythlings.worker.traitIds = { "legacy_lucky" }
+			data.productionClock.futureField = { retained = "clock" }
+			data.currency.gold = 456
+			data.materials.fire_material = { total = 42 }
+			local expected = copy(data)
+			expected.base.shrines.first.newWork = 0.5
+			expected.base.shrines.first.workerIdsBySlot = {}
+			expected.mythlings.worker.pendingXp = 0.5
+			expected.productionClock.lastAccruedAt = 0.5
+			local oldSlots = data.base.shrines.first.workerIdsBySlot
+			local ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(
+				data,
+				0.5,
+				function(state, now, config, production, progression)
+					return ShrineAssignments.Remove(state, now, {
+						shrineInstanceId = "first",
+						slotId = 1,
+						expectedWorkerId = "worker",
+					}, config, production, progression)
+				end,
+				metadata()
+			)
+			expect(ok).toBe(true)
+			expect(problem).toBeNil()
+			expect(data).toEqual(expected)
+			expect(oldSlots).toEqual({ ["1"] = "worker" })
+			expect(data.base.shrines.first.workerIdsBySlot).never.toBe(oldSlots)
+
+			expected.base.shrines.first.workerIdsBySlot = { ["1"] = "worker" }
+			ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(
+				data,
+				0.5,
+				function(state, now, config, production, progression)
+					return ShrineAssignments.Assign(state, now, {
+						shrineInstanceId = "first",
+						slotId = 1,
+						workerId = "worker",
+					}, config, production, progression)
+				end,
+				metadata()
+			)
+			expect(ok).toBe(true)
+			expect(problem).toBeNil()
+			expect(data).toEqual(expected)
 		end
 	)
 end)

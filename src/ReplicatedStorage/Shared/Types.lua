@@ -257,6 +257,22 @@ export type BuildShrineRequest = {
 	expectedGoldCost: number,
 }
 
+export type AssignShrineWorkerRequest = {
+	requestId: string,
+	expectedRevision: number,
+	shrineInstanceId: string,
+	slotId: number,
+	workerId: string,
+}
+
+export type RemoveShrineWorkerRequest = {
+	requestId: string,
+	expectedRevision: number,
+	shrineInstanceId: string,
+	slotId: number,
+	expectedWorkerId: string,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },

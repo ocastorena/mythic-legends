@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Types = require(ReplicatedStorage.Shared.Types)
+local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local Mythlings = require(ServerScriptService.Services.InventoryService.Mythlings)
 local Capacity = require(ServerScriptService.Shared.InventoryCapacity)
@@ -242,5 +243,108 @@ describe("Mythling capture inventory", function()
 		expect(Mythlings.GetCapacity(f.player)).toEqual({ used = 24, limit = 24 })
 		expect(f.dirtyCalls).toBe(1)
 		expect(f.saveCalls).toBe(1)
+	end)
+end)
+
+describe("Legacy Mythling deletion safety", function()
+	it("retains every permanent form even when unassigned with no pending XP", function()
+		local f = fixture(0)
+		for formId in MythlingForms do
+			f.data.mythlings[formId] = {
+				typeId = formId,
+				variantId = "regular",
+				claimedAt = 100,
+				level = 6,
+				xp = 37,
+				pendingXp = 0,
+			}
+		end
+		local before = snapshot(f.data.mythlings)
+		for formId in MythlingForms do
+			expect(Mythlings.Remove(f.player, formId)).toBe(false)
+		end
+		expect(f.data.mythlings).toEqual(before)
+		expect(f.saveCalls).toBe(0)
+	end)
+
+	it("retains opaque forms with pending or invalid Shrine credit after unassignment", function()
+		local f = fixture(1)
+		local entry = f.data.mythlings.existing_1
+		entry.standId = nil
+		for _, pendingXp in { 0.25, -1 } do
+			entry.pendingXp = pendingXp
+			local before = snapshot(f.data.mythlings)
+			expect(Mythlings.Remove(f.player, "existing_1")).toBe(false)
+			expect(f.data.mythlings).toEqual(before)
+		end
+		expect(f.saveCalls).toBe(0)
+	end)
+
+	it("retains opaque forms referenced by canonical Shrine slots", function()
+		local f = fixture(1)
+		f.data.mythlings.existing_1.standId = nil
+		f.data.mythlings.existing_1.pendingXp = 0
+		local slots = { ["1"] = "existing_1" }
+		f.data.base.shrines = {
+			shrine_owned = {
+				id = "shrine_owned",
+				shrineId = "shrine_fire",
+				buildSlotId = 1,
+				level = 1,
+				stored = 12,
+				progress = 0.5,
+				newWork = 0.01,
+				workerIdsBySlot = slots,
+			},
+		}
+		local before = snapshot(f.data.mythlings)
+		expect(Mythlings.Remove(f.player, "existing_1")).toBe(false)
+		expect(f.data.mythlings).toEqual(before)
+		expect(slots).toEqual({ ["1"] = "existing_1" })
+		local retainedShrines = f.data.base.shrines
+		assert(retainedShrines, "[MythlingCapture.spec] Expected retained Shrines")
+		expect(retainedShrines.shrine_owned.stored).toBe(12)
+		expect(retainedShrines.shrine_owned.progress).toBe(0.5)
+		expect(retainedShrines.shrine_owned.newWork).toBe(0.01)
+		expect(f.saveCalls).toBe(0)
+	end)
+
+	it("fails closed when canonical Shrine assignment maps cannot prove unassignment", function()
+		local f = fixture(1)
+		f.data.mythlings.existing_1.standId = nil
+		f.data.base.shrines = {
+			shrine_owned = {
+				id = "shrine_owned",
+				shrineId = "shrine_fire",
+				buildSlotId = 1,
+				level = 1,
+			},
+		}
+		local before = snapshot(f.data.mythlings)
+		expect(Mythlings.Remove(f.player, "existing_1")).toBe(false)
+		expect(f.data.mythlings).toEqual(before)
+		expect(f.saveCalls).toBe(0)
+	end)
+
+	it("preserves ordinary prototype deletion when no Shrine work exists", function()
+		for _, zeroPending in { false, true } do
+			local f = fixture(2)
+			f.data.mythlings.existing_1.standId = nil
+			f.data.mythlings.existing_1.pendingXp = if zeroPending then 0 else nil
+			f.data.base.shrines = {}
+			local retained = table.clone(f.data.mythlings.existing_2)
+			expect(Mythlings.Remove(f.player, "existing_1")).toBe(true)
+			expect(f.data.mythlings.existing_1).toBeNil()
+			expect(f.data.mythlings.existing_2).toEqual(retained)
+			expect(f.saveCalls).toBe(1)
+		end
+	end)
+
+	it("continues to reject prototypes assigned to legacy stands", function()
+		local f = fixture(1)
+		local before = snapshot(f.data.mythlings)
+		expect(Mythlings.Remove(f.player, "existing_1")).toBe(false)
+		expect(f.data.mythlings).toEqual(before)
+		expect(f.saveCalls).toBe(0)
 	end)
 end)

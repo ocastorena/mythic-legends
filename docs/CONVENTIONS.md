@@ -59,6 +59,7 @@ mythic-legends/
         BaseState.lua
         ProductionLedger.lua
         ShrineAccrual.lua
+        ShrineAccounting.lua
         MythlingProgressionUtil.lua
         MaterialCatalogUtil.lua
         MythlingCatalogUtil.lua
@@ -128,10 +129,10 @@ character helpers client-side, and UI state adapters distinct from the authorita
 Runtime responsibilities follow [Technical Design](TECHNICAL_DESIGN.md#runtime-architecture).
 
 `ServerScriptService.Shared` is server-only. It owns contracts, arithmetic, and support that are
-genuinely consumed across feature services, such as Inventory capacity and the common Shrine
-accrual engine. It does not replicate to clients. `ReplicatedStorage.Shared` remains the location
-for configuration, types, or logic that both server and client need. `Infrastructure` is reserved
-for technical runtime facilities such as logging, remotes, lifecycle orchestration, and rate
+genuinely consumed across feature services, such as Inventory capacity, the common Shrine accrual
+engine, and its transaction-draft adapter. It does not replicate to clients. `ReplicatedStorage.Shared`
+remains the location for configuration, types, or logic that both server and client need.
+`Infrastructure` is reserved for technical runtime facilities such as logging, remotes, lifecycle orchestration, and rate
 limiting; gameplay and economy rules do not move there merely because multiple services use them.
 
 Pure modules beside a service's `init.lua` remain private implementation of that feature. Their

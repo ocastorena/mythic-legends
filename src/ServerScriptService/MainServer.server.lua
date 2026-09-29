@@ -67,6 +67,8 @@ local services: ServerTypes.Services = {
 	},
 	BaseService = {
 		BuildShrine = BaseService.BuildShrine,
+		AssignShrineWorker = BaseService.AssignShrineWorker,
+		RemoveShrineWorker = BaseService.RemoveShrineWorker,
 		GetSpawnPoint = BaseService.GetSpawnPoint,
 		HasStand = BaseService.HasStand,
 		RemoveMythlingFromStand = BaseService.RemoveMythlingFromStand,

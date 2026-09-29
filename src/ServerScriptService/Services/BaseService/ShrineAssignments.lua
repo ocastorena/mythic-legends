@@ -118,8 +118,8 @@ local function validateDestination(
 end
 
 -- State must contain ONLY the authenticated player's owned Shrines/workers. These pure functions
--- never authenticate a Player or accept ownership from a client. A future service must build that
--- view from its loaded profile and commit all returned accounting/slot changes in one transaction.
+-- never authenticate a Player or accept ownership from a client. ShrineWorkers supplies a fresh
+-- view through shared ShrineAccounting and commits all accounting/slot changes in one transaction.
 function ShrineAssignments.Assign(
 	state: State,
 	now: number,
