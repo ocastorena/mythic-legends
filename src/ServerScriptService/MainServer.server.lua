@@ -12,6 +12,14 @@ local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
 local RemoteUtil = require(infrastructure:WaitForChild("RemoteUtil"))
 local PlayerUtil = require(infrastructure:WaitForChild("PlayerUtil"))
 local Trove = require(ReplicatedStorage.Packages.Trove)
+local MaterialCatalogUtil = require(ServerScriptService.Shared.MaterialCatalogUtil)
+local Materials = require(ReplicatedStorage.Shared.Configurations.Materials)
+local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
+local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)
+
+local validMaterials, materialProblem =
+	MaterialCatalogUtil.Validate(Materials, Shrines, Inventory.materialStackLimit)
+assert(validMaterials, `[MainServer] Invalid Material catalogue: {materialProblem}`)
 
 local log = LogUtil.For("MainServer")
 local ServerTypes = require(ServerScriptService.Shared.Types)
@@ -107,7 +115,7 @@ local serviceContext: ServerTypes.Context = {
 	Configurations = {
 		AdminCommands = require(configurations:WaitForChild("AdminCommands")),
 		Mythlings = require(configurations:WaitForChild("Mythlings")),
-		Materials = require(configurations:WaitForChild("Materials")),
+		Materials = Materials,
 		Consumables = require(configurations:WaitForChild("Consumables")),
 		MythlingSpawns = require(configurations:WaitForChild("MythlingSpawns")),
 		Equipment = require(configurations:WaitForChild("Equipment")),

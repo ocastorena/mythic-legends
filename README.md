@@ -140,6 +140,21 @@ sync the intended checkout into the authored development place and use a fresh p
 that the existing service bootstrap, prototype flows, and authored dependencies still load. A Rojo
 build alone does not establish that Studio-authored content or live gameplay survived the move.
 
+### Launch Material catalogue review
+
+The six normal Materials now have stable element-based IDs and matching Shrine output references;
+see the [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-material-catalogue). Display names such as
+`Fire Material` are temporary and thumbnails are empty until the final names/icons are chosen.
+Each launch Material is configured to buy for 10 Gold, sell for 2 Gold, and stack to the shared
+1,000-unit limit. These are metadata values, not new purchase or sale actions.
+
+`MaterialCatalogUtil.Validate` checks the real catalogue before server services start. Run the static
+suite and runtime tests above; catalogue tests include invalid element coverage, output references,
+prices, and stack limits. Then sync and start a fresh Studio play session to check normal startup and
+the existing prototype capture/stand-production/collection flow. The retained prototype Materials
+are marked `launchEnabled = false`, but this flag does not disable or rewrite those existing paths.
+This increment adds no live Shrine ledger, save-schema change, UI, Shop, sale, or crafting integration.
+
 ### Player-data foundation review
 
 The pre-release foundation uses the intentionally fresh `MythicLegends_MVP_v1` data namespace;

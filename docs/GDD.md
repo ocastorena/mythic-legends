@@ -1376,9 +1376,10 @@ checks belong in Technical Design and README.
 - Creature concepts, names, visuals, and statistics for the [six launch Mythling
   chains](#launch-mythling-roster). One chain per element and three stages per chain are decided;
   the roster does not require a separate chain for every element/rarity combination.
-- Names and icons for the six normal Materials, with each elemental Shrine's output mapped to its
-  matching Material. Use the same named Material consistently in production, recipes, upgrades,
-  Shop offers, and Inventory.
+- Final display names and icons for the six normal Materials. Each elemental Shrine's matching
+  output is fixed independently of these presentation choices; temporary element-based names may
+  be replaced without changing Material identity. Use the same named Material consistently in
+  production, recipes, upgrades, Shop offers, and Inventory.
 - Equipment colors and assets for the approved [named sword and Shield pairs](#stage-1-equipment-variants).
   The introductory craftable Equipment stage requires all six element variant routes; recipe
   quantities and Gold costs are set in [initial economy tuning](#initial-economy-tuning), with a

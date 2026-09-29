@@ -6,12 +6,20 @@ export type MaterialEntry = {
 	total: number,
 }
 
+export type Element = "Fire" | "Water" | "Earth" | "Air" | "Light" | "Dark"
+
 export type MaterialDef = {
 	displayName: string,
 	category: string,
 	guiColor: string,
 	thumbnail: string,
 	description: string,
+	launchEnabled: boolean,
+	-- Required by launch validation; retained prototype IDs have no launch economy metadata.
+	element: Element?,
+	stackLimit: number?,
+	buyGold: number?,
+	sellGold: number?,
 }
 
 -- Inactive prototype definitions remain optional until their future update is designed.
@@ -198,10 +206,11 @@ export type ShrineLevelDef = {
 	upgradeCost: ShrineUpgradeCost?,
 }
 
--- Static construction and level metadata; output Material IDs join the content catalogue separately.
+-- Static construction, output, and level metadata; never copied into owned Shrine records.
 export type ShrineDef = {
 	displayName: string,
-	element: "Fire" | "Water" | "Earth" | "Air" | "Light" | "Dark",
+	element: Element,
+	materialId: string,
 	buildGoldCost: number,
 	initialLevel: number,
 	maxLevel: number,

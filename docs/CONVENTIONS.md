@@ -60,6 +60,7 @@ mythic-legends/
         ProductionLedger.lua
         ShrineAccrual.lua
         MythlingProgressionUtil.lua
+        MaterialCatalogUtil.lua
       Infrastructure/             # cross-service technical runtime support
       Packages/                   # server-only vendored dependencies
       PostLaunch/                 # retained prototypes; only Blockstorm is explicitly started
