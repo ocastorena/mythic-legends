@@ -11,6 +11,8 @@ local ServerStorage = game:GetService("ServerStorage")
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
+local Transactions = require(ServerScriptService.Services.DataService.Transactions)
+local CraftingJobs = require(ServerScriptService.Services.CraftingService.CraftingJobs)
 local PlayerDataTemplate = require(ServerStorage.Databases.PlayerDataTemplate)
 
 local describe = JestGlobals.describe
@@ -259,6 +261,195 @@ local function expectBlocked(result: PublicProbe)
 end
 
 describe("DataService profile lifecycle", function()
+	it(
+		"delivers a saved due crafting promise before first publication without exposing its receipt",
+		function()
+			local f = fixture()
+			f.first.profile.Data.craftingJobs = {
+				retained = {
+					status = "Active",
+					reservations = { equipment = 1, materials = { fire_material = 5 } },
+					receipt = {
+						version = 1,
+						recipeId = "old_recipe",
+						stationId = "old_station",
+						craftingStationId = "basic_crafting_station",
+						startedAt = 1,
+						completesAt = 2,
+						result = {
+							definitionId = "elemental_sword",
+							finishId = "fire",
+							quantity = 1,
+							instanceIds = { "promised_sword" },
+						},
+						paid = { gold = 50, materials = { fire_material = 5 } },
+					},
+				},
+			}
+			local jobs = CraftingJobs.new()
+			f.api.RegisterMutationPreparation("Crafting", jobs.SettleDueToDraft)
+			f.api.RegisterProfileSettlement("Crafting", function(draft, now)
+				return jobs.SettleDueToDraft(draft, now)
+			end)
+			f.api.Start()
+			expect(f.api.Load(f.player)).toBe(true)
+			local data = f.first.profile.Data
+			local savedJobs =
+				assert(data.craftingJobs, "[DataServiceLifecycle.spec] Expected saved jobs")
+			expect(savedJobs.retained.status).toBe("Completed")
+			expect(savedJobs.retained.reservations.equipment).toBe(0)
+			expect(data.equipment.promised_sword).toEqual({
+				definitionId = "elemental_sword",
+				finishId = "fire",
+			})
+			expect(data.currency.gold).toBe(100)
+			expect(data.materials.fire_material).toBeNil()
+			expect(f.state.packets[1].values.equipment.promised_sword).toEqual(
+				data.equipment.promised_sword
+			)
+			expect(f.state.packets[1].values.craftingJobs).toBeNil()
+			local retained = copy(savedJobs.retained)
+			expect(f.api.Checkpoint(f.player).ok).toBe(true)
+			expect(savedJobs.retained).toEqual(retained)
+			f.api.Release(f.player)
+			expect(savedJobs.retained).toEqual(retained)
+		end
+	)
+
+	it("prepares and mutates one draft at one time with one published revision", function()
+		local f = fixture()
+		local calls = 0
+		local preparedAt: number? = nil
+		f.api.RegisterMutationPreparation("Crafting", function(draft, now)
+			calls += 1
+			preparedAt = now
+			draft.currency.gold += 10
+			return { ok = true }
+		end)
+		f.api.Start()
+		expect(f.api.Load(f.player)).toBe(true)
+		expect(calls).toBe(0)
+		local data = f.first.profile.Data
+		local revision = Transactions.GetRevision(data)
+		local request = {
+			id = `{revision}:prepared`,
+			expectedRevision = revision,
+			operation = "Test.Prepared",
+			signature = "amount=5",
+		}
+		local function mutate(draft: Types.PlayerDoc, now: number): Types.TransactionOutcome
+			expect(now).toBe(preparedAt)
+			expect(now > 0).toBe(true)
+			expect(draft.currency.gold).toBe(110)
+			draft.currency.gold -= 5
+			return { ok = true }
+		end
+		expect(f.api.Transact(f.player, request, mutate).ok).toBe(true)
+		expect(data.currency.gold).toBe(105)
+		expect(Transactions.GetRevision(data)).toBe(revision + 1)
+		expect(calls).toBe(1)
+		expect(#f.state.packets).toBe(2)
+		expect(f.state.packets[2].values.currency.gold).toBe(105)
+		expect(f.api.Transact(f.player, request, mutate).replayed).toBe(true)
+		local conflict = table.clone(request)
+		conflict.signature = "amount=6"
+		expect(f.api.Transact(f.player, conflict, mutate).code).toBe("RequestConflict")
+		local stale = table.clone(request)
+		stale.id = `{revision}:stale`
+		expect(f.api.Transact(f.player, stale, mutate).code).toBe("StaleRevision")
+		expect(calls).toBe(1)
+		expect(data.currency.gold).toBe(105)
+	end)
+
+	it("prepares Update but does not silently extend the legacy MarkDirty contract", function()
+		local f = fixture()
+		local calls = 0
+		local preparedAt: number? = nil
+		f.api.RegisterMutationPreparation("Crafting", function(draft, now)
+			calls += 1
+			preparedAt = now
+			draft.currency.gold += 10
+			return { ok = true }
+		end)
+		f.api.Start()
+		expect(f.api.Load(f.player)).toBe(true)
+		expect(f.api.MarkDirty(f.player)).toBe(true)
+		expect(calls).toBe(0)
+		expect(f.api.Update(f.player, "Test.Update", function(draft, now)
+			expect(now).toBe(preparedAt)
+			expect(draft.currency.gold).toBe(110)
+			return { ok = true }
+		end).ok).toBe(true)
+		expect(calls).toBe(1)
+		expect(f.first.profile.Data.currency.gold).toBe(110)
+	end)
+
+	it("seals mutation preparations before admitting profiles", function()
+		local f = fixture()
+		local hook: ServerTypes.MutationPreparation = function()
+			return { ok = true }
+		end
+		f.api.RegisterMutationPreparation("Crafting", hook)
+		expect(function()
+			f.api.RegisterMutationPreparation("Crafting", hook)
+		end).toThrow()
+		f.api.Start()
+		expect(function()
+			f.api.RegisterMutationPreparation("Late", hook)
+		end).toThrow()
+	end)
+
+	for _, failure in
+		{
+			"PreparationReject",
+			"PreparationError",
+			"PreparationYield",
+			"ActionReject",
+			"SessionLoss",
+		}
+	do
+		it(`rolls back prepared changes on {failure}`, function()
+			local f = fixture()
+			local actionCalls = 0
+			f.api.RegisterMutationPreparation("Crafting", function(draft)
+				draft.currency.gold = 999
+				if failure == "PreparationReject" then
+					return { ok = false, code = "UnsafePreparation" }
+				elseif failure == "PreparationError" then
+					error("[DataServiceLifecycle.spec] deliberate preparation error")
+				elseif failure == "PreparationYield" then
+					coroutine.yield()
+				end
+				return { ok = true }
+			end)
+			f.api.Start()
+			expect(f.api.Load(f.player)).toBe(true)
+			local result = f.api.Update(f.player, "Test.Rollback", function(draft)
+				actionCalls += 1
+				expect(draft.currency.gold).toBe(999)
+				draft.currency.gold = 555
+				if failure == "SessionLoss" then
+					f.first.state.active = false
+					return { ok = true }
+				end
+				return { ok = false, code = "ActionRejected" }
+			end)
+			local expectedCodes: { [string]: string } = {
+				PreparationReject = "UnsafePreparation",
+				PreparationError = "MutationFailed",
+				PreparationYield = "MutationYielded",
+				ActionReject = "ActionRejected",
+				SessionLoss = "DataUnavailable",
+			}
+			expect(result.ok).toBe(false)
+			expect(result.code).toBe(expectedCodes[failure])
+			expect(actionCalls).toBe(
+				if failure == "ActionReject" or failure == "SessionLoss" then 1 else 0
+			)
+			expect(f.first.profile.Data.currency.gold).toBe(100)
+		end)
+	end
+
 	it(
 		"settles every Ready hook before loaded data, first publication, or OnLoaded exposure",
 		function()

@@ -122,7 +122,7 @@ local function fixture(firstProfile: Types.PlayerDoc?)
 			end
 			return Transactions.Run(data, request, function(draft)
 				state.callbackCalls += 1
-				local result = mutate(draft)
+				local result = mutate(draft, 0)
 				if state.loseSessionAfterCallback then
 					state.active = false
 				end

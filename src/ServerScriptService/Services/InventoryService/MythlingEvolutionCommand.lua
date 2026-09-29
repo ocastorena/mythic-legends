@@ -4,6 +4,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
@@ -18,7 +19,7 @@ export type DataSource = {
 	Transact: (
 		Player,
 		Types.TransactionRequest,
-		(Types.PlayerDoc) -> Types.TransactionOutcome
+		ServerTypes.ProfileMutation
 	) -> Types.TransactionResult,
 }
 export type MythlingEvolutionCommand = {

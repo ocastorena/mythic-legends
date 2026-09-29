@@ -5,6 +5,7 @@
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local BaseState = require(ServerScriptService.Shared.BaseState)
 local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
@@ -25,7 +26,7 @@ export type DataSource = {
 	Transact: (
 		Player,
 		Types.TransactionRequest,
-		(Types.PlayerDoc) -> Types.TransactionOutcome
+		ServerTypes.ProfileMutation
 	) -> Types.TransactionResult,
 }
 export type ShrineConstruction = {

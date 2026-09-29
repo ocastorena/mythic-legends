@@ -128,7 +128,7 @@ local function fixture(firstProfile: Types.PlayerDoc?, clockOverride: (() -> num
 			return Transactions.Run(data, request, function(draft)
 				state.inCallback = true
 				state.callbackCalls += 1
-				local outcome = mutate(draft)
+				local outcome = mutate(draft, state.now)
 				state.inCallback = false
 				if state.loseSessionAfterCallback then
 					state.active = false

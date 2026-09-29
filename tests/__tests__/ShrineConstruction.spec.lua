@@ -93,7 +93,9 @@ local function fixture(data: Types.PlayerDoc?, generatedIds: { string }?)
 			return if state.active then state.data else nil
 		end,
 		Transact = function(_player: Player, request, mutate)
-			return Transactions.Run(state.data, request, mutate, function()
+			return Transactions.Run(state.data, request, function(draft)
+				return mutate(draft, 0)
+			end, function()
 				return state.active
 			end)
 		end,
@@ -398,7 +400,9 @@ describe("ShrineConstruction", function()
 					return data
 				end,
 				Transact = function(_player: Player, request, mutate)
-					return Transactions.Run(data, request, mutate, function()
+					return Transactions.Run(data, request, function(draft)
+						return mutate(draft, 0)
+					end, function()
 						return true
 					end)
 				end,

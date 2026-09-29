@@ -14,6 +14,8 @@ export type InventorySession = {
 }
 export type InventorySessions = { [number]: InventorySession }
 export type ProfileBoundary = "Ready" | "Checkpoint" | "Release"
+export type ProfileMutation = (PlayerData, number) -> SharedTypes.TransactionOutcome
+export type MutationPreparation = (PlayerData, number) -> SharedTypes.TransactionOutcome
 export type ProfileSettlement = (
 	PlayerData,
 	number,
@@ -21,20 +23,17 @@ export type ProfileSettlement = (
 ) -> SharedTypes.TransactionOutcome
 export type DataApi = {
 	RegisterProfileSettlement: (string, ProfileSettlement) -> (),
+	RegisterMutationPreparation: (string, MutationPreparation) -> (),
 	Checkpoint: (Player) -> SharedTypes.TransactionResult,
 	Load: (Player) -> boolean,
 	Release: (Player) -> (),
 	GetData: (Player) -> PlayerData,
 	GetLoadedData: (Player) -> PlayerData?,
-	Update: (
-		Player,
-		string,
-		(PlayerData) -> SharedTypes.TransactionOutcome
-	) -> SharedTypes.TransactionResult,
+	Update: (Player, string, ProfileMutation) -> SharedTypes.TransactionResult,
 	Transact: (
 		Player,
 		SharedTypes.TransactionRequest,
-		(PlayerData) -> SharedTypes.TransactionOutcome
+		ProfileMutation
 	) -> SharedTypes.TransactionResult,
 	MarkDirty: (Player) -> boolean,
 	SaveNow: (Player) -> boolean,
@@ -111,6 +110,10 @@ export type Services = {
 	BaseService: BaseApi,
 	ProductionService: ProductionApi,
 	MythlingSpawnService: SpawnApi,
+	CraftingService: {
+		StartJob: (Player, SharedTypes.StartCraftingRequest) -> SharedTypes.TransactionResult,
+		CancelJob: (Player, SharedTypes.CancelCraftingRequest) -> SharedTypes.TransactionResult,
+	},
 }
 export type Context = {
 	Instances: {

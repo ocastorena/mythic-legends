@@ -20,6 +20,7 @@ local Transactions = require(script.Transactions)
 local Projection = require(script.Projection)
 local ProfileSchema = require(script.ProfileSchema)
 local ProfileSettlements = require(script.ProfileSettlements)
+local MutationPreparations = require(script.MutationPreparations)
 local Configuration = require(ReplicatedStorage.Shared.Configurations.PlayerData)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
@@ -37,6 +38,7 @@ local startSession: ((string, { Cancel: () -> boolean, Steal: boolean? }) -> Pro
 
 local DataService = {}
 local settlements = ProfileSettlements.new()
+local preparations = MutationPreparations.new()
 local stopping = false
 
 local profiles: { [Player]: Profile } = {}
@@ -173,11 +175,20 @@ function DataService.RegisterProfileSettlement(owner: string, settle: ServerType
 	settlements.Register(owner, settle)
 end
 
+function DataService.RegisterMutationPreparation(
+	owner: string,
+	prepare: ServerTypes.MutationPreparation
+)
+	assert(not stopping and not lifecycle:IsRunning(), "[DataService] Register before Start")
+	preparations.Register(owner, prepare)
+end
+
 function DataService.Start()
 	if not lifecycle:Start() then
 		return
 	end
 	settlements.Seal()
+	preparations.Seal()
 	-- The vendor's recursive JSONAcceptable intersection cannot infer this valid nested template.
 	-- Isolate that constructor adaptation; all loaded documents retain their canonical type.
 	local liveStore: ProfileStore.ProfileStore<PlayerData> =
@@ -399,13 +410,22 @@ end
 function DataService.Transact(
 	player: Player,
 	request: Types.TransactionRequest,
-	mutate: Transactions.Mutator
+	mutate: ServerTypes.ProfileMutation
 ): Types.TransactionResult
 	local profile = profiles[player]
 	if not isRunning() or not profile or closingProfiles[profile] or not profile:IsActive() then
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
-	local result = Transactions.Run(profile.Data, request, mutate, function()
+	local result = Transactions.Run(profile.Data, request, function(draft)
+		-- Sample once after replay/revision admission. Preparation and action share one time,
+		-- one detached draft, and one commit; a rejected action rolls preparation back too.
+		local now = workspace:GetServerTimeNow()
+		local prepared = preparations.ApplyToDraft(draft, now)
+		if not prepared.ok then
+			return prepared
+		end
+		return mutate(draft, now)
+	end, function()
 		return isRunning()
 			and profiles[player] == profile
 			and not closingProfiles[profile]
@@ -422,7 +442,7 @@ end
 function DataService.Update(
 	player: Player,
 	operation: string,
-	mutate: Transactions.Mutator
+	mutate: ServerTypes.ProfileMutation
 ): Types.TransactionResult
 	local data = DataService.GetLoadedData(player)
 	if not data then

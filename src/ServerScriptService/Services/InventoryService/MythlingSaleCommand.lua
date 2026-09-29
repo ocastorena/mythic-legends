@@ -4,11 +4,13 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
 local ShrineAccounting = require(ServerScriptService.Shared.ShrineAccounting)
 local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
+local GoldCreditUtil = require(ServerScriptService.Shared.GoldCreditUtil)
 local MythlingSales = require(script.Parent.MythlingSales)
 
 local MythlingSaleCommand = {}
@@ -18,7 +20,7 @@ export type DataSource = {
 	Transact: (
 		Player,
 		Types.TransactionRequest,
-		(Types.PlayerDoc) -> Types.TransactionOutcome
+		ServerTypes.ProfileMutation
 	) -> Types.TransactionResult,
 }
 export type MythlingSaleCommand = {
@@ -168,7 +170,10 @@ function MythlingSaleCommand.new(
 			end
 			-- Accounting, owned-record removal, Gold, and the receipt commit together; no separate
 			-- settlement, deletion, payment, or save call can expose a partially completed sale.
-			draft.currency.gold = result.gold
+			local creditError = GoldCreditUtil.CreditToDraft(draft, result.goldGranted)
+			if creditError then
+				return { ok = false, code = creditError }
+			end
 			return {
 				ok = true,
 				values = {

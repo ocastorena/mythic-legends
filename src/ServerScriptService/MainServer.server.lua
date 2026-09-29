@@ -53,11 +53,13 @@ local BaseService = require(ServerScriptService.Services.BaseService)
 local MythlingSpawnService = require(ServerScriptService.Services.MythlingSpawnService)
 local ClaimService = require(ServerScriptService.Services.ClaimService)
 local CombatService = require(ServerScriptService.Services.CombatService)
+local CraftingService = require(ServerScriptService.Services.CraftingService)
 local AdminCommandService = require(ServerScriptService.Services.AdminCommandService)
 local DivineInterventionService = require(ServerScriptService.PostLaunch.DivineInterventionService)
 local services: ServerTypes.Services = {
 	DataService = {
 		RegisterProfileSettlement = DataService.RegisterProfileSettlement,
+		RegisterMutationPreparation = DataService.RegisterMutationPreparation,
 		Checkpoint = DataService.Checkpoint,
 		Load = DataService.Load,
 		Release = DataService.Release,
@@ -79,6 +81,10 @@ local services: ServerTypes.Services = {
 		GetMythling = InventoryService.GetMythling,
 		MarkDirty = InventoryService.MarkDirty,
 		AddMaterial = InventoryService.AddMaterial,
+	},
+	CraftingService = {
+		StartJob = CraftingService.StartJob,
+		CancelJob = CraftingService.CancelJob,
 	},
 	ProductionService = {
 		GetProduction = ProductionService.GetProduction,
@@ -110,6 +116,7 @@ local services: ServerTypes.Services = {
 local ordered: { { name: string, service: ServerTypes.Service } } = {
 	{ name = "DivineInterventionService", service = DivineInterventionService },
 	{ name = "DataService", service = DataService },
+	{ name = "CraftingService", service = CraftingService },
 	{ name = "CharacterService", service = CharacterService },
 	{ name = "InventoryService", service = InventoryService },
 	{ name = "ProductionService", service = ProductionService },

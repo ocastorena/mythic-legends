@@ -286,10 +286,43 @@ export type TransactionState = {
 	},
 }
 
--- Reservation bookkeeping only; crafting start/completion gameplay is a separate task.
+export type CraftingReceipt = {
+	version: number,
+	recipeId: string,
+	stationId: string,
+	craftingStationId: string,
+	startedAt: number,
+	completesAt: number,
+	result: { definitionId: string, finishId: string, quantity: number, instanceIds: { string } },
+	paid: { gold: number, materials: { [string]: number } },
+	resolvedAt: number?,
+}
+
+-- Retained reservation-only records have no receipt; never infer missing payment history.
 export type CraftingJob = {
 	status: "Active" | "Completed" | "Cancelled",
 	reservations: { equipment: number, materials: { [string]: number } },
+	receipt: CraftingReceipt?,
+}
+
+export type StartCraftingRequest = {
+	requestId: string,
+	expectedRevision: number,
+	stationInstanceId: string,
+	recipeId: string,
+	expectedGoldCost: number,
+	expectedMaterialId: string,
+	expectedMaterialQuantity: number,
+	expectedDefinitionId: string,
+	expectedFinishId: string,
+	expectedQuantity: number,
+	expectedDurationSeconds: number,
+}
+
+export type CancelCraftingRequest = {
+	requestId: string,
+	expectedRevision: number,
+	jobId: string,
 }
 
 export type EquipmentEntry = {

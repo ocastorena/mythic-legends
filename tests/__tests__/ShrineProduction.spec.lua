@@ -87,7 +87,7 @@ local function fixture(clockOverride: (() -> number)?)
 	local function update(
 		player: Player,
 		operation: string,
-		mutate: Transactions.Mutator
+		mutate: ServerTypes.ProfileMutation
 	): Types.TransactionResult
 		state.updateCalls += 1
 		table.insert(state.operations, operation)
@@ -105,7 +105,7 @@ local function fixture(clockOverride: (() -> number)?)
 		}, function(draft)
 			state.inCallback = true
 			state.callbackCalls += 1
-			local outcome = mutate(draft)
+			local outcome = mutate(draft, state.now)
 			state.inCallback = false
 			if state.loseSessionAfterCallback then
 				state.active = false

@@ -4,19 +4,21 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local Materials = require(ReplicatedStorage.Shared.Configurations.Materials)
 local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)
 local PlayerData = require(ReplicatedStorage.Shared.Configurations.PlayerData)
 local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
+local GoldCreditUtil = require(ServerScriptService.Shared.GoldCreditUtil)
 
 export type DataSource = {
 	GetLoadedData: (Player) -> Types.PlayerDoc?,
 	Transact: (
 		Player,
 		Types.TransactionRequest,
-		(Types.PlayerDoc) -> Types.TransactionOutcome
+		ServerTypes.ProfileMutation
 	) -> Types.TransactionResult,
 }
 export type MaterialDisposalCommand = {
@@ -211,18 +213,15 @@ function MaterialDisposalCommand.new(DataService: DataSource): MaterialDisposalC
 					return { ok = false, code = "ArithmeticOverflow" }
 				end
 				goldGranted = request.quantity * price
-				if
-					not whole(goldGranted)
-					or goldGranted > MAX_SAFE_INTEGER - draft.currency.gold
-				then
+				if not whole(goldGranted) then
 					return { ok = false, code = "ArithmeticOverflow" }
 				end
-				local balance = draft.currency.gold + goldGranted
-				if not whole(balance) then
-					return { ok = false, code = "ArithmeticOverflow" }
+				local creditError = GoldCreditUtil.CreditToDraft(draft, goldGranted)
+				if creditError then
+					return { ok = false, code = creditError }
 				end
 				unitGold = price
-				goldBalance = balance
+				goldBalance = draft.currency.gold
 			end
 			local remaining = actual - request.quantity
 			entry.total = remaining
@@ -236,7 +235,6 @@ function MaterialDisposalCommand.new(DataService: DataSource): MaterialDisposalC
 				goldGranted = goldGranted,
 			}
 			if unitGold ~= nil and goldBalance ~= nil then
-				draft.currency.gold = goldBalance
 				values.unitGold = unitGold
 				values.goldBalance = goldBalance
 			end

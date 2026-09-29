@@ -5,6 +5,7 @@
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)
@@ -16,11 +17,7 @@ local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
 export type Params = { typeId: string, variantId: string }
 export type DataSource = {
 	GetLoadedData: (Player) -> Types.PlayerDoc?,
-	Update: (
-		Player,
-		string,
-		(Types.PlayerDoc) -> Types.TransactionOutcome
-	) -> Types.TransactionResult,
+	Update: (Player, string, ServerTypes.ProfileMutation) -> Types.TransactionResult,
 }
 export type CaptureGrant = {
 	Grant: (Player, Params) -> Types.TransactionResult,

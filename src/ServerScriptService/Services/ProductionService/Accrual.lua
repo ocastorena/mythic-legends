@@ -5,6 +5,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
 local Ledger = require(ServerScriptService.Shared.ProductionLedger)
@@ -18,7 +19,7 @@ export type UpdateDecision = Types.TransactionOutcome
 export type UpdateResult = Types.TransactionResult
 export type DataSource = {
 	GetLoadedData: (Player) -> ProductionData?,
-	Update: (Player, string, (ProductionData) -> UpdateDecision) -> UpdateResult,
+	Update: (Player, string, ServerTypes.ProfileMutation) -> UpdateResult,
 }
 export type Definitions = { [string]: Types.MythlingDef }
 type Resolved = {

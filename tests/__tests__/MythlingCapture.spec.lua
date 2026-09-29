@@ -53,6 +53,7 @@ local function fixture(count: number, upgradeLevel: number?)
 	}
 	local dataService: ServerTypes.DataApi = {
 		RegisterProfileSettlement = function() end,
+		RegisterMutationPreparation = function() end,
 		Checkpoint = function()
 			return { ok = false, code = "DataUnavailable", revision = 0 }
 		end,
@@ -75,26 +76,25 @@ local function fixture(count: number, upgradeLevel: number?)
 			return true
 		end,
 		Transact = function(_player, request, mutate)
-			return Transactions.Run(state.data, request, mutate, function()
+			return Transactions.Run(state.data, request, function(draft)
+				return mutate(draft, 100)
+			end, function()
 				return state.isLoaded and state.canMarkDirty
 			end)
 		end,
 		Update = function(_player, operation, mutate)
 			state.dirtyCalls += 1
 			local revision = Transactions.GetRevision(state.data)
-			return Transactions.Run(
-				state.data,
-				{
-					id = `{revision}:test`,
-					expectedRevision = revision,
-					operation = operation,
-					signature = "",
-				},
-				mutate,
-				function()
-					return state.isLoaded and state.canMarkDirty
-				end
-			)
+			return Transactions.Run(state.data, {
+				id = `{revision}:test`,
+				expectedRevision = revision,
+				operation = operation,
+				signature = "",
+			}, function(draft)
+				return mutate(draft, 100)
+			end, function()
+				return state.isLoaded and state.canMarkDirty
+			end)
 		end,
 	}
 	-- Init reads only DataService; no live service, profile, or remote is involved.

@@ -209,8 +209,9 @@ also pin the approved initial values and unchanged wooden gameplay. The compatib
 map still contains only the wooden pair, so this increment does not activate crafted combat.
 
 Crafted model bindings and thumbnails are explicitly empty while assets remain undecided. There is
-no wooden-model fallback, GUI change, saved-stat copy, crafting job, Shop purchase, or active elemental
-effect yet. See the [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-equipment-catalogue).
+no wooden-model fallback, GUI change, saved-stat copy, Shop purchase, or active elemental effect yet.
+The headless crafting commands below now consume this catalogue. See the
+[catalogue contract](docs/TECHNICAL_DESIGN.md#launch-equipment-catalogue).
 
 ### Player-data foundation review
 
@@ -234,8 +235,8 @@ stand production.
 A Base starts with two Shrine-only slots and one free permanent Crafting Station, whose unique saved
 identity is reused on rebuild/reconnect. The Station and legacy stands do not occupy Shrine slots.
 Capacity derives from the purchased expansion count and configuration (maximum six); it is not saved
-as a copied limit. The server-only expansion purchase is described below; Station interaction and
-crafting remain separate work. Existing stand gameplay remains available.
+as a copied limit. The server-only expansion and crafting commands are described below; Station
+interaction remains separate work. Existing stand gameplay remains available.
 
 After syncing source and starting a fresh play session, inspect the player's runtime Base attributes:
 `UsedShrineSlots = 0`, `UnlockedShrineSlots = 2`, `MaxShrineSlots = 6`. The existing
@@ -704,7 +705,9 @@ removes exactly the selected owned Mythling, and credits Gold with the receipt i
 Final-copy sales are allowed; assigned workers must first be unassigned, even if storage is full.
 Level, XP, acquisition route, and inactive legacy values never modify the payout. The sold worker's
 remaining pending XP retires with that instance; every other worker's progression, earned Shrine
-work, Materials, jobs, reservations, and unrelated currency fields survive.
+work, Materials, and unrelated currency fields survive. The shared Gold-credit guard also retains
+headroom for every active canonical job's exact paid-Gold refund. DataService may resolve a due job
+as transaction preparation, described below; the sale itself never consumes its reservations.
 
 Failed sales roll back gameplay changes, including staged accounting, though DataService may record
 a rejection receipt and revision. Identity/form/price-bound receipts replay without resampling time,
@@ -723,15 +726,50 @@ quotes reject stale state rather than clamp to another amount; unchanged retries
 receipt. Only the six enabled normal Materials are eligible. Sale grants the configured payout
 (initially 2 Gold per Material); discard grants zero Gold and leaves currency untouched.
 
-Materials must first be collected from Shrine storage. Neither command collects or settles work,
-touches crafting reservations, resets Shop stock, or blocks removal merely because Inventory is
-over capacity. See the [command contract](docs/TECHNICAL_DESIGN.md#atomic-material-sale-and-discard-commands)
+Materials must first be collected from Shrine storage. Neither command collects or settles Shrine
+work, spends crafting reservations, resets Shop stock, or blocks removal merely because Inventory
+is over capacity. Sale also protects exact paid-Gold refund headroom. DataService can resolve due
+jobs before the requested mutation in the same transaction. See the
+[command contract](docs/TECHNICAL_DESIGN.md#atomic-material-sale-and-discard-commands)
 for closed request/result fields and numeric-safety rules.
 
 Run the static suite and runtime tests above for all six IDs, partial/full removal, stale quotes,
 replay/conflicts, overflow, rollback, reservation retention, and over-capacity recovery. Playtest
 connected-player dispatch and durable retention separately. There is no new GUI, remote, schema,
 timer, profile auto-load, or explicit save request.
+
+### Headless crafting and mutation preparation review
+
+`CraftingService.StartJob(player, request)` and `CancelJob(player, request)` are server-only,
+revision-bound commands for connected players with loaded profiles. Start validates the permanent
+Station and exact recipe quote, charges Gold/owned Materials, and reserves Equipment output plus
+Material refund space. One active job is allowed. The twelve launch recipes initially cost 50 Gold
+and five matching Materials, produce one named elemental item, and take 60 seconds.
+
+Versioned receipts retain actual payments, exact definition/finish and generated output IDs, and the
+server deadline. Due jobs grant that recorded output automatically without equipping it; unfinished
+cancellation refunds exactly the recorded costs. Completion wins at the deadline. Changed recipes,
+reconnects, and later capacity reductions do not reprice or replace an existing promise. Gold sales
+cannot consume the safe-integer headroom reserved for cancellation. Up to 32 canonical resolved
+jobs are retained, with the just-resolved record protected during that pruning pass; opaque legacy
+records are preserved, including multiple retained active prototype jobs. Any such active job blocks
+a new start without gaining an invented refund or preventing valid canonical due completion.
+
+DataService runs registered mutation preparation before each admitted `Transact`/`Update` callback,
+using one timestamp and detached draft. Due resolution and the requested action commit together;
+an action rejection rolls both back. Receipt replays and stale requests skip preparation. Crafting
+also resolves on Ready/Checkpoint/Release, before exposure/finalization, and a configurable
+one-second scheduler requests resolution only for already-loaded profiles with due jobs. These
+hooks remain usable after CraftingService stops. Direct prototype `MarkDirty` writers are not
+covered by preparation or rollback.
+
+Run the verification commands above for receipt replay/conflicts, exact-deadline cancellation,
+reserved space, safe Gold refunds, recipe edits, serialized continuation, malformed state, ID
+collisions, session loss, and callback failures. Inspect connected-player dispatch, shutdown, and
+durable retention separately; a successful transaction or asynchronous save request is not a
+durable acknowledgement. No GUI, remote, Station prompt, model binding, or crafted combat is added.
+See the [implementation contract](docs/TECHNICAL_DESIGN.md#headless-crafting-implementation) for
+request/result fields and compatibility boundaries.
 
 ### Admin commands
 

@@ -4,6 +4,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local Types = require(ReplicatedStorage.Shared.Types)
 local ShrineAccounting = require(ServerScriptService.Shared.ShrineAccounting)
@@ -11,11 +12,7 @@ local ShrineAccounting = require(ServerScriptService.Shared.ShrineAccounting)
 local ShrineProduction = {}
 
 export type DataSource = {
-	Update: (
-		Player,
-		string,
-		(Types.PlayerDoc) -> Types.TransactionOutcome
-	) -> Types.TransactionResult,
+	Update: (Player, string, ServerTypes.ProfileMutation) -> Types.TransactionResult,
 }
 export type ShrineProduction = {
 	Settle: (Player) -> Types.TransactionResult,

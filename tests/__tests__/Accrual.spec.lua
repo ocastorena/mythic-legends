@@ -12,6 +12,7 @@ local expect = JestGlobals.expect
 local it = JestGlobals.it
 
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+local ServerTypes = require(game:GetService("ServerScriptService").Shared.Types)
 
 local function definition(materialId: string, rate: number, capacity: number): Types.MythlingDef
 	return {
@@ -72,29 +73,22 @@ local function fixture(saved: Types.PlayerDoc?)
 		GetLoadedData = function(_player: Player): Types.PlayerDoc?
 			return if context.loaded then context.data else nil
 		end,
-		Update = function(
-			_player: Player,
-			operation: string,
-			mutate: (Types.PlayerDoc) -> Accrual.UpdateDecision
-		)
+		Update = function(_player: Player, operation: string, mutate: ServerTypes.ProfileMutation)
 			if not context.loaded then
 				return { ok = false, code = "DataUnavailable", revision = 0 }
 			end
 			local revision = Transactions.GetRevision(context.data)
 			context.requestNumber += 1
-			local result = Transactions.Run(
-				context.data,
-				{
-					id = `{revision}:test-{context.requestNumber}`,
-					expectedRevision = revision,
-					operation = operation,
-					signature = "",
-				},
-				mutate,
-				function()
-					return context.loaded
-				end
-			)
+			local result = Transactions.Run(context.data, {
+				id = `{revision}:test-{context.requestNumber}`,
+				expectedRevision = revision,
+				operation = operation,
+				signature = "",
+			}, function(draft)
+				return mutate(draft, context.now)
+			end, function()
+				return context.loaded
+			end)
 			if result.ok then
 				table.insert(context.snapshots, copy(context.data))
 			end

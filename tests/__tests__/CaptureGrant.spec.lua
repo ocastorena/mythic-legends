@@ -8,6 +8,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Types = require(ReplicatedStorage.Shared.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
 local PrototypeMythlings = require(ReplicatedStorage.Shared.Configurations.Mythlings)
 local CaptureGrant = require(ServerScriptService.Services.InventoryService.CaptureGrant)
@@ -75,11 +76,11 @@ local function fixture(
 	local function transact(
 		_player: Player,
 		request: Types.TransactionRequest,
-		mutate: (Types.PlayerDoc) -> Types.TransactionOutcome
+		mutate: ServerTypes.ProfileMutation
 	): Types.TransactionResult
 		return Transactions.Run(data, request, function(draft)
 			state.inCallback = true
-			local result = mutate(draft)
+			local result = mutate(draft, state.now)
 			state.inCallback = false
 			if state.loseSessionAfterCallback then
 				state.active = false
