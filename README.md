@@ -222,7 +222,8 @@ deterministic lowest-free slots and level 1. Corrupt or conflicting ownership is
 than erased or remapped.
 The automated suite exercises all six elements, duplicate and stale requests, full capacity,
 insufficient Gold, rollback, automatic gap filling, projection privacy, and serialized reconnects.
-Production, assignments, upgrades, dismantling, and UI integration are separate reviewable tasks.
+The commands below now add settlement, assignments, collection, upgrades, and dismantling;
+automatic production lifecycle and UI integration remain separate tasks.
 These checks establish in-session atomicity and serialized-state behavior, not live save durability.
 
 ### Shrine-accounting save foundation review
@@ -254,8 +255,9 @@ Unreferenced legacy forms without pending credit remain untouched. See the
 Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
 state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
 XP private. The server-shared adapter supports on-demand settlement, atomic assignment, collection,
-and Shrine upgrades; it is not an automatic lifecycle hook, remote, or menu action. Callers must use
-it inside `DataService.Transact` or `Update`; it neither authenticates a player nor saves a profile by itself.
+Shrine upgrades, and dismantling; it is not an automatic lifecycle hook, remote, or menu action.
+Callers must use it inside `DataService.Transact` or `Update`; it neither authenticates a player nor
+saves a profile by itself.
 These tests do not establish live durable persistence.
 
 ### On-demand Shrine settlement review
@@ -288,9 +290,9 @@ untouched. They exercise whole output, retained partial work, worker changes, ch
 levels, full/empty pauses, offline equivalence, and repeated-time safety. Long offline intervals skip
 identical batches up to the next level/storage event rather than iterating every elapsed second.
 The current live stand-production path remains unchanged. Server-only settlement, assignment,
-collection, and Shrine upgrades use the engine through the shared adapter. Automatic lifecycle
-integration, migration of retained prototype work, and final content remain separate tasks; pure
-tests do not prove live persistence.
+collection, Shrine upgrades, and dismantling use the engine through the shared adapter. Automatic
+lifecycle integration, migration of retained prototype work, and final content remain separate
+tasks; pure tests do not prove live persistence.
 
 Capped Mythlings continue production but stop earning new XP; any XP
 already earned (including pending credit and the cap-reaching batch's remainder) is retained.
@@ -441,10 +443,35 @@ are untouched. The existing lowest-free-slot rule can reuse the freed slot. Ther
 Material refund, stored building, automatic unassignment, or automatic collection.
 
 Tests cover all six elements and levels, purchased-slot retention, stale/replaced instances, mismatched
-views, batch boundaries, rollback, pending-XP continuation, and serialized detached state. A future
-authenticated service must commit both returned maps with the profile's revision/receipt record;
-only then may it remove the runtime model. Rejections leave every input unchanged. No live command,
-save-schema migration, model deletion, or menu is introduced by this increment.
+views, batch boundaries, rollback, pending-XP continuation, and serialized detached state. The
+server-only command below now commits the removal and surviving accounting with the profile's
+revision/receipt record. It preserves canonical accounting rather than replacing surviving records
+with the reducer's ownership-only map. Rejections leave every input unchanged. The pure operation
+itself supplies no authentication, save-schema migration, model deletion, or menu.
+
+### Atomic Shrine-dismantling command review
+
+`BaseService.DismantleShrine(player, request)` is a server-only command for the running service and
+a connected player's already-loaded profile. Requests contain only `requestId`
+(`<expectedRevision>:<unique token>`), `expectedRevision`, `shrineInstanceId`, and `expectedLevel`.
+Retry the original request unchanged. Success returns `shrineInstanceId`, `shrineId`, `buildSlotId`,
+`level`, and `settledAt` in transaction `values`.
+
+One `DataService.Transact` callback uses one server timestamp, derives both views from the same
+draft, and settles production before removing exactly the selected empty Shrine. Workers must be
+unassigned and completed output collected first; a due batch that completes output also rejects
+removal. Unfinished Shrine work is discarded without forcing an early batch, while every owned
+worker and its earned/pending XP remain. Other Shrine accounting, purchased slots, the permanent
+Station, legacy state, Materials, Gold, jobs, and reservations are preserved. No refund is granted.
+
+Failed removal rolls back gameplay changes, including staged accounting, though DataService may
+record a rejection receipt and revision. Identity/level-bound receipts prevent replayed removal
+from affecting a replacement in the freed slot; replay does not resample time. Transaction fixtures
+cover empty/occupied/storage gates, stale selections, receipts, rollback, and retained state.
+Actual connected/disconnected-player dispatch and durable saves still need a playtest. There is no
+new remote, menu, model deletion, automatic lifecycle, profile auto-load, explicit save request, or
+schema migration. See the
+[command contract](docs/TECHNICAL_DESIGN.md#atomic-shrine-dismantling-command).
 
 ### Mythling-evolution logic review
 

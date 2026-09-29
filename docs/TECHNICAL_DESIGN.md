@@ -86,9 +86,10 @@ without exposing a service's private implementation or replicating it to clients
 and configuration types needed by both runtimes remain in `ReplicatedStorage.Shared.Types`.
 Feature-specific pure operations live beside the owning service: Base owns assignment, Shrine
 upgrade, and dismantling; Production owns Shrine collection; Inventory owns Mythling evolution and
-sale. Base now exposes server-only assignment commands through its public API; the other pure
-operations remain isolated until deliberately integrated. `Shared.ShrineAccounting` is the common
-transaction-draft adapter consumed by Base and Production. Tests may require pure children directly.
+sale. Base exposes server-only assignment, upgrade, and dismantling commands, while Production
+exposes settlement and collection. Evolution and sales remain isolated until deliberately
+integrated. `Shared.ShrineAccounting` is the common transaction-draft adapter consumed by Base and
+Production. Tests may require pure children directly.
 Combat geometry helpers likewise remain private children of CombatService.
 
 [Conventions](CONVENTIONS.md) owns the [repository layout](CONVENTIONS.md#project-structure),
@@ -845,8 +846,18 @@ definitions, and all assignment maps must survive; `lastAccruedAt` must equal th
 Revalidate Base state before staging the selected level with accounting/progression fields. This
 permits no new assignments or arbitrary replacement owned state. Base's upgrade reducer owns the
 next-level configuration and payment policy; its private purchase adapter commits Materials and
-Gold in the same transaction. None of these bridges is a generic snapshot/apply API or a replacement
-for feature validation.
+Gold in the same transaction.
+
+`RemoveShrineToDraft(draft, now, shrineInstanceId, change, metadata?, production?, progression?)`
+is the narrow removal bridge. Its trusted synchronous reducer receives a fresh frozen accounting
+view and must return exactly the original Shrine key set minus the selected instance, retaining
+all workers and their forms. Every surviving Shrine retains its definition, level, and assignment
+map, and `lastAccruedAt` must equal the supplied time. Validate the returned accounting and cloned
+Base state before staging removal with the surviving accounting/progression fields. Preserve all
+other canonical record fields; never replace surviving records with a reducer's ownership-only
+Shrine map. Base's dismantling reducer owns empty-worker and completed-output checks, while the
+shared bridge owns adaptation and the selected removal boundary. None of these bridges is a
+generic snapshot/apply API or a replacement for feature validation.
 
 The optional `MythlingEntry.pendingXp` type field accommodates the retained legacy boundary; it
 does not add defaults to existing captures. `Projection.Build` omits pending XP from Mythling views
@@ -859,8 +870,8 @@ The helper itself supplies neither authorization, request receipts, persistence,
 acknowledgement. It has no automatic startup/session/timer caller and is not itself a public service
 API, remote, or menu action. Tests compose it with `Transactions.Run` and serialized
 state to check atomicity/continuation without claiming live save durability. Its on-demand,
-assignment, collection, and upgrade callers are described below; sharing the adapter does not expose
-it to clients.
+assignment, collection, upgrade, and dismantling callers are described below; sharing the adapter
+does not expose it to clients.
 
 ### On-demand Shrine settlement
 
@@ -998,6 +1009,47 @@ profile auto-load, or explicit `SaveNow` call. Existing prototype paths remain u
 transaction tests cover purchase and receipt safety, retained state, and rollback, not durable saves.
 Actual connected/disconnected-player dispatch and persistence still require a playtest.
 
+### Atomic Shrine-dismantling command
+
+`BaseService.DismantleShrine(player, request)` exposes server-only removal through the typed
+`BaseApi` and `MainServer` service facade. It requires a running service, connected player, and
+already-loaded profile. The strict request contains only `requestId`, `expectedRevision`,
+`shrineInstanceId`, and `expectedLevel`. The request ID is `<expectedRevision>:<unique token>`;
+retry the original request unchanged. The server fixes the operation as `Base.DismantleShrine`
+and derives a length-delimited signature binding the selected instance and expected level.
+Callers cannot select a build slot or owner, supply accounting, metadata, or time, or request a refund.
+
+Private `BaseService/ShrineRemoval.new(DataService, clock?)` implements `Dismantle` using
+`DataService.GetLoadedData` and `Transact`. Read the clock exactly once inside the transaction
+callback, then call `Shared.ShrineAccounting.RemoveShrineToDraft` with the selected instance and
+private `ShrineDismantling.Dismantle` reducer. The default clock is `workspace:GetServerTimeNow()`;
+tests may inject it. Pass the same draft's Base ownership to the reducer and resolve accounting
+against canonical launch metadata. The bridge merges surviving canonical accounting records and
+removes only the selected record; it must not install the reducer's ownership-only Shrine map over
+records containing saved work and assignments. Do not use a separate settlement transaction.
+
+Reject assigned workers without automatically unassigning them. For an unoccupied Shrine, settle
+the entire profile, then reject if it contains any whole output, including output completed by a
+due batch. Require collection first. On success discard only the removed Shrine's unfinished
+`progress` and `newWork`; do not resolve a partial batch early or shift its schedule. Keep every
+owned worker, earned/pending XP, surviving Shrine's accounting and assignment, purchased build
+slots, permanent Station, prototype stands, and unrelated profile state. The operation grants no
+Gold, Materials, refund, or stored-building record and touches no crafting reservations. The
+existing construction allocator can reuse the free slot with a new unique Shrine identity.
+
+Success returns `values = { shrineInstanceId, shrineId, buildSlotId, level, settledAt }`. Removal,
+surviving accounting, progression, and the revision-bound receipt commit or roll back together.
+Stale identity/level, occupied/storage gates, or invalid state reject without committing staged
+gameplay changes; DataService may still record the failure receipt and revision. DataService owns
+active-session checks, rollback, normal state publication, and persistence. A matching retry replays
+the original result without resampling time or touching a replacement occupying the old slot.
+
+This adds no remote, menu, model deletion, migration, automatic production lifecycle, profile
+auto-load, or explicit save request. Future presentation removes a runtime model only after a
+successful transaction. Controlled transaction tests cover removal gates, receipt safety, retained
+state, and rollback, not durable saves. Actual connected/disconnected-player dispatch and persistence
+still require a playtest.
+
 ### Shrine operations over detached accounting
 
 `ServerScriptService.Services.BaseService.ShrineAssignments.Assign` and `.Remove` compose that same
@@ -1081,9 +1133,10 @@ command supplies the authenticated transaction boundary without adding player-fa
 with the same loaded profile's Base ownership. Validate Base capacity/Station records and accounting
 first, then require a one-to-one match of all built/accounting Shrine instance IDs, definition IDs,
 and levels. A missing ledger must not be interpreted as an empty Shrine. This consistency check
-does not authenticate either view; the future adapter must select both from the requesting player's
-loaded profile and initialize accounting for every constructed Shrine. These are views of the same
-owned records, not separate persisted identity/level authorities. The request selects a unique
+does not authenticate either view; the [dismantling command](#atomic-shrine-dismantling-command)
+selects both from the requesting player's loaded canonical draft with complete accounting for every
+constructed Shrine. These are views of the same owned records, not separate persisted identity/level
+authorities. The request selects a unique
 instance ID and expected level, never a build-slot number; stale IDs cannot remove a replacement in
 the same slot.
 
@@ -1097,12 +1150,14 @@ schedule even when no source Shrine remains. Rejections return no staged state, 
 detached settlement completed output or failed arithmetic validation.
 
 The result supplies the complete replacement accounting ledger and built-Shrine map, not a whole Base
-or PlayerDoc. Commit those fields together with revision/receipt protection while preserving purchased
-build slots, other Shrine slot identities, Station identity, prototype stands, and all unrelated
-profile state. No refund or stored-building record is created. The existing lowest-free allocation
-can reuse the released slot; reconstructed instances must receive new unique IDs. A future live
-adapter removes the runtime model only after the transaction succeeds. This isolated operation adds
-no live endpoint, model deletion, persistence migration, or UI.
+or PlayerDoc. The [dismantling command](#atomic-shrine-dismantling-command) now commits removal with
+revision/receipt protection through the shared removal bridge. Merge surviving accounting into the
+canonical records rather than overwriting them with the reducer's ownership-only map; preserve
+purchased build slots, other Shrine slot identities, Station identity, prototype stands, and all
+unrelated profile state. No refund or stored-building record is created. The existing lowest-free
+allocation can reuse the released slot; reconstructed instances must receive new unique IDs. Future
+presentation may remove the runtime model only after the transaction succeeds. The isolated reducer
+itself adds no authentication, live endpoint, model deletion, persistence migration, or UI.
 
 `ServerScriptService.Services.InventoryService.MythlingEvolution.Evolve` performs a manual, free
 form change over the same detached accounting view. Its form definitions extend the accounting
@@ -1771,8 +1826,8 @@ The existing DataService persistence path owns these fields, and its explicit cl
 continues to omit the private Shrine accounting and root clock. This foundation creates no second
 owned-Mythling/worker map and changes no Mythling progression or inactive Luck/Trait data. The
 [draft adapter](#shrine-accounting-draft-adapter) now has on-demand settlement, atomic assignment,
-collection, and upgrade callers. Automatic production lifecycle integration and player-facing actions
-remain separate work; prototype stand paths are untouched. The `lastOnlineCheckpointAt` and optional
+collection, upgrade, and dismantling callers. Automatic production lifecycle integration and
+player-facing actions remain separate work; prototype stand paths are untouched. The `lastOnlineCheckpointAt` and optional
 `offlineSince` bookkeeping in the [production lifecycle target](#production-accrual) is not initialized or advanced
 by this increment. Existing DataService saves are not a new production checkpoint loop, and
 serialized-state tests do not establish live durable-save behavior.
@@ -2117,18 +2172,18 @@ remove each item when the implementation is aligned; these notes do not authoriz
 
 | Area | Current source | Target contract / required alignment |
 | --- | --- | --- |
-| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 7 with the existing initial Gold, starter protection, Inventory upgrades, transactions, crafting reservations, and Base ownership. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) preserves v4–v6 earned/unknown state, retains earlier layout upgrades, and adds empty Shrine accounting plus a once-initialized private common production clock. Partial/ambiguous accounting is rejected; no Mythling or prototype-ledger rewrite occurs. | Add automatic production lifecycle integration and atomic feature mutations beyond settlement/assignment/collection/Shrine upgrades; replace remaining prototype form/complete job records as their features ship. Schema preparation awards no work and does not prove durable persistence. The deliberate fresh namespace is not permission to reset subsequent progress. |
+| Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 7 with the existing initial Gold, starter protection, Inventory upgrades, transactions, crafting reservations, and Base ownership. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) preserves v4–v6 earned/unknown state, retains earlier layout upgrades, and adds empty Shrine accounting plus a once-initialized private common production clock. Partial/ambiguous accounting is rejected; no Mythling or prototype-ledger rewrite occurs. | Add automatic production lifecycle integration and atomic feature mutations beyond settlement/assignment/collection/Shrine upgrades/dismantling; replace remaining prototype form/complete job records as their features ship. Schema preparation awards no work and does not prove durable persistence. The deliberate fresh namespace is not permission to reset subsequent progress. |
 | Base foundation | [BaseState](../src/ServerScriptService/Shared/BaseState.lua) derives two initial Shrine-only slots and four configurable one-slot expansions from purchased state. Load initializes one free, unique Station identity; [BaseRuntime](../src/ServerScriptService/Services/BaseService/BaseRuntime.lua) binds it to the existing authored `PB_CraftingStation_Root` model. `base.status`, allowlisted `base.shrines`, and world attributes expose presentation state, not purchase authority. | No expansion purchase or crafting action yet. Keep `base.stands` and its existing placement/collection paths functional until the replacement can preserve their earned work. Authored Shrine markers/models remain separate work; the Shrine asset is provisional. |
-| Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. Saved records contain identity, definition, slot, level, and empty `stored`/`progress`/`newWork`/`workerIdsBySlot` fields. Construction leaves the common clock unchanged; projection exposes only identity, definition, slot, and level. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete automatic production lifecycle and player-facing integration separately; assignment, collection, and upgrade commands below share its canonical records. Dismantling remains a detached reducer. |
+| Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. Saved records contain identity, definition, slot, level, and empty `stored`/`progress`/`newWork`/`workerIdsBySlot` fields. Construction leaves the common clock unchanged; projection exposes only identity, definition, slot, and level. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete automatic production lifecycle and player-facing integration separately; assignment, collection, upgrade, and dismantling commands below share its canonical records. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. Capture, Material grants, and stand settlement/collection use them. The vendored [ProfileStore](../src/ServerScriptService/Packages/ProfileStore.luau) schedules `Save()` asynchronously. | Move remaining prototype Base/Loadout writers when replacing their features; do not claim those direct writes have rollback. Runtime success or `SaveNow == true` still does not prove durable persistence. |
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Canonical collection and Shrine-upgrade commands use these references; integrate automatic production, recipes, other paid upgrades, Shop, and sales separately. Metadata alone adds none of those actions. |
 | Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives the three category limits, per-type 1,000-unit stacks, and active Equipment-output/Material-refund reservations. Prototype callers retain their prior behavior; `ValidateMaterialState` rejects malformed inputs to canonical Shrine collection/upgrades and their detached reducers. | Add validated Inventory-capacity purchasing and the full Crafting Job lifecycle with those features. Reservation accounting alone does not implement crafting. |
 | Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, the six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates this separate business catalogue before server services start. | Finalize creative names/concepts/assets and integrate the catalogue with owned records and live services separately. It is not in the service context and does not replace the three live prototype forms, change saves, or expose menus. |
-| Mythling production | Existing [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua). Server-only `ProductionService.SettleShrines` calls private [ShrineProduction](../src/ServerScriptService/Services/ProductionService/ShrineProduction.lua), which settles through shared [ShrineAccounting](../src/ServerScriptService/Shared/ShrineAccounting.lua) and the engine inside `DataService.Update`, using one in-transaction server timestamp. Assignment, collection, and Shrine upgrades consume the same adapter inside their own atomic transactions. | Add automatic lifecycle settlement and other atomic production mutations separately. On-demand settlement adds no client action, profile auto-load, or durable-save acknowledgement. Keep settlement and input changes in one draft; legacy stand paths and inactive Luck/Traits remain unchanged, with pending XP private in projection. |
+| Mythling production | Existing [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) still uses the unchanged prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua). Server-only `ProductionService.SettleShrines` calls private [ShrineProduction](../src/ServerScriptService/Services/ProductionService/ShrineProduction.lua), which settles through shared [ShrineAccounting](../src/ServerScriptService/Shared/ShrineAccounting.lua) and the engine inside `DataService.Update`, using one in-transaction server timestamp. Assignment, collection, Shrine upgrades, and dismantling consume the same adapter inside their own atomic transactions. | Add automatic lifecycle settlement and other atomic production mutations separately. On-demand settlement adds no client action, profile auto-load, or durable-save acknowledgement. Keep settlement and input changes in one draft; legacy stand paths and inactive Luck/Traits remain unchanged, with pending XP private in projection. |
 | Shrine assignment | Server-only `BaseService.AssignShrineWorker`/`RemoveShrineWorker` delegate to private [ShrineWorkers](../src/ServerScriptService/Services/BaseService/ShrineWorkers.lua). It uses [ShrineAssignments](../src/ServerScriptService/Services/BaseService/ShrineAssignments.lua) and the shared adapter to settle and mutate canonical state in one revision-bound `DataService.Transact`, with default launch metadata and one server timestamp. Explicit unassignment, empty matching slots, stable slot identities, expected-worker checks, and duplicate-safe receipts are enforced. | No new remote, acquisition, schema migration, model, or presentation. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Legacy deletion is blocked for canonical forms or retained entries with Shrine assignments/pending credit. |
 | Shrine collection | Server-only `ProductionService.CollectShrine` delegates to private [ShrineCollector](../src/ServerScriptService/Services/ProductionService/ShrineCollector.lua). It uses [ShrineCollection](../src/ServerScriptService/Services/ProductionService/ShrineCollection.lua) and the shared storage bridge to settle work/XP and commit the stored debit with the Inventory grant in one revision-bound `DataService.Transact`. Materials, upgrades, and refund reservations come from the same draft; partial transfers retain excess and unfinished work, and receipts prevent replayed grants. | No new remote, schema, automatic lifecycle, or presentation. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Prototype collection and crafting reservations remain unchanged. |
 | Shrine upgrades | Server-only `BaseService.UpgradeShrine` delegates to private [ShrineUpgradePurchase](../src/ServerScriptService/Services/BaseService/ShrineUpgradePurchase.lua). It composes [ShrineUpgrades](../src/ServerScriptService/Services/BaseService/ShrineUpgrades.lua) and the shared sequential-level bridge inside one revision-bound `DataService.Transact`, settling at the old capacity and committing canonical accounting, collected Material/Gold payment, and exactly the selected next level together. Real launch metadata owns prices, capacity, slots, and output IDs; quote-bound receipts prevent replayed charges. | No new remote, schema, automatic lifecycle, or presentation. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Assignments, stored output, earned work/XP, other currency fields, and crafting reservations remain intact. |
-| Shrine dismantling | [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua) validates matching Base/accounting views, rejects workers or settled whole output, and returns detached maps removing only the selected instance. Its build slot is freed without refund; pending worker XP survives discarded unfinished production. | Commit both maps through the authenticated profile transaction, preserve all other Base/profile fields, and remove presentation only after success. The pure reducer does not delete live models or add a network command. |
+| Shrine dismantling | Server-only `BaseService.DismantleShrine` delegates to private [ShrineRemoval](../src/ServerScriptService/Services/BaseService/ShrineRemoval.lua). It composes [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua) and the shared removal bridge inside one revision-bound `DataService.Transact`, rejecting assigned workers or settled whole output before removing only the selected canonical record. Unfinished Shrine work is discarded without erasing owned workers or their pending XP; identity/level-bound receipts protect a replacement in the freed slot. | No new remote, schema, automatic lifecycle, or presentation/model deletion. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Purchased slots, surviving accounting, Station identity, currency, Materials, and crafting reservations remain intact; no refund is granted. |
 | Mythling evolution | [MythlingEvolution](../src/ServerScriptService/Services/InventoryService/MythlingEvolution.lua) follows a validated optional same-element link, settles old-form production/XP before the level gate, and changes only the owned form ID in a detached ledger. Assigned and consecutive eligible evolutions retain work, progression, and batch timing; tests use synthetic forms. The separate launch catalogue now supplies the real business links. | Integrate authenticated requests, canonical owned-record adaptation, revision/receipt protection, and persistence. Catalogue validation changes no live roster, owned schema, command, or menu. |
 | Mythling sales | [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) rejects assigned/stale selections, resolves the current form's fixed sale value, settles production, and returns detached worker removal plus Gold. Final-copy sales are allowed; tests use synthetic forms and preserve earned Shrine work. The separate launch catalogue supplies per-form sale values; legacy deletion now rejects canonical forms or entries with Shrine assignments/pending credit. | Integrate canonical owned-record deletion, Gold, accounting, and revision/receipt protection in one authenticated transaction. The pure reducer and catalogue add no live sale endpoint or menu; protected prototype deletion is not a sale implementation. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |

@@ -61,11 +61,18 @@ describe("BaseService Shrine command gates", function()
 			expectedGoldCost = 1_000,
 			expectedMaterialQuantity = 400,
 		}
+		local dismantle: Types.DismantleShrineRequest = {
+			requestId = "0:dismantle",
+			expectedRevision = 0,
+			shrineInstanceId = "owned_shrine",
+			expectedLevel = 1,
+		}
 		local function expectUnavailable(player: unknown)
 			local unavailable = { ok = false, code = "DataUnavailable", revision = 0 }
 			expect(service.AssignShrineWorker(player, assign)).toEqual(unavailable)
 			expect(service.RemoveShrineWorker(player, remove)).toEqual(unavailable)
 			expect(service.UpgradeShrine(player, upgrade)).toEqual(unavailable)
+			expect(service.DismantleShrine(player, dismantle)).toEqual(unavailable)
 			expect(reads).toBe(0)
 			expect(transactions).toBe(0)
 		end

@@ -23,6 +23,12 @@ export type AccountingChange = (
 	ShrineAccrual.ProgressionConfig?
 ) -> (ShrineAccrual.State?, string?)
 
+type ChangeScope =
+	{ kind: "Accounting" }
+	| { kind: "Assignments" }
+	| { kind: "Upgrade", shrineInstanceId: string }
+	| { kind: "Dismantle", shrineInstanceId: string }
+
 local function defaultMetadata(): ShrineAccrual.Metadata
 	local metadata: ShrineAccrual.Metadata = { forms = {}, shrines = {} }
 	for id, definition in MythlingForms do
@@ -162,8 +168,7 @@ local function changeToDraft(
 	draft: Types.PlayerDoc,
 	now: number,
 	change: AccountingChange,
-	changeAssignments: boolean,
-	upgradeShrineId: string?,
+	scope: ChangeScope,
 	metadata: ShrineAccrual.Metadata?,
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
@@ -180,13 +185,12 @@ local function changeToDraft(
 	if now < state.lastAccruedAt then
 		return false, "BackdatedChange"
 	end
-	if upgradeShrineId ~= nil then
-		if not isId(upgradeShrineId) then
-			return false, "InvalidRequest"
-		end
-		if not state.shrines[upgradeShrineId] then
-			return false, "ShrineNotOwned"
-		end
+	local changeAssignments = scope.kind == "Assignments"
+	local upgradeShrineId = if scope.kind == "Upgrade" then scope.shrineInstanceId else nil
+	local removeShrineId = if scope.kind == "Dismantle" then scope.shrineInstanceId else nil
+	local selectedShrineId = upgradeShrineId or removeShrineId
+	if selectedShrineId ~= nil and not state.shrines[selectedShrineId] then
+		return false, "ShrineNotOwned"
 	end
 	-- Only a fresh, immutable snapshot reaches a trusted synchronous reducer. Never accept a
 	-- precomputed ledger from a caller or expose a separate snapshot/apply pair.
@@ -203,9 +207,15 @@ local function changeToDraft(
 		return false, "InvalidAccountingChange"
 	end
 	-- Each entry point allows only its specific structural change. Never silently discard
-	-- grants, sales, evolution, dismantling, or a different Shrine's level/assignment change.
+	-- grants, sales, evolution, or a different Shrine's level/assignment/ownership change.
 	for id, before in state.shrines do
 		local after = settled.shrines[id]
+		if id == removeShrineId then
+			if after ~= nil then
+				return false, "InvalidAccountingChange"
+			end
+			continue
+		end
 		local expectedLevel = before.level + (if id == upgradeShrineId then 1 else 0)
 		if not after or after.shrineId ~= before.shrineId or after.level ~= expectedLevel then
 			return false, "InvalidAccountingChange"
@@ -245,6 +255,9 @@ local function changeToDraft(
 	local base = table.clone(draft.base)
 	local shrines = table.clone(draft.base.shrines :: { [string]: Types.ShrineRecord })
 	base.shrines = shrines
+	if removeShrineId ~= nil then
+		shrines[removeShrineId] = nil
+	end
 	for id, result in settled.shrines do
 		local shrine = table.clone(shrines[id])
 		shrine.stored = result.stored
@@ -258,7 +271,7 @@ local function changeToDraft(
 		end
 		shrines[id] = shrine
 	end
-	if upgradeShrineId ~= nil and not BaseState.GetStatus(base) then
+	if (upgradeShrineId ~= nil or removeShrineId ~= nil) and not BaseState.GetStatus(base) then
 		return false, "InvalidBaseState"
 	end
 	local mythlings = table.clone(draft.mythlings)
@@ -291,8 +304,7 @@ function ShrineAccounting.SettleToDraft(
 		draft,
 		now,
 		ShrineAccrual.Accrue,
-		false,
-		nil,
+		{ kind = "Accounting" },
 		metadata,
 		production,
 		progression
@@ -309,7 +321,15 @@ function ShrineAccounting.ChangeAssignmentsToDraft(
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
 ): (boolean, string?)
-	return changeToDraft(draft, now, change, true, nil, metadata, production, progression)
+	return changeToDraft(
+		draft,
+		now,
+		change,
+		{ kind = "Assignments" },
+		metadata,
+		production,
+		progression
+	)
 end
 
 -- Production owns collection/capacity policy. Its trusted pure reducer returns the settled
@@ -323,7 +343,15 @@ function ShrineAccounting.ChangeStorageToDraft(
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
 ): (boolean, string?)
-	return changeToDraft(draft, now, change, false, nil, metadata, production, progression)
+	return changeToDraft(
+		draft,
+		now,
+		change,
+		{ kind = "Accounting" },
+		metadata,
+		production,
+		progression
+	)
 end
 
 -- Base owns next-level and payment policy. Settle at the old level, then permit exactly one
@@ -345,8 +373,32 @@ function ShrineAccounting.ChangeShrineLevelToDraft(
 		draft,
 		now,
 		change,
-		false,
-		shrineInstanceId,
+		{ kind = "Upgrade", shrineInstanceId = shrineInstanceId },
+		metadata,
+		production,
+		progression
+	)
+end
+
+-- Base owns empty-Shrine eligibility. Retain every worker and its earned/pending XP, remove
+-- exactly the selected Shrine, and stage all surviving accounting in this same transaction.
+function ShrineAccounting.RemoveShrineToDraft(
+	draft: Types.PlayerDoc,
+	now: number,
+	shrineInstanceId: string,
+	change: AccountingChange,
+	metadata: ShrineAccrual.Metadata?,
+	production: ShrineAccrual.ProductionConfig?,
+	progression: ShrineAccrual.ProgressionConfig?
+): (boolean, string?)
+	if not isId(shrineInstanceId) then
+		return false, "InvalidRequest"
+	end
+	return changeToDraft(
+		draft,
+		now,
+		change,
+		{ kind = "Dismantle", shrineInstanceId = shrineInstanceId },
 		metadata,
 		production,
 		progression

@@ -969,6 +969,158 @@ describe("ShrineAccounting.ChangeShrineLevelToDraft", function()
 	end)
 end)
 
+describe("ShrineAccounting.RemoveShrineToDraft", function()
+	local invalidChanges: { { name: string, mutate: (ShrineAccrual.State, ShrineAccrual.State) -> () } } =
+		{
+			{
+				name = "retained selection",
+				mutate = function(state, before)
+					state.shrines.first = copy(before.shrines.first)
+				end,
+			},
+			{
+				name = "removed other Shrine",
+				mutate = function(state)
+					state.shrines.second = nil
+				end,
+			},
+			{
+				name = "new Shrine",
+				mutate = function(state)
+					state.shrines.third = copy(state.shrines.second)
+					state.shrines.third.workerIdsBySlot = {}
+				end,
+			},
+			{
+				name = "changed survivor level",
+				mutate = function(state)
+					state.shrines.second.level = 2
+				end,
+			},
+			{
+				name = "removed surviving assignment",
+				mutate = function(state)
+					state.shrines.second.workerIdsBySlot = {}
+				end,
+			},
+			{
+				name = "changed survivor definition",
+				mutate = function(state)
+					state.shrines.second.shrineId = "other_shrine"
+				end,
+			},
+			{
+				name = "changed worker form",
+				mutate = function(state)
+					state.workers.worker.formId = "other_form"
+				end,
+			},
+			{
+				name = "deleted unassigned worker",
+				mutate = function(state)
+					state.workers.unassigned = nil
+				end,
+			},
+			{
+				name = "granted worker",
+				mutate = function(state)
+					state.workers.granted = copy(state.workers.worker)
+				end,
+			},
+		}
+	for _, case in invalidChanges do
+		it(`rejects {case.name} without deleting any canonical state`, function()
+			local data = fixture("test_fire_form")
+			data.base.shrines.second = copy(data.base.shrines.first)
+			data.base.shrines.second.id = "second"
+			data.base.shrines.second.buildSlotId = 2
+			data.base.shrines.first.workerIdsBySlot = {}
+			data.mythlings.unassigned = copy(data.mythlings.worker)
+			local definitions = metadata()
+			definitions.forms.other_form = copy(definitions.forms.test_fire_form)
+			definitions.shrines.other_shrine = copy(definitions.shrines.fire_shrine)
+			local before = copy(data)
+			local base, workers, clock = data.base, data.mythlings, data.productionClock
+			local ok, problem = ShrineAccounting.RemoveShrineToDraft(
+				data,
+				1,
+				"first",
+				function(state, now, config, production, progression)
+					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+					result.shrines.first = nil
+					case.mutate(result, state)
+					expect(ShrineAccrual.Validate(result, now, config, production, progression)).toBeNil()
+					return result, nil
+				end,
+				definitions
+			)
+			expect(ok).toBe(false)
+			expect(problem).toBe("InvalidAccountingChange")
+			expect(data).toEqual(before)
+			expect(data.base).toBe(base)
+			expect(data.mythlings).toBe(workers)
+			expect(data.productionClock).toBe(clock)
+		end)
+	end
+
+	it("requires an owned selection before calling the trusted reducer", function()
+		local ids: { any } = { "", "missing", false, 9, string.rep("x", 129) }
+		for _, id in ids do
+			local data = fixture()
+			local before = copy(data)
+			local called = false
+			local ok, problem = ShrineAccounting.RemoveShrineToDraft(data, 0, id, function()
+				called = true
+				return nil, "UnexpectedCall"
+			end)
+			expect(ok).toBe(false)
+			expect(problem).toBe(if id == "missing" then "ShrineNotOwned" else "InvalidRequest")
+			expect(called).toBe(false)
+			expect(data).toEqual(before)
+		end
+	end)
+
+	it(
+		"removes a frozen source record while retaining all worker credit and unrelated fields",
+		function()
+			local data = fixture("test_fire_form")
+			data.base.shrines.first.workerIdsBySlot = {}
+			data.base.shrines.first.newWork = 0.5
+			data.mythlings.worker.pendingXp = 0.5
+			data.mythlings.worker.luck = 17
+			data.productionClock = { lastAccruedAt = 0.5, nextBatchAt = 1 }
+			local expected = copy(data)
+			expected.base.shrines.first = nil
+			expected.productionClock.lastAccruedAt = 0.75
+			local sourceBase = data.base
+			FreezeUtil.DeepFreeze(data.base)
+			FreezeUtil.DeepFreeze(data.mythlings)
+			FreezeUtil.DeepFreeze(data.productionClock)
+			local ok, problem = ShrineAccounting.RemoveShrineToDraft(
+				data,
+				0.75,
+				"first",
+				function(state, now, config, production, progression)
+					local result = ShrineAccrual.Accrue(state, now, config, production, progression)
+					assert(result, "[ShrineAccounting.spec] Expected valid accrual")
+					result.shrines.first = nil
+					return result, nil
+				end,
+				metadata()
+			)
+			expect(ok).toBe(true)
+			expect(problem).toBeNil()
+			expect(data).toEqual(expected)
+			expect(sourceBase.shrines.first.newWork).toBe(0.5)
+			settle(data, 1, metadata())
+			expect(data.mythlings.worker.xp).toBe(0.5)
+			expect(data.mythlings.worker.pendingXp).toBe(0)
+			expect(data.base.shrines).toEqual({})
+		end
+	)
+end)
+
 describe("ShrineAccounting transaction integration", function()
 	it(
 		"commits exactly once while retaining live references and rejecting stale revisions",
