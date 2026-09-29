@@ -335,6 +335,18 @@ export type UpgradeInventoryCapacityRequest = {
 	expectedMaterialQuantity: number,
 }
 
+export type DiscardMaterialRequest = {
+	requestId: string,
+	expectedRevision: number,
+	materialId: string,
+	quantity: number,
+	expectedOwnedQuantity: number,
+}
+
+export type SellMaterialRequest = DiscardMaterialRequest & {
+	expectedUnitGold: number,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },

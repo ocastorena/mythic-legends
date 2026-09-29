@@ -186,14 +186,15 @@ The six normal Materials now have stable element-based IDs and matching Shrine o
 see the [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-material-catalogue). Display names such as
 `Fire Material` are temporary and thumbnails are empty until the final names/icons are chosen.
 Each launch Material is configured to buy for 10 Gold, sell for 2 Gold, and stack to the shared
-1,000-unit limit. These are metadata values, not new purchase or sale actions.
+1,000-unit limit. Metadata alone adds no purchase or sale action; the server-only Material
+sale/discard commands below consume these shared definitions.
 
 `MaterialCatalogUtil.Validate` checks the real catalogue before server services start. Run the static
 suite and runtime tests above; catalogue tests include invalid element coverage, output references,
 prices, and stack limits. Then sync and start a fresh Studio play session to check normal startup and
 the existing prototype capture/stand-production/collection flow. The retained prototype Materials
 are marked `launchEnabled = false`, but this flag does not disable or rewrite those existing paths.
-This increment adds no live Shrine ledger, save-schema change, UI, Shop, sale, or crafting integration.
+Catalogue validation adds no save-schema change, UI, Shop, or crafting integration.
 
 ### Player-data foundation review
 
@@ -697,6 +698,24 @@ disconnected-player dispatch and durable saves still need a playtest. There is n
 capture grant, schema migration, production timer, profile auto-load, or explicit save request.
 Prototype capture/stand paths remain unchanged. See the
 [command contract](docs/TECHNICAL_DESIGN.md#atomic-mythling-sale-command).
+
+### Atomic Material-sale and discard review
+
+`InventoryService.SellMaterial(player, request)` and `DiscardMaterial(player, request)` operate on a
+connected player's already-loaded profile. Exact quantity/owned-total selections and sale-price
+quotes reject stale state rather than clamp to another amount; unchanged retries replay their
+receipt. Only the six enabled normal Materials are eligible. Sale grants the configured payout
+(initially 2 Gold per Material); discard grants zero Gold and leaves currency untouched.
+
+Materials must first be collected from Shrine storage. Neither command collects or settles work,
+touches crafting reservations, resets Shop stock, or blocks removal merely because Inventory is
+over capacity. See the [command contract](docs/TECHNICAL_DESIGN.md#atomic-material-sale-and-discard-commands)
+for closed request/result fields and numeric-safety rules.
+
+Run the static suite and runtime tests above for all six IDs, partial/full removal, stale quotes,
+replay/conflicts, overflow, rollback, reservation retention, and over-capacity recovery. Playtest
+connected-player dispatch and durable retention separately. There is no new GUI, remote, schema,
+timer, profile auto-load, or explicit save request.
 
 ### Admin commands
 

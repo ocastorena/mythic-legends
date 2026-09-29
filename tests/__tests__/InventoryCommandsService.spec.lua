@@ -49,6 +49,25 @@ describe("InventoryService canonical command gates", function()
 			expectedGoldValue = 25,
 		}
 		local function expectUnavailable(player: unknown)
+			local material: Types.DiscardMaterialRequest = {
+				requestId = "0:material",
+				expectedRevision = 0,
+				materialId = "fire_material",
+				quantity = 1,
+				expectedOwnedQuantity = 1,
+			}
+			expect(service.DiscardMaterial(player, material)).toEqual({
+				ok = false,
+				code = "DataUnavailable",
+				revision = 0,
+			})
+			local sale = table.clone(material) :: any
+			sale.expectedUnitGold = 2
+			expect(service.SellMaterial(player, sale)).toEqual({
+				ok = false,
+				code = "DataUnavailable",
+				revision = 0,
+			})
 			expect(service.UpgradeCapacity(player, {
 				requestId = "0:upgrade",
 				expectedRevision = 0,

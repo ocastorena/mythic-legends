@@ -17,6 +17,7 @@ local InventoryRemotes = require(script.InventoryRemotes)
 local MythlingEvolutionCommand = require(script.MythlingEvolutionCommand)
 local MythlingSaleCommand = require(script.MythlingSaleCommand)
 local CapacityUpgradePurchase = require(script.CapacityUpgradePurchase)
+local MaterialDisposalCommand = require(script.MaterialDisposalCommand)
 
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -27,6 +28,7 @@ local DataService: ServerTypes.DataApi
 local mythlingEvolution: MythlingEvolutionCommand.MythlingEvolutionCommand?
 local mythlingSale: MythlingSaleCommand.MythlingSaleCommand?
 local capacityUpgrade: CapacityUpgradePurchase.CapacityUpgradePurchase?
+local materialDisposal: MaterialDisposalCommand.MaterialDisposalCommand?
 
 -- userId -> { mythlings = table, materials = table, consumables = table }
 local sessionsByUserId: ServerTypes.InventorySessions = {}
@@ -36,6 +38,7 @@ function InventoryService.Init(serviceContext: ServerTypes.Context)
 	mythlingEvolution = MythlingEvolutionCommand.new(DataService)
 	mythlingSale = MythlingSaleCommand.new(DataService)
 	capacityUpgrade = CapacityUpgradePurchase.new(DataService)
+	materialDisposal = MaterialDisposalCommand.new(DataService)
 	Mythlings.Init(serviceContext, sessionsByUserId)
 	Materials.Init(serviceContext, sessionsByUserId)
 	InventoryRemotes.Init(serviceContext)
@@ -67,6 +70,7 @@ function InventoryService.Stop()
 	mythlingEvolution = nil
 	mythlingSale = nil
 	capacityUpgrade = nil
+	materialDisposal = nil
 	table.clear(sessionsByUserId)
 end
 
@@ -120,6 +124,40 @@ function InventoryService.UpgradeCapacity(
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return purchase.Upgrade(player, request)
+end
+
+function InventoryService.SellMaterial(
+	player: Player,
+	request: Types.SellMaterialRequest
+): Types.TransactionResult
+	local disposal = materialDisposal
+	if
+		not lifecycle:IsRunning()
+		or not disposal
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return disposal.Sell(player, request)
+end
+
+function InventoryService.DiscardMaterial(
+	player: Player,
+	request: Types.DiscardMaterialRequest
+): Types.TransactionResult
+	local disposal = materialDisposal
+	if
+		not lifecycle:IsRunning()
+		or not disposal
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return disposal.Discard(player, request)
 end
 
 -- Mythling inventory API used by claiming, base placement, and production.
