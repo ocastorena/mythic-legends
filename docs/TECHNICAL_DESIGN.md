@@ -847,6 +847,32 @@ commit the returned ledger, Material map, and Gold together with its revision-bo
 only those fields into the profile. The pure reducer supplies no live command, network request,
 authentication, durable save, or schema migration.
 
+`Domain/Base/ShrineDismantling.Dismantle` pairs the accounting view with the same loaded profile's
+Base ownership. Validate Base capacity/Station records and accounting first, then require a one-to-one
+match of all built/accounting Shrine instance IDs, definition IDs, and levels. A missing ledger must
+not be interpreted as an empty Shrine. This consistency check does not authenticate either view;
+the future adapter must select both from the requesting player's loaded profile and initialize
+accounting for every constructed Shrine. These are views of the same owned records, not separate
+persisted identity/level authorities. The request selects a unique instance ID and expected level,
+never a build-slot number; stale IDs cannot remove a replacement in the same slot.
+
+Reject occupied Shrines without automatically unassigning their workers. Otherwise settle the entire
+profile before checking the selected Shrine's completed storage. If settlement produces any whole
+Material, reject and require collection. Before the next batch boundary, unresolved work remains
+unfinished and can be discarded; dismantling neither completes a batch early nor shifts the schedule.
+Remove only the chosen Shrine's accounting and built record, discarding its progress/new work while
+retaining every worker and its earned or pending XP. Due credit continues on the retained profile
+schedule even when no source Shrine remains. Rejections return no staged state, including when a
+detached settlement completed output or failed arithmetic validation.
+
+The result supplies the complete replacement accounting ledger and built-Shrine map, not a whole Base
+or PlayerDoc. Commit those fields together with revision/receipt protection while preserving purchased
+build slots, other Shrine slot identities, Station identity, prototype stands, and all unrelated
+profile state. No refund or stored-building record is created. The existing lowest-free allocation
+can reuse the released slot; reconstructed instances must receive new unique IDs. A future live
+adapter removes the runtime model only after the transaction succeeds. This isolated operation adds
+no live endpoint, model deletion, persistence migration, or UI.
+
 ### Space recovery transactions
 
 - **Shrine construction:** accept a Shrine definition ID, quoted Gold cost, revision, and stable
@@ -1699,6 +1725,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Shrine assignment | [ShrineAssignments](../src/ServerScriptService/Domain/Production/ShrineAssignments.lua) validates empty-slot assignment and expected-worker removal, settles prior work, and returns a detached ledger with stable numbered slot identities. Unassignment is required before reassignment; occupied slots are never replaced implicitly. Tests use synthetic content. | Integrate the accounting view with authenticated profile ownership, transaction revisions/receipts, persistence, and future presentation. No live assignment command or schema migration is supplied by this pure domain increment. |
 | Shrine collection | [ShrineCollection](../src/ServerScriptService/Domain/Production/ShrineCollection.lua) settles prior production/XP, transfers whole Materials up to shared Inventory capacity after active refund reservations, and retains excess and unfinished work. It returns detached production and Material state; synthetic tests cover partial transfers and full-storage pauses. | Commit both returned views together through an authenticated profile transaction with revision/receipt protection. Live endpoint, schema integration, and final Material IDs remain separate work; the prototype collection path is unchanged. |
 | Shrine upgrades | [ShrineUpgrades](../src/ServerScriptService/Domain/Base/ShrineUpgrades.lua) validates next-level purchases, settles at the old capacity, and returns detached production/Material/Gold state. Shared [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) owns the approved level capacities, slots, and prices; no output IDs are finalized. | Wire the reducer into the authenticated transaction/save lifecycle with revision-bound receipts and finalized content references. The pure operation does not enable a live upgrade command or new UI. |
+| Shrine dismantling | [ShrineDismantling](../src/ServerScriptService/Domain/Base/ShrineDismantling.lua) validates matching Base/accounting views, rejects workers or settled whole output, and returns detached maps removing only the selected instance. Its build slot is freed without refund; pending worker XP survives discarded unfinished production. | Commit both maps through the authenticated profile transaction, preserve all other Base/profile fields, and remove presentation only after success. The pure reducer does not delete live models or add a network command. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup. | Tune authored animations and transition timing in multiplayer/touch playtests. Add the first-crafted Shield catalogue and elemental-effect accounting with those features; their absence is not completion of the full combat target. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. | Replace the three-form prototype catalogue with the 18 launch forms and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Inventory upgrade purchasing and the complete progression system remain separate work. |

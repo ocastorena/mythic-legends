@@ -260,6 +260,25 @@ other profile fields. Rejections leave every input unchanged. This increment add
 command, save migration, timer, auto-assignment, or UI; runtime and durable-save integration remain
 separate work.
 
+### Shrine-dismantling logic review
+
+`Domain.Base.ShrineDismantling.Dismantle` is a pure server-domain operation selecting a built Shrine
+instance and its expected level. It requires matching Base/accounting views for every constructed
+Shrine, no assigned workers, and no completed Materials after settling elapsed production. A due
+batch can complete output even after unassignment; collect that output before dismantling.
+
+Success removes only the selected Shrine from the returned accounting ledger and built-Shrine map.
+Its unfinished progress and unresolved work are discarded; owned Mythlings and their earned/pending
+XP remain. Purchased build slots, other Shrine positions, the permanent Station, and prototype stands
+are untouched. The existing lowest-free-slot rule can reuse the freed slot. There is no Gold or
+Material refund, stored building, automatic unassignment, or automatic collection.
+
+Tests cover all six elements and levels, purchased-slot retention, stale/replaced instances, mismatched
+views, batch boundaries, rollback, pending-XP continuation, and serialized detached state. A future
+authenticated service must commit both returned maps with the profile's revision/receipt record;
+only then may it remove the runtime model. Rejections leave every input unchanged. No live command,
+save-schema migration, model deletion, or menu is introduced by this increment.
+
 ### Admin commands
 
 Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:
