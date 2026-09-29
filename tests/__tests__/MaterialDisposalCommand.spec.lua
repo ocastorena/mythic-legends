@@ -141,6 +141,19 @@ local function fixture(firstProfile: Types.PlayerDoc?)
 	}
 end
 
+local function command(
+	api: MaterialDisposalCommand.MaterialDisposalCommand,
+	selling: boolean
+): (Player, any) -> Types.TransactionResult
+	-- Branch before invoking the distinct typed APIs; forged payloads stay at this test boundary.
+	return function(player: Player, request: any): Types.TransactionResult
+		if selling then
+			return api.Sell(player, request)
+		end
+		return api.Discard(player, request)
+	end
+end
+
 describe("MaterialDisposalCommand", function()
 	it("sells partial and final quantities of all six normal Materials at two Gold each", function()
 		local f = fixture()
@@ -230,7 +243,7 @@ describe("MaterialDisposalCommand", function()
 					local data = f.profiles[f.first]
 					data.materials[materialId] = { total = 100 }
 					local before = gameplay(data)
-					local execute = if selling then f.api.Sell else f.api.Discard
+					local execute = command(f.api, selling)
 					expect(
 						execute(f.first, selection(selling, 0, "disabled", 25, 100, materialId)).code
 					).toBe("InvalidMaterial")
@@ -265,7 +278,7 @@ describe("MaterialDisposalCommand", function()
 							then nil
 							else { total = case.actual }
 						local before = gameplay(data)
-						local execute = if selling then f.api.Sell else f.api.Discard
+						local execute = command(f.api, selling)
 						expect(
 							execute(
 								f.first,
@@ -307,7 +320,7 @@ describe("MaterialDisposalCommand", function()
 					local jobs = copy(data.craftingJobs)
 					local usage = InventoryCapacity.GetUsage(data, "materials")
 					expect(usage.used >= usage.limit).toBe(true)
-					local execute = if selling then f.api.Sell else f.api.Discard
+					local execute = command(f.api, selling)
 					expect(execute(f.first, selection(selling, 0, "drain", 100)).ok).toBe(true)
 					expect(data.materials.fire_material).toBeNil()
 					expect(data.materials.retained_legacy.total).toBe(legacyQuantity)
@@ -332,7 +345,7 @@ describe("MaterialDisposalCommand", function()
 					},
 				}
 				local before = gameplay(data)
-				local execute = if selling then f.api.Sell else f.api.Discard
+				local execute = command(f.api, selling)
 				expect(execute(f.first, selection(selling, 0, "not-collected", 2, owned)).code).toBe(
 					if owned == 0 then "NotOwned" else "InsufficientMaterials"
 				)
@@ -376,7 +389,7 @@ describe("MaterialDisposalCommand", function()
 					data.craftingJobs,
 					data.inventoryUpgrades,
 					data.equipment
-				local execute = if selling then f.api.Sell else f.api.Discard
+				local execute = command(f.api, selling)
 				expect(execute(f.first, selection(selling, 0, "preserved")).ok).toBe(true)
 				before.materials.fire_material.total -= 25
 				if selling then
@@ -509,7 +522,7 @@ describe("MaterialDisposalCommand", function()
 			for _, request in invalid do
 				local f = fixture()
 				local before = copy(f.profiles[f.first])
-				local execute = if selling then f.api.Sell else f.api.Discard
+				local execute = command(f.api, selling)
 				expect(execute(f.first, request).code).toBe("InvalidRequest")
 				expect(f.state.transactionCalls).toBe(0)
 				expect(f.profiles[f.first]).toEqual(before)
@@ -550,7 +563,7 @@ describe("MaterialDisposalCommand", function()
 					code = "InvalidReservations"
 				end
 				local before = gameplay(data)
-				local execute = if selling then f.api.Sell else f.api.Discard
+				local execute = command(f.api, selling)
 				expect(execute(f.first, selection(selling, 0, "invalid-state")).code).toBe(code)
 				expect(gameplay(data)).toEqual(before)
 			end
@@ -562,7 +575,7 @@ describe("MaterialDisposalCommand", function()
 		function()
 			for _, selling in { true, false } do
 				local f = fixture()
-				local execute = if selling then f.api.Sell else f.api.Discard
+				local execute = command(f.api, selling)
 				local request = selection(selling, 0, "binding")
 				local result = execute(f.first, request)
 				expect(result.ok).toBe(true)
@@ -586,7 +599,7 @@ describe("MaterialDisposalCommand", function()
 					changed[field] = value
 					expect(execute(f.first, changed).code).toBe("RequestConflict")
 				end
-				local opposite = if selling then f.api.Discard else f.api.Sell
+				local opposite = command(f.api, not selling)
 				expect(opposite(f.first, selection(not selling, 0, "binding")).code).toBe(
 					"RequestConflict"
 				)
@@ -604,7 +617,7 @@ describe("MaterialDisposalCommand", function()
 			end
 			for _, field in fields do
 				local f = fixture()
-				local execute = if selling then f.api.Sell else f.api.Discard
+				local execute = command(f.api, selling)
 				local request = selection(selling, 0, "large")
 				request[field] = 2 ^ 52
 				expect(execute(f.first, request).ok).toBe(false)
@@ -620,14 +633,14 @@ describe("MaterialDisposalCommand", function()
 		function()
 			for _, selling in { true, false } do
 				local f = fixture()
-				local execute = if selling then f.api.Sell else f.api.Discard
+				local execute = command(f.api, selling)
 				local request = selection(selling, 0, "before-save")
 				local result = execute(f.first, request)
 				expect(result.ok).toBe(true)
 				local failed = selection(selling, 1, "stale-ownership")
 				expect(execute(f.first, failed).code).toBe("QuantityChanged")
 				local restored = fixture(copy(f.profiles[f.first]))
-				local restoredExecute = if selling then restored.api.Sell else restored.api.Discard
+				local restoredExecute = command(restored.api, selling)
 				expect(
 					restoredExecute(restored.first, selection(selling, 2, "remaining", 75, 75)).ok
 				).toBe(true)
@@ -653,7 +666,7 @@ describe("MaterialDisposalCommand", function()
 	it("never repeats a completed disposal after its bounded receipt has been evicted", function()
 		for _, selling in { true, false } do
 			local f = fixture()
-			local execute = if selling then f.api.Sell else f.api.Discard
+			local execute = command(f.api, selling)
 			local first = selection(selling, 0, "old", 1, 100)
 			expect(execute(f.first, first).ok).toBe(true)
 			for revision = 1, PlayerData.maxRequestReceipts do
@@ -678,7 +691,7 @@ describe("MaterialDisposalCommand", function()
 	it("rejects unloaded profiles and stale revisions before mutation", function()
 		for _, selling in { true, false } do
 			local f = fixture()
-			local execute = if selling then f.api.Sell else f.api.Discard
+			local execute = command(f.api, selling)
 			local before = copy(f.profiles[f.first])
 			f.state.available = false
 			expect(execute(f.first, selection(selling, 0, "unloaded")).code).toBe("DataUnavailable")
@@ -697,7 +710,7 @@ describe("MaterialDisposalCommand", function()
 		function()
 			for _, selling in { true, false } do
 				local f = fixture()
-				local execute = if selling then f.api.Sell else f.api.Discard
+				local execute = command(f.api, selling)
 				local before = copy(f.profiles[f.first])
 				f.state.loseSessionAfterCallback = true
 				expect(execute(f.first, selection(selling, 0, "session-loss"))).toEqual({
@@ -713,7 +726,7 @@ describe("MaterialDisposalCommand", function()
 	it("isolates disposal and request receipts to the requesting profile", function()
 		for _, selling in { true, false } do
 			local f = fixture()
-			local execute = if selling then f.api.Sell else f.api.Discard
+			local execute = command(f.api, selling)
 			local otherBefore = copy(f.profiles[f.second])
 			local request = selection(selling, 0, "shared-id")
 			expect(execute(f.first, request).ok).toBe(true)
