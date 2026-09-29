@@ -1,15 +1,32 @@
 --!strict
--- ServerScriptService/Services/InventoryService/Capacity
+-- ServerScriptService/Domain/Inventory/InventoryCapacity
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Inventory = require(ReplicatedStorage.Shared.Configurations.Inventory)
 local Types = require(ReplicatedStorage.Shared.Types)
 
-local Capacity = {}
+local InventoryCapacity = {}
 
 export type Category = "materials" | "mythlings" | "equipment"
+export type MaterialEntries = { [string]: Types.MaterialEntry }
+export type MaterialState = {
+	materials: MaterialEntries,
+	inventoryUpgrades: { [string]: number }?,
+	craftingJobs: { [string]: Types.CraftingJob }?,
+}
 
 type MaterialTotals = { [string]: number }
+type MaterialValidationError = "InvalidInventoryState" | "InvalidReservations"
+type ReservationState = { craftingJobs: { [string]: Types.CraftingJob }? }
+type UpgradeState = { inventoryUpgrades: { [string]: number }? }
+
+local function isAcceptedTable(value: unknown, requirePlain: boolean?): boolean
+	return type(value) == "table" and (not requirePlain or getmetatable(value) == nil)
+end
+
+local function isAcceptedMaterialId(value: unknown, requireNonempty: boolean?): boolean
+	return type(value) == "string" and (not requireNonempty or #value > 0)
+end
 
 local function isWholeQuantity(value: unknown): boolean
 	return type(value) == "number"
@@ -31,26 +48,29 @@ local function addQuantity(totals: MaterialTotals, materialId: string, value: un
 	return true
 end
 
-local function getActiveReservations(data: Types.PlayerDoc): (boolean, number, MaterialTotals)
+local function getActiveReservations(
+	data: ReservationState,
+	strictShape: boolean?
+): (boolean, number, MaterialTotals)
 	local equipment = 0
 	local materials: MaterialTotals = {}
 	local rawJobs: unknown = data.craftingJobs
 	if rawJobs == nil then
 		return true, equipment, materials
 	end
-	if type(rawJobs) ~= "table" then
+	if not isAcceptedTable(rawJobs, strictShape) then
 		return false, equipment, materials
 	end
 
 	for _, rawJob in rawJobs :: { [unknown]: unknown } do
-		if type(rawJob) ~= "table" then
+		if not isAcceptedTable(rawJob, strictShape) then
 			return false, equipment, materials
 		end
 		local job = rawJob :: { [string]: unknown }
 		local status = job.status
 		if status == "Active" then
 			local rawReservations = job.reservations
-			if type(rawReservations) ~= "table" then
+			if not isAcceptedTable(rawReservations, strictShape) then
 				return false, equipment, materials
 			end
 			local reservations = rawReservations :: { [string]: unknown }
@@ -64,13 +84,13 @@ local function getActiveReservations(data: Types.PlayerDoc): (boolean, number, M
 			equipment = nextEquipment
 
 			local rawMaterials = reservations.materials
-			if type(rawMaterials) ~= "table" then
+			if not isAcceptedTable(rawMaterials, strictShape) then
 				return false, equipment, materials
 			end
 			for rawMaterialId, quantity in rawMaterials :: { [unknown]: unknown } do
 				if
-					type(rawMaterialId) ~= "string"
-					or not addQuantity(materials, rawMaterialId, quantity)
+					not isAcceptedMaterialId(rawMaterialId, strictShape)
+					or not addQuantity(materials, rawMaterialId :: string, quantity)
 				then
 					return false, equipment, materials
 				end
@@ -83,28 +103,34 @@ local function getActiveReservations(data: Types.PlayerDoc): (boolean, number, M
 	return true, equipment, materials
 end
 
-local function getMaterialTotals(data: Types.PlayerDoc): (boolean, MaterialTotals)
-	local valid, _, totals = getActiveReservations(data)
+local function getMaterialTotals(
+	data: MaterialState,
+	strictShape: boolean?
+): (boolean, MaterialTotals, MaterialValidationError?)
+	local valid, _, totals = getActiveReservations(data, strictShape)
 	if not valid then
-		return false, totals
+		return false, totals, "InvalidReservations"
 	end
 	local rawOwned: unknown = data.materials
-	if type(rawOwned) ~= "table" then
-		return false, totals
+	if not isAcceptedTable(rawOwned, strictShape) then
+		return false, totals, "InvalidInventoryState"
 	end
 	for rawMaterialId, rawEntry in rawOwned :: { [unknown]: unknown } do
-		if type(rawMaterialId) ~= "string" or type(rawEntry) ~= "table" then
-			return false, totals
+		if
+			not isAcceptedMaterialId(rawMaterialId, strictShape)
+			or not isAcceptedTable(rawEntry, strictShape)
+		then
+			return false, totals, "InvalidInventoryState"
 		end
 		local entry = rawEntry :: { [string]: unknown }
-		if not addQuantity(totals, rawMaterialId, entry.total) then
-			return false, totals
+		if not addQuantity(totals, rawMaterialId :: string, entry.total) then
+			return false, totals, "InvalidInventoryState"
 		end
 	end
-	return true, totals
+	return true, totals, nil
 end
 
-local function getPurchasedLevel(data: Types.PlayerDoc, category: Category): number?
+local function getPurchasedLevel(data: UpgradeState, category: Category): number?
 	local rawUpgrades: unknown = data.inventoryUpgrades
 	if type(rawUpgrades) ~= "table" then
 		return nil
@@ -123,7 +149,7 @@ local function countEntries(rawEntries: unknown): (boolean, number)
 	return true, count
 end
 
-function Capacity.GetLimit(category: Category, purchasedLevel: number?): number
+function InventoryCapacity.GetLimit(category: Category, purchasedLevel: number?): number
 	local capacities = Inventory.capacityByCategory[category]
 	if not capacities then
 		return 0
@@ -136,12 +162,48 @@ function Capacity.GetLimit(category: Category, purchasedLevel: number?): number
 	return capacities[index]
 end
 
-function Capacity.GetMythlingLimit(purchasedLevel: number?): number
-	return Capacity.GetLimit("mythlings", purchasedLevel)
+function InventoryCapacity.GetMythlingLimit(purchasedLevel: number?): number
+	return InventoryCapacity.GetLimit("mythlings", purchasedLevel)
 end
 
-function Capacity.GetUsage(data: Types.PlayerDoc, category: Category): Types.InventoryCapacity
-	local limit = Capacity.GetLimit(category, getPurchasedLevel(data, category))
+function InventoryCapacity.ValidateMaterialState(data: MaterialState): string?
+	if not isAcceptedTable(data, true) or not isAcceptedTable(data.materials, true) then
+		return "InvalidInventoryState"
+	end
+
+	local rawUpgrades: unknown = data.inventoryUpgrades
+	if rawUpgrades ~= nil then
+		if not isAcceptedTable(rawUpgrades, true) then
+			return "InvalidInventoryUpgrade"
+		end
+		local purchasedLevel = (rawUpgrades :: { [string]: unknown }).materials
+		if
+			purchasedLevel ~= nil
+			and (
+				not isWholeQuantity(purchasedLevel)
+				or (purchasedLevel :: number) > #Inventory.capacityByCategory.materials - 1
+			)
+		then
+			return "InvalidInventoryUpgrade"
+		end
+	end
+
+	local rawJobs: unknown = data.craftingJobs
+	if rawJobs ~= nil and not isAcceptedTable(rawJobs, true) then
+		return "InvalidReservations"
+	end
+	local valid, _, problem = getMaterialTotals(data, true)
+	if not valid then
+		return problem or "InvalidInventoryState"
+	end
+	return nil
+end
+
+function InventoryCapacity.GetUsage(
+	data: Types.PlayerDoc,
+	category: Category
+): Types.InventoryCapacity
+	local limit = InventoryCapacity.GetLimit(category, getPurchasedLevel(data, category))
 	if category == "materials" then
 		local valid, totals = getMaterialTotals(data)
 		if not valid then
@@ -165,8 +227,8 @@ function Capacity.GetUsage(data: Types.PlayerDoc, category: Category): Types.Inv
 	return { used = if validOwned then owned else limit, limit = limit }
 end
 
-function Capacity.GetMaterialRoom(
-	data: Types.PlayerDoc,
+function InventoryCapacity.GetMaterialRoom(
+	data: MaterialState,
 	materialId: string,
 	stackLimit: number?
 ): number
@@ -179,7 +241,7 @@ function Capacity.GetMaterialRoom(
 	if not valid then
 		return 0
 	end
-	local limit = Capacity.GetLimit("materials", getPurchasedLevel(data, "materials"))
+	local limit = InventoryCapacity.GetLimit("materials", getPurchasedLevel(data, "materials"))
 	local used = 0
 	for id, total in totals do
 		local currentStackLimit = if id == materialId
@@ -198,4 +260,4 @@ function Capacity.GetMaterialRoom(
 	return compatibleRoom + emptySlots * resolvedStackLimit
 end
 
-return table.freeze(Capacity)
+return table.freeze(InventoryCapacity)

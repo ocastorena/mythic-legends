@@ -220,6 +220,25 @@ stand path and player schema remain unchanged. A future service must derive this
 authenticated player's loaded profile and commit the entire result through the existing transaction
 and duplicate-request protection. This step adds neither a network endpoint nor live save wiring.
 
+### Shrine-collection logic review
+
+`Domain.Production.ShrineCollection.Collect` is a pure server-domain operation taking the selected
+Shrine and its expected Material ID. It settles elapsed production and XP, transfers every whole
+Material that fits in Inventory, and retains the remainder in the Shrine. Capacity uses the shared
+Inventory rules: separately rounded Material stacks, purchased upgrades, and active crafting-refund
+reservations. Collection neither releases reservations nor grants extra XP.
+
+Tests cover partial/full bags, matching and other Material reservations, retained unfinished work,
+full-storage pauses, repeated timestamps, stale selections, and detached serialized results using
+synthetic content. Empty storage returns `NothingToCollect`, including when Inventory is full;
+stored output with no room returns `InventoryFull`. Rejections leave both inputs unchanged.
+
+The result contains the settled accounting ledger and updated Material map; a future authenticated
+service must commit both in one profile transaction with revision/receipt protection. The shared
+capacity helper now lives under `Domain/Inventory/InventoryCapacity`; existing live callers retain
+their behavior. No live Shrine collection endpoint, save-schema change, final catalogue, or menu is
+introduced here, and these isolated tests do not establish durable-save behavior.
+
 ### Admin commands
 
 Public chat commands use `/admin <command> <argument>` after syncing and starting a fresh play session:

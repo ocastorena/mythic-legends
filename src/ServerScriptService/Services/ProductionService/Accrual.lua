@@ -6,8 +6,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local InventoryCapacity = require(ServerScriptService.Domain.Inventory.InventoryCapacity)
 local Ledger = require(ServerScriptService.Domain.Production.ProductionLedger)
-local Capacity = require(ServerScriptService.Services.InventoryService.Capacity)
 
 local Accrual = {}
 export type ProductionStatus = Types.ProductionStatus
@@ -168,7 +168,7 @@ function Accrual.new(
 				for _, materialId in ipairs(materialIds) do
 					local work = resolved.settled.materials[materialId]
 					local amount =
-						math.min(work.stored, Capacity.GetMaterialRoom(draft, materialId))
+						math.min(work.stored, InventoryCapacity.GetMaterialRoom(draft, materialId))
 					if amount > 0 then
 						local owned = resolved.materials[materialId]
 						if owned then

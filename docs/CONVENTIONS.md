@@ -56,6 +56,7 @@ mythic-legends/
       Infrastructure/             # cross-service technical support
       Domain/                     # explicitly shared server-domain contracts and pure logic
         Types.lua                 # server service protocols and injected context
+        Inventory/InventoryCapacity.lua
         Production/ProductionLedger.lua
       Packages/                   # server-only vendored dependencies
       PostLaunch/                 # retained prototypes; only Blockstorm is explicitly started
@@ -120,6 +121,9 @@ follow the README to regenerate them.
 [initial loading](TECHNICAL_DESIGN.md#initial-loading). Keep service helpers private to their service,
 character helpers client-side, and UI state adapters distinct from the authoritative client cache.
 Runtime responsibilities follow [Technical Design](TECHNICAL_DESIGN.md#runtime-architecture).
+Reusable server-side Inventory capacity and reservation accounting belongs to
+`Domain/Inventory/InventoryCapacity`, not a private InventoryService child. Both live Inventory/
+production callers and isolated Shrine collection consume that shared contract.
 
 ## Roblox Explorer hierarchy
 

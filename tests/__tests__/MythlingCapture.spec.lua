@@ -7,7 +7,7 @@ local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Domain.Types)
 local Mythlings = require(ServerScriptService.Services.InventoryService.Mythlings)
-local Capacity = require(ServerScriptService.Services.InventoryService.Capacity)
+local Capacity = require(ServerScriptService.Domain.Inventory.InventoryCapacity)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
 
 local describe = JestGlobals.describe

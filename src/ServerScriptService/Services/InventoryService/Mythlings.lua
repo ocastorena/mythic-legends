@@ -4,11 +4,12 @@
 
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
-local ServerTypes = require(game:GetService("ServerScriptService").Domain.Types)
-local Capacity = require(script.Parent.Capacity)
+local InventoryCapacity = require(ServerScriptService.Domain.Inventory.InventoryCapacity)
+local ServerTypes = require(ServerScriptService.Domain.Types)
 
 local Mythlings = {}
 
@@ -51,7 +52,7 @@ function Mythlings.GetCapacity(player: Player): Types.InventoryCapacity?
 	if not data or not owned or owned ~= data.mythlings then
 		return nil
 	end
-	return Capacity.GetUsage(data, "mythlings")
+	return InventoryCapacity.GetUsage(data, "mythlings")
 end
 
 function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: string }): string?
@@ -66,7 +67,7 @@ function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: 
 
 	local id = makeId()
 	local result = DataService.Update(player, "CaptureMythling", function(draft)
-		local current = Capacity.GetUsage(draft, "mythlings")
+		local current = InventoryCapacity.GetUsage(draft, "mythlings")
 		if current.used >= current.limit then
 			return { ok = false, code = "InventoryFull" }
 		end
