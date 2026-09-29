@@ -19,6 +19,7 @@ local PlayerDataTemplate =
 local Transactions = require(script.Transactions)
 local Projection = require(script.Projection)
 local ProfileSchema = require(script.ProfileSchema)
+local ProfileSettlements = require(script.ProfileSettlements)
 local Configuration = require(ReplicatedStorage.Shared.Configurations.PlayerData)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
@@ -35,11 +36,14 @@ type Profile = ProfileStore.Profile<PlayerData>
 local startSession: ((string, { Cancel: () -> boolean, Steal: boolean? }) -> Profile?)?
 
 local DataService = {}
+local settlements = ProfileSettlements.new()
+local stopping = false
 
 local profiles: { [Player]: Profile } = {}
 local profileTroves: { [Profile]: Trove.Trove } = {}
 local loading: { [Player]: boolean } = {}
 local releasing: { [Player]: Profile } = {}
+local closingProfiles: { [Profile]: boolean } = {}
 local revisions: { [Player]: number } = {}
 local projections: { [Player]: { [string]: any } } = {}
 local loadedBindable = Instance.new("BindableEvent")
@@ -53,6 +57,27 @@ DataService.OnReleased = releasedBindable.Event
 local updateState: RemoteEvent?
 local requestState: RemoteFunction?
 local stateRequestLimiter = RateLimiter.new(6, 1)
+
+local function isRunning(): boolean
+	return not stopping and lifecycle:IsRunning()
+end
+
+local function asSettlementProfile(profile: Profile): ProfileSettlements.Profile
+	-- ProfileStore intersects Data with its recursive JSON schema and uses a dynamic method self.
+	-- Adapt that vendor type once, retaining the exact profile identity and canonical document.
+	return (profile :: unknown) :: ProfileSettlements.Profile
+end
+
+local function finalizeProfile(player: Player, profile: Profile)
+	-- External/shutdown final saves are closing boundaries too, but are not intentional
+	-- player releases. Keep that distinction so an external session loss still kicks.
+	closingProfiles[profile] = true
+	local result = settlements.Finalize(asSettlementProfile(profile))
+	if not result.ok then
+		-- Retain the last valid cursor for recovery; a failed boundary must not advance it.
+		log.error(`Profile release settlement failed for userId {player.UserId}`, result.code)
+	end
+end
 
 local function deepClone(value: any): any
 	if type(value) ~= "table" then
@@ -143,10 +168,16 @@ function DataService.Init(serviceContext: ServerTypes.Context)
 	requestState = serviceContext.Remotes.State.Request
 end
 
+function DataService.RegisterProfileSettlement(owner: string, settle: ServerTypes.ProfileSettlement)
+	assert(not stopping and not lifecycle:IsRunning(), "[DataService] Register before Start")
+	settlements.Register(owner, settle)
+end
+
 function DataService.Start()
 	if not lifecycle:Start() then
 		return
 	end
+	settlements.Seal()
 	-- The vendor's recursive JSONAcceptable intersection cannot infer this valid nested template.
 	-- Isolate that constructor adaptation; all loaded documents retain their canonical type.
 	local liveStore: ProfileStore.ProfileStore<PlayerData> =
@@ -172,10 +203,13 @@ function DataService.Start()
 end
 
 function DataService.Load(player: Player): boolean
-	if not lifecycle:IsRunning() then
+	if not isRunning() then
 		return false
 	end
 	local existing = profiles[player]
+	if existing and closingProfiles[existing] then
+		return false
+	end
 	if existing and existing:IsActive() then
 		return true
 	end
@@ -183,11 +217,12 @@ function DataService.Load(player: Player): boolean
 	if loading[player] then
 		repeat
 			task.wait()
-		until not loading[player] or player.Parent ~= Players or not lifecycle:IsRunning()
+		until not loading[player] or player.Parent ~= Players or not isRunning()
 		local loaded = profiles[player]
-		return lifecycle:IsRunning()
+		return isRunning()
 			and player.Parent == Players
 			and loaded ~= nil
+			and not closingProfiles[loaded]
 			and loaded:IsActive()
 	end
 
@@ -201,15 +236,14 @@ function DataService.Load(player: Player): boolean
 	local ok, result = pcall(function()
 		return loadSession(Configuration.profileKeyPrefix .. player.UserId, {
 			Cancel = function()
-				return player.Parent ~= Players or not lifecycle:IsRunning()
+				return player.Parent ~= Players or not isRunning()
 			end,
 		})
 	end)
-	loading[player] = nil
-
 	if not ok then
+		loading[player] = nil
 		log.error(`Profile load threw for userId {player.UserId}`, result)
-		if lifecycle:IsRunning() and player.Parent == Players then
+		if isRunning() and player.Parent == Players then
 			player:Kick("Your data could not be loaded safely. Please rejoin.")
 		end
 		return false
@@ -217,90 +251,132 @@ function DataService.Load(player: Player): boolean
 
 	local profile = result
 	if not profile then
-		if lifecycle:IsRunning() and player.Parent == Players then
+		loading[player] = nil
+		if isRunning() and player.Parent == Players then
 			player:Kick("Your data could not be loaded safely. Please rejoin.")
 		end
 		return false
 	end
-	if not lifecycle:IsRunning() or player.Parent ~= Players or not profile:IsActive() then
+	if not isRunning() or player.Parent ~= Players or not profile:IsActive() then
+		loading[player] = nil
 		profile:EndSession()
 		return false
 	end
 
-	profile:AddUserId(player.UserId)
-	-- Forward-only MVP additions run before reconciliation and before any consumer sees the data.
-	local prepared, schemaError = ProfileSchema.Prepare(profile.Data, function()
-		return HttpService:GenerateGUID(false)
+	-- Keep admission serialized through preparation and Ready settlement. No consumer can obtain
+	-- the profile until every registered rule has accepted the same detached document.
+	local admitted, admissionError = pcall(function(): boolean
+		profile:AddUserId(player.UserId)
+		local prepared, schemaError = ProfileSchema.Prepare(profile.Data, function()
+			return HttpService:GenerateGUID(false)
+		end, workspace:GetServerTimeNow())
+		if not prepared then
+			log.error(`Profile schema preparation failed for userId {player.UserId}`, schemaError)
+			return false
+		end
+		profile:Reconcile()
+		local ready = settlements.Run(asSettlementProfile(profile), "Ready", function()
+			return isRunning() and player.Parent == Players and profiles[player] == nil
+		end)
+		if not ready.ok then
+			log.error(`Profile ready settlement failed for userId {player.UserId}`, ready.code)
+			return false
+		end
+
+		local profileTrove = lifecycle.trove:Extend()
+		profileTroves[profile] = profileTrove
+		-- ProfileStore fires this before removing active ownership and before its final save.
+		-- Its signal starts listeners synchronously until their first yield; our coordinator
+		-- rejects yielding callbacks. Finalize also suppresses a preceding manual Release.
+		local lastSaveConnection = profile.OnLastSave:Connect(function()
+			finalizeProfile(player, profile)
+		end)
+		profileTrove:Add(function()
+			lastSaveConnection:Disconnect()
+		end)
+		local endedConnection = profile.OnSessionEnd:Connect(function()
+			local endedIntentionally = releasing[player] == profile
+			if endedIntentionally then
+				releasing[player] = nil
+			end
+			-- A late end notification from an older profile must not erase a replacement.
+			if profiles[player] == profile then
+				profiles[player] = nil
+				projections[player] = nil
+				revisions[player] = nil
+				if isRunning() then
+					releasedBindable:Fire(player)
+				end
+				if isRunning() and not endedIntentionally and player.Parent == Players then
+					player:Kick("Your data session ended on another server. Please rejoin.")
+				end
+			end
+			closingProfiles[profile] = nil
+			profileTroves[profile] = nil
+			lifecycle.trove:Remove(profileTrove)
+		end)
+		profileTrove:Add(function()
+			endedConnection:Disconnect()
+		end)
+
+		if not isRunning() or player.Parent ~= Players or not profile:IsActive() then
+			return false
+		end
+		profiles[player] = profile
+		revisions[player] = 0
+		local playerData: PlayerData = profile.Data
+		playerData.profile.userId = player.UserId
+		if playerData.profile.createdAt == 0 then
+			playerData.profile.createdAt = os.time()
+		end
+		playerData.profile.lastLoginAt = os.time()
+		projections[player] = {}
+		publishChanges(player, true)
+		loadedBindable:Fire(player, playerData)
+		return true
 	end)
-	if not prepared then
-		log.error(`Profile schema preparation failed for userId {player.UserId}`, schemaError)
+	loading[player] = nil
+	if admitted and admissionError then
+		return true
+	end
+	if not admitted then
+		log.error(`Profile preparation threw for userId {player.UserId}`, admissionError)
+	end
+	if profile:IsActive() then
 		profile:EndSession()
-		if lifecycle:IsRunning() and player.Parent == Players then
-			player:Kick("Your data could not be updated safely. Please rejoin.")
-		end
-		return false
 	end
-	profile:Reconcile()
-	local profileTrove = lifecycle.trove:Extend()
-	profileTroves[profile] = profileTrove
-	local endedConnection = profile.OnSessionEnd:Connect(function()
-		local endedIntentionally = releasing[player] == profile
-		releasing[player] = nil
-		profiles[player] = nil
-		projections[player] = nil
-		revisions[player] = nil
-		if lifecycle:IsRunning() then
-			releasedBindable:Fire(player)
-		end
-		if lifecycle:IsRunning() and not endedIntentionally and player.Parent == Players then
-			player:Kick("Your data session ended on another server. Please rejoin.")
-		end
-		profileTroves[profile] = nil
-		lifecycle.trove:Remove(profileTrove)
-	end)
-	profileTrove:Add(function()
-		endedConnection:Disconnect()
-	end)
-
-	if not lifecycle:IsRunning() or player.Parent ~= Players or not profile:IsActive() then
-		profile:EndSession()
-		return false
+	if isRunning() and player.Parent == Players then
+		player:Kick("Your data could not be updated safely. Please rejoin.")
 	end
-
-	profiles[player] = profile
-	revisions[player] = 0
-	local playerData: PlayerData = profile.Data
-	playerData.profile.userId = player.UserId
-	if playerData.profile.createdAt == 0 then
-		playerData.profile.createdAt = os.time()
-	end
-	playerData.profile.lastLoginAt = os.time()
-
-	projections[player] = {}
-	publishChanges(player, true)
-	loadedBindable:Fire(player, playerData)
-	return true
+	return false
 end
 
 function DataService.Release(player: Player)
-	loading[player] = nil
 	stateRequestLimiter:Forget(player)
 	local profile = profiles[player]
 	if not profile then
 		return
 	end
 	releasing[player] = profile
-	profiles[player] = nil
 	if profile:IsActive() then
+		finalizeProfile(player, profile)
 		profile:EndSession()
 	end
-	projections[player] = nil
-	revisions[player] = nil
+	if profiles[player] == profile then
+		profiles[player] = nil
+		projections[player] = nil
+		revisions[player] = nil
+	end
 end
 
 function DataService.GetLoadedData(player: Player): PlayerData?
 	local profile = profiles[player]
-	return if lifecycle:IsRunning() and profile and profile:IsActive() then profile.Data else nil
+	return if isRunning()
+			and profile
+			and not closingProfiles[profile]
+			and profile:IsActive()
+		then profile.Data
+		else nil
 end
 
 function DataService.GetData(player: Player): PlayerData
@@ -312,7 +388,7 @@ end
 
 function DataService.MarkDirty(player: Player): boolean
 	local profile = profiles[player]
-	if not profile or not profile:IsActive() then
+	if not isRunning() or not profile or closingProfiles[profile] or not profile:IsActive() then
 		return false
 	end
 	Transactions.Invalidate(profile.Data)
@@ -326,11 +402,14 @@ function DataService.Transact(
 	mutate: Transactions.Mutator
 ): Types.TransactionResult
 	local profile = profiles[player]
-	if not lifecycle:IsRunning() or not profile or not profile:IsActive() then
+	if not isRunning() or not profile or closingProfiles[profile] or not profile:IsActive() then
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	local result = Transactions.Run(profile.Data, request, mutate, function()
-		return lifecycle:IsRunning() and profiles[player] == profile and profile:IsActive()
+		return isRunning()
+			and profiles[player] == profile
+			and not closingProfiles[profile]
+			and profile:IsActive()
 	end)
 	if result.code ~= "DataUnavailable" then
 		publishChanges(player)
@@ -358,12 +437,26 @@ function DataService.Update(
 	}, mutate)
 end
 
+function DataService.Checkpoint(player: Player): Types.TransactionResult
+	local profile = profiles[player]
+	if not isRunning() or not profile or not profile:IsActive() or closingProfiles[profile] then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	local result = settlements.Run(asSettlementProfile(profile), "Checkpoint", function()
+		return isRunning() and profiles[player] == profile and not closingProfiles[profile]
+	end)
+	if result.code ~= "DataUnavailable" then
+		publishChanges(player)
+	end
+	return result
+end
+
 function DataService.SaveNow(player: Player): boolean
 	local profile = profiles[player]
-	if not profile or not profile:IsActive() then
+	if not profile or not DataService.Checkpoint(player).ok then
 		return false
 	end
-	publishChanges(player)
+	-- Save schedules the vendor's asynchronous write; success is not durable acknowledgement.
 	local ok, err = pcall(function()
 		profile:Save()
 	end)
@@ -374,26 +467,26 @@ function DataService.SaveNow(player: Player): boolean
 end
 
 function DataService.Stop()
-	if not lifecycle:Stop() then
+	if stopping then
 		return
 	end
-	table.clear(loading)
+	-- Reject new admissions/public mutations first, but retain active profile listeners until
+	-- their release settlement has run. Other feature services may already have stopped.
+	stopping = true
 	if requestState then
 		RemoteUtil.ClearServerHandler(requestState)
 	end
 	stateRequestLimiter:Clear()
-	if ProfileStore.IsClosing then
-		table.clear(profiles)
-		table.clear(releasing)
-		table.clear(projections)
-		table.clear(revisions)
-		table.clear(profileTroves)
-		return
-	end
-	for player in pairs(profiles) do
+	for player in pairs(table.clone(profiles)) do
 		DataService.Release(player)
 	end
+	lifecycle:Stop()
+	table.clear(loading)
+	table.clear(profiles)
 	table.clear(releasing)
+	table.clear(closingProfiles)
+	table.clear(projections)
+	table.clear(revisions)
 	table.clear(profileTroves)
 	startSession = nil
 end

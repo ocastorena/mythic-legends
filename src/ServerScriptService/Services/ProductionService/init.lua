@@ -1,18 +1,23 @@
 --!strict
 -- ServerScriptService/Services/ProductionService
--- Owns prototype stand production and server-only Shrine settlement/collection.
+-- Owns prototype stand production and canonical Shrine accounting lifecycle/commands.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local RateLimiter = require(infrastructure:WaitForChild("RateLimiter"))
+local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
 
 local Accrual = require(script.Accrual)
 local ShrineProduction = require(script.ShrineProduction)
 local ShrineCollector = require(script.ShrineCollector)
+local ProfileProduction = require(script.ProfileProduction)
+local ProfileCheckpoints = require(script.ProfileCheckpoints)
+local Production = require(ReplicatedStorage.Shared.Configurations.Production)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -20,6 +25,8 @@ local lifecycle = ServiceLifecycle.new("ProductionService")
 local accrual: Accrual.Accrual
 local shrineProduction: ShrineProduction.ShrineProduction?
 local shrineCollector: ShrineCollector.ShrineCollector?
+local checkpoints: ProfileCheckpoints.ProfileCheckpoints?
+local log = LogUtil.For("ProductionService")
 
 local ProductionService = {}
 local getStatus: RemoteFunction
@@ -36,6 +43,20 @@ function ProductionService.Init(serviceContext: ServerTypes.Context)
 	)
 	shrineProduction = ShrineProduction.new(serviceContext.Services.DataService)
 	shrineCollector = ShrineCollector.new(serviceContext.Services.DataService)
+	serviceContext.Services.DataService.RegisterProfileSettlement(
+		"Production",
+		ProfileProduction.Settle
+	)
+	checkpoints = ProfileCheckpoints.new(
+		serviceContext.Services.DataService,
+		function()
+			return Players:GetPlayers()
+		end,
+		Production.onlineCheckpointIntervalSeconds,
+		function(player, code)
+			log.error(`Profile checkpoint failed for userId {player.UserId}`, code)
+		end
+	)
 	getStatus = serviceContext.Remotes.Production.GetStatus
 	collect = serviceContext.Remotes.Production.Collect
 end
@@ -48,6 +69,9 @@ function ProductionService.Start()
 	if not lifecycle:Start() then
 		return
 	end
+	local scheduler = checkpoints
+	assert(scheduler, "[ProductionService] Init must precede Start")
+	lifecycle.trove:Connect(RunService.Heartbeat, scheduler.Step)
 	getStatus.OnServerInvoke = function(
 		player: Player,
 		standId: unknown
@@ -101,6 +125,7 @@ function ProductionService.Stop()
 	requestLimiter:Clear()
 	shrineProduction = nil
 	shrineCollector = nil
+	checkpoints = nil
 end
 
 function ProductionService.GetProduction(player: Player, standId: number): Accrual.ProductionStatus?

@@ -13,7 +13,15 @@ export type InventorySession = {
 	materials: Materials?,
 }
 export type InventorySessions = { [number]: InventorySession }
+export type ProfileBoundary = "Ready" | "Checkpoint" | "Release"
+export type ProfileSettlement = (
+	PlayerData,
+	number,
+	ProfileBoundary
+) -> SharedTypes.TransactionOutcome
 export type DataApi = {
+	RegisterProfileSettlement: (string, ProfileSettlement) -> (),
+	Checkpoint: (Player) -> SharedTypes.TransactionResult,
 	Load: (Player) -> boolean,
 	Release: (Player) -> (),
 	GetData: (Player) -> PlayerData,

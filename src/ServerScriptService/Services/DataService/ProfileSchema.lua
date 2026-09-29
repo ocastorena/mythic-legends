@@ -11,6 +11,7 @@ local Bases = require(ReplicatedStorage.Shared.Configurations.Bases)
 local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local Types = require(ReplicatedStorage.Shared.Types)
 local BaseState = require(ServerScriptService.Shared.BaseState)
+local ProductionClockUtil = require(ServerScriptService.Shared.ProductionClockUtil)
 
 local ProfileSchema = {}
 
@@ -207,6 +208,7 @@ local function stageClock(
 		or not nonnegative(clock.nextBatchAt)
 		or clock.nextBatchAt <= clock.lastAccruedAt
 		or clock.nextBatchAt > clock.lastAccruedAt + interval
+		or not ProductionClockUtil.ValidateLifecycle(clock)
 	then
 		return nil, "InvalidProductionClock"
 	end

@@ -248,7 +248,12 @@ export type ShrineRecord = {
 }
 
 -- One common schedule; Shrine records never own a second independently reset clock.
-export type ProductionClock = { lastAccruedAt: number, nextBatchAt: number }
+export type ProductionClock = {
+	lastAccruedAt: number,
+	nextBatchAt: number,
+	lastOnlineCheckpointAt: number?,
+	offlineSince: number?,
+}
 
 export type BuildShrineRequest = {
 	requestId: string,

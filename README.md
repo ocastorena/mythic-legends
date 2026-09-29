@@ -223,8 +223,9 @@ deterministic lowest-free slots and level 1. Corrupt or conflicting ownership is
 than erased or remapped.
 The automated suite exercises all six elements, duplicate and stale requests, full capacity,
 insufficient Gold, rollback, automatic gap filling, projection privacy, and serialized reconnects.
-The commands below now add settlement, assignments, collection, upgrades, and dismantling;
-automatic production lifecycle and UI integration remain separate tasks.
+The commands below add settlement, assignments, collection, upgrades, and dismantling. Canonical
+Shrine production also has the automatic profile lifecycle described below; UI integration remains
+separate work.
 These checks establish in-session atomicity and serialized-state behavior, not live save durability.
 
 ### Shrine-accounting save foundation review
@@ -238,10 +239,10 @@ shifting the shared clock. No production or XP is awarded by these additions.
 Run the static suite and runtime tests above. Schema tests cover additive v4–v6 upgrades, repeated
 preparation, serialized-state retention, invalid/partial accounting rejection, and projection
 privacy; construction tests check empty fields and unchanged clock timing. Existing valid state,
-identities, unrelated fields, and prototype stand behavior must survive. This is the saved-state
-foundation only: no live accrual, assignment, collection, Mythling progression changes, or UI is
-enabled. Existing DataService saves own the new fields; tests and ordinary Studio mocks do not
-prove live durable persistence. See the
+identities, unrelated fields, and prototype stand behavior must survive. Schema preparation itself
+awards no work or XP; the commands and automatic lifecycle below perform settlement separately.
+Existing DataService saves own the new fields; tests and ordinary Studio mocks do not prove live
+durable persistence. See the
 [schema contract](docs/TECHNICAL_DESIGN.md#schema-7-shrine-accounting-foundation).
 
 ### Shrine-accounting draft adapter review
@@ -256,9 +257,9 @@ Unreferenced legacy forms without pending credit remain untouched. See the
 Run the static suite and runtime tests above. Tests exercise detached failures, preserved unrelated
 state, transactions through `Transactions.Run`, and serialized continuation. Projection keeps pending
 XP private. The server-shared adapter supports on-demand settlement, atomic assignment, collection,
-Shrine upgrades, dismantling, Mythling evolution, and sales; it is not an automatic lifecycle hook,
-remote, or menu action.
-Callers must use it inside `DataService.Transact` or `Update`; it neither authenticates a player nor
+Shrine upgrades, dismantling, Mythling evolution, sales, and profile lifecycle settlement. It does not
+own a timer, remote, or menu action.
+Callers must use it inside a DataService transaction; it neither authenticates a player nor
 saves a profile by itself.
 These tests do not establish live durable persistence.
 
@@ -267,8 +268,9 @@ These tests do not establish live durable persistence.
 `ProductionService.SettleShrines(player)` is a server-only command returning the normal transaction
 result, with `values.settledAt` on success. It uses the player's already-loaded profile and reads
 server time inside its transaction; callers cannot provide elapsed time, metadata, or a ledger.
-The service must be running and the player connected. There are no automatic join/leave/timer
-calls, new save checkpoints, remotes, menus, or changes to the existing stand paths.
+The service must be running and the player connected. The command itself starts no timer or save
+checkpoint and adds no remote, menu, or changes to the existing stand paths. Automatic profile
+settlement uses the separate lifecycle hook below, not this connected-player command.
 
 Run the static suite and runtime tests above. Controlled DataSource tests cover transaction results
 and repeated settlement, not live durable saves. Settling twice at the same time awards no duplicate
@@ -277,6 +279,36 @@ must settle and mutate in the same draft, not call this command before a separat
 the [command contract](docs/TECHNICAL_DESIGN.md#on-demand-shrine-settlement).
 The disposable runner cannot create engine `Player` instances; automated service-gate tests cover
 lifecycle and impostor rejection. Actual connected/disconnected-player dispatch still needs a playtest.
+
+### Automatic Shrine-production lifecycle review
+
+Canonical Shrine work and XP now settle before a prepared profile becomes publicly loaded, at
+online checkpoints, and before normal release. `ProductionService` registers the pure
+`ProfileProduction.Settle` hook during initialization; DataService owns the session boundaries and
+runs every registered hook on one detached transaction draft with one server timestamp. An invalid,
+erroring, yielding, or session-lost operation cannot partially commit accounting.
+
+The private production clock adds optional `lastOnlineCheckpointAt` and `offlineSince` bookkeeping.
+Existing schema-7 clocks with both absent remain valid: the first successful Ready settlement
+initializes the checkpoint without resetting earned work or the batch schedule. Ready settles from
+the saved accrual cursor before clearing the offline marker; checkpoints settle before advancing
+their marker; release settles before recording the offline boundary. These markers neither replace
+`lastAccruedAt` nor apply an offline bonus. Invalid partial or out-of-order markers are rejected.
+
+`Production.onlineCheckpointIntervalSeconds` initially configures a 30-second Heartbeat-driven
+checkpoint interval, separate from one-second accounting batches. The scheduler only visits already
+loaded profiles, performs one catch-up settlement after a delayed tick, and stops with its service.
+It never loads profiles or requests a save on each tick. The pure boundary hook remains available
+when runtime production tasks stop so DataService can still finalize profiles.
+
+Run the static suite and runtime tests above for clean release/reconnect, checkpoint recovery,
+repeated boundaries, full-storage pauses, offline equivalence, preserved partial work/XP, invalid
+markers, hook rollback, and scheduler cleanup. `SaveNow` checkpoints before requesting the normal
+asynchronous save; this is not a durable acknowledgement. Final-save fallback and failed-release
+behavior follow the [lifecycle contract](docs/TECHNICAL_DESIGN.md#automatic-shrine-production-lifecycle).
+Actual join/leave/shutdown ordering and durable persistence still need live playtests outside the
+default ephemeral Studio mock. No GUI, remotes, capture grants, schema bump, or prototype-production
+migration are included; existing stand accrual remains separate.
 
 ### Shrine-accounting logic review
 
@@ -293,8 +325,8 @@ levels, full/empty pauses, offline equivalence, and repeated-time safety. Long o
 identical batches up to the next level/storage event rather than iterating every elapsed second.
 The current live stand-production path remains unchanged. Server-only settlement, assignment,
 collection, Shrine upgrades, dismantling, evolution, and sales use the engine through the shared adapter.
-Automatic lifecycle integration, migration of retained prototype work, and final content remain separate
-tasks; pure tests do not prove live persistence.
+The profile lifecycle above uses the same engine. Migration of retained prototype work and final
+content remain separate tasks; pure tests do not prove live persistence.
 
 Capped Mythlings continue production but stop earning new XP; any XP
 already earned (including pending credit and the cap-reaching batch's remainder) is retained.

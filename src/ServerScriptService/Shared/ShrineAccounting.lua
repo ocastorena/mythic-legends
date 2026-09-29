@@ -1,6 +1,6 @@
 --!strict
 -- ServerScriptService/Shared/ShrineAccounting
--- Bridges canonical saved state to the detached Shrine engine; no automatic lifecycle settlement.
+-- Bridges canonical saved state to the detached Shrine engine inside the caller's transaction.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -12,6 +12,7 @@ local Shrines = require(ReplicatedStorage.Shared.Configurations.Shrines)
 local FreezeUtil = require(ReplicatedStorage.Shared.FreezeUtil)
 local BaseState = require(ServerScriptService.Shared.BaseState)
 local ShrineAccrual = require(ServerScriptService.Shared.ShrineAccrual)
+local ProductionClockUtil = require(ServerScriptService.Shared.ProductionClockUtil)
 
 local ShrineAccounting = {}
 
@@ -87,7 +88,7 @@ local function snapshot(
 	if clock == nil then
 		return nil, "MissingProductionClock"
 	end
-	if not isPlain(clock) then
+	if not isPlain(clock) or not ProductionClockUtil.ValidateLifecycle(clock) then
 		return nil, "InvalidProductionClock"
 	end
 	if not isPlain(metadata) or not isPlain(metadata.forms) or not isPlain(metadata.shrines) then

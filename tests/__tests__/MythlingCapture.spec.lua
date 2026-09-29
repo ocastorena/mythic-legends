@@ -50,6 +50,10 @@ local function fixture(count: number, upgradeLevel: number?)
 		saveCalls = 0,
 	}
 	local dataService: ServerTypes.DataApi = {
+		RegisterProfileSettlement = function() end,
+		Checkpoint = function()
+			return { ok = false, code = "DataUnavailable", revision = 0 }
+		end,
 		Load = function(_player)
 			return state.isLoaded
 		end,

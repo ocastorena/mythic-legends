@@ -8,6 +8,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
 local Types = require(ReplicatedStorage.Shared.Types)
+local ServerTypes = require(ServerScriptService.Shared.Types)
 local Mythlings = require(ReplicatedStorage.Shared.Configurations.Mythlings)
 local ProfileSchema = require(ServerScriptService.Services.DataService.ProfileSchema)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
@@ -315,6 +316,7 @@ describe("ProductionService Shrine command gates", function()
 		local player = { UserId = 1001, Parent = game:GetService("Players") }
 		local updates = 0
 		local reads, transactions = 0, 0
+		local registered: ServerTypes.ProfileSettlement? = nil
 		local request: Types.CollectShrineRequest = {
 			requestId = "0:collect",
 			expectedRevision = 0,
@@ -343,6 +345,16 @@ describe("ProductionService Shrine command gates", function()
 		service.Init({
 			Services = {
 				DataService = {
+					RegisterProfileSettlement = function(
+						owner: string,
+						settle: ServerTypes.ProfileSettlement
+					)
+						expect(owner).toBe("Production")
+						registered = settle
+					end,
+					Checkpoint = function(): Types.TransactionResult
+						return { ok = false, code = "DataUnavailable", revision = 0 }
+					end,
 					Update = function(): Types.TransactionResult
 						updates += 1
 						return { ok = false, code = "UnexpectedUpdate", revision = 0 }
@@ -375,5 +387,14 @@ describe("ProductionService Shrine command gates", function()
 		expectUnavailable(root)
 		service.Stop()
 		expectUnavailable(player)
+		-- Reverse service shutdown stops Production before DataService releases profiles. Its
+		-- registered pure hook must remain independent of disposed runtime command instances.
+		local settle = assert(registered, "Expected Production profile hook")
+		local data = profile(1001)
+		expect(settle(data, 30, "Ready").ok).toBe(true)
+		expect(settle(data, 45, "Release").ok).toBe(true)
+		expect(
+			(assert(data.productionClock, "[ShrineProduction.spec] Expected clock")).offlineSince
+		).toBe(45)
 	end)
 end)
