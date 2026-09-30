@@ -26,7 +26,13 @@ local DECLARATIONS: { [string]: { [string]: string } } = {
 		CancelJob = "RemoteFunction",
 	},
 	Production = { GetStatus = "RemoteFunction", Collect = "RemoteFunction" },
-	Base = { PlaceMythling = "RemoteFunction", RemoveMythling = "RemoteFunction" },
+	Base = {
+		PlaceMythling = "RemoteFunction",
+		RemoveMythling = "RemoteFunction",
+		GetBase = "RemoteFunction",
+		BuildShrine = "RemoteFunction",
+		ExpandBase = "RemoteFunction",
+	},
 	Combat = {
 		StartAttack = "RemoteEvent",
 		ReportHit = "RemoteEvent",
@@ -96,6 +102,9 @@ describe("RemoteUtil", function()
 				"GetStation",
 				"StartJob",
 				"CancelJob",
+				"GetBase",
+				"BuildShrine",
+				"ExpandBase",
 				"DeleteMythling",
 				"EvolveMythling",
 				"SellMythling",
@@ -115,6 +124,11 @@ describe("RemoteUtil", function()
 					or name == "StartJob"
 					or name == "CancelJob"
 				then "Crafting"
+				elseif
+					name == "GetBase"
+					or name == "BuildShrine"
+					or name == "ExpandBase"
+				then "Base"
 				elseif name == "EquipEquipment" or name == "UnequipEquipment" then "Combat"
 				else "Inventory"
 			local folder = assert(network:FindFirstChild(domain))

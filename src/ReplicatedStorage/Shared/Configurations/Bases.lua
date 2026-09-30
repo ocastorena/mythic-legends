@@ -17,4 +17,7 @@ return FreezeUtil.DeepFreeze({
 	-- Every expansion pays the same fixed mix, irrespective of the player's Shrine layout.
 	expansionMaterialIds = UpgradeMaterials,
 	craftingStationId = "basic_crafting_station",
+	-- Authored by the separate asset/UI workflow; runtime never guesses a fallback position.
+	interactionAnchorPath = { "NameSign", "BasePromptAttachment" },
+	interactionDistanceStuds = 4,
 })

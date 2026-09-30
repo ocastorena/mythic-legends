@@ -113,7 +113,10 @@ local function project(data: Types.PlayerDoc): (Types.BaseView?, string?)
 		nil
 end
 
-function BaseView.new(DataService: DataSource): BaseView
+function BaseView.new(
+	DataService: DataSource,
+	checkAccess: ((Player, Types.PlayerDoc) -> string?)?
+): BaseView
 	assert(
 		type(DataService) == "table" and type(DataService.GetLoadedData) == "function",
 		"[BaseService.BaseView] DataService.GetLoadedData required"
@@ -127,6 +130,10 @@ function BaseView.new(DataService: DataSource): BaseView
 		local revision = currentRevision(data)
 		if revision < 0 then
 			return { ok = false, code = "InvalidTransaction", revision = revision }
+		end
+		local accessProblem = if checkAccess then checkAccess(player, data) else nil
+		if accessProblem then
+			return { ok = false, code = accessProblem, revision = revision }
 		end
 		local view, problem = project(data)
 		if not view then

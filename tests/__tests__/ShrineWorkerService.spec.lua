@@ -95,6 +95,12 @@ describe("BaseService Shrine command gates", function()
 		place.Parent = root
 		local removeRemote = Instance.new("RemoteFunction")
 		removeRemote.Parent = root
+		local getBase = Instance.new("RemoteFunction")
+		getBase.Parent = root
+		local buildShrine = Instance.new("RemoteFunction")
+		buildShrine.Parent = root
+		local expandBase = Instance.new("RemoteFunction")
+		expandBase.Parent = root
 		service.Init({
 			Instances = {
 				Arena = arena,
@@ -104,7 +110,15 @@ describe("BaseService Shrine command gates", function()
 				BaseAssets = root,
 			},
 			Configurations = { Mythlings = Mythlings },
-			Remotes = { Base = { PlaceMythling = place, RemoveMythling = removeRemote } },
+			Remotes = {
+				Base = {
+					PlaceMythling = place,
+					RemoveMythling = removeRemote,
+					GetBase = getBase,
+					BuildShrine = buildShrine,
+					ExpandBase = expandBase,
+				},
+			},
 			Services = {
 				DataService = {
 					Load = function(): boolean

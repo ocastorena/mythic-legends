@@ -86,6 +86,9 @@
         },
         "Base": {
           "$className": "Folder",
+          "GetBase": { "$className": "RemoteFunction" },
+          "BuildShrine": { "$className": "RemoteFunction" },
+          "ExpandBase": { "$className": "RemoteFunction" },
           "PlaceMythling": { "$className": "RemoteFunction" },
           "RemoveMythling": { "$className": "RemoteFunction" }
         },

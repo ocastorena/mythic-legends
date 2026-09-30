@@ -9,21 +9,9 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local CraftingStations = require(ReplicatedStorage.Shared.Configurations.CraftingStations)
 local BaseState = require(ServerScriptService.Shared.BaseState)
 local BaseRuntime = require(script.Parent.BaseRuntime)
+local WorldAccessUtil = require(script.Parent.WorldAccessUtil)
 
 local CraftingAccess = {}
-
-local function uniqueChild(parent: Instance, name: string): Instance?
-	local found: Instance? = nil
-	for _, child in parent:GetChildren() do
-		if child.Name == name then
-			if found then
-				return nil
-			end
-			found = child
-		end
-	end
-	return found
-end
 
 function CraftingAccess.Check(
 	userId: number,
@@ -49,54 +37,16 @@ function CraftingAccess.Check(
 	if not (distanceLimit > 0 and distanceLimit < math.huge) then
 		return "StationUnavailable"
 	end
-	local base: Model? = nil
-	for _, slot in slots do
-		if slot.userId == userId then
-			if base then
-				return "StationUnavailable"
-			end
-			base = slot.base
-		end
-	end
-	if not base or base.Parent ~= basesFolder or not basesFolder:IsDescendantOf(workspace) then
+	local base = WorldAccessUtil.GetOwnedBase(userId, slots, basesFolder)
+	if not base then
 		return "StationUnavailable"
 	end
-	local station = uniqueChild(base, definition.modelName)
+	local station = WorldAccessUtil.FindUniqueChild(base, definition.modelName)
 	if not station or not station:IsA("Model") then
 		return "StationUnavailable"
 	end
-	local anchor: Instance? = station
-	for _, name in definition.interactionAnchorPath do
-		anchor = if anchor then uniqueChild(anchor, name) else nil
-	end
-	if
-		not anchor
-		or not anchor:IsA("Attachment")
-		or not anchor.Parent
-		or not anchor.Parent:IsA("BasePart")
-	then
-		return "StationUnavailable"
-	end
-	if not character or not character:IsDescendantOf(workspace) then
-		return "CharacterUnavailable"
-	end
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local root = uniqueChild(character, "HumanoidRootPart")
-	if
-		not humanoid
-		or not (humanoid.Health > 0 and humanoid.Health < math.huge)
-		or humanoid:GetState() == Enum.HumanoidStateType.Dead
-		or not root
-		or not root:IsA("BasePart")
-	then
-		return "CharacterUnavailable"
-	end
-	local distance = (root.Position - anchor.WorldPosition).Magnitude
-	-- Positive bounds reject nonfinite positions instead of accidentally accepting NaN.
-	if not (distance >= 0 and distance <= distanceLimit) then
-		return "OutOfRange"
-	end
-	return nil
+	local anchor = WorldAccessUtil.ResolveAnchor(station, definition.interactionAnchorPath)
+	return WorldAccessUtil.CheckNearAnchor(character, anchor, distanceLimit, "StationUnavailable")
 end
 
 return table.freeze(CraftingAccess)

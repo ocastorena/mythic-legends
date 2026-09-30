@@ -114,7 +114,7 @@ Network
   Shop        GetShop, BuyOffer
   Crafting    GetStation, StartJob, CancelJob
   Production  GetStatus, Collect
-  Base        PlaceMythling, RemoveMythling
+  Base        GetBase, BuildShrine, ExpandBase, PlaceMythling, RemoveMythling
   Combat      StartAttack, ReportHit, SetShieldGuard, Reaction, Impact, GetLoadout, Equip,
               EquipEquipment, UnequipEquipment
   World       Spawned, ClaimState
@@ -140,8 +140,8 @@ Network
   arbitrary state keys, Instance paths, or generic mutation commands.
 
 This endpoint inventory matches [default.project.json](../default.project.json). It does not claim
-that all launch features already have endpoints: canonical Shrine actions and Base
-expansion still need their purpose-specific transport integration.
+that all launch features already have endpoints: canonical Shrine management actions
+still need their purpose-specific transport integration.
 `Inventory.DeleteMythling` is a non-mutating compatibility response, never a sale API.
 Existing remote names stay unchanged unless an explicit migration updates declarations, resolver
 types, server handlers, and client callers together.
@@ -1593,11 +1593,12 @@ receipt, authentication, live endpoint, schema migration, or UI.
 
 ### Atomic Base-expansion command
 
-`BaseService.ExpandBase(player, request)` is a server-only command for the requesting connected
+`BaseService.ExpandBase(player, request)` is the command for the requesting connected
 player's already-loaded profile while BaseService is running. Private
-`BaseExpansionPurchase.new(dataSource).Expand(player, request)` owns payment and the sequential purchase
-through one revision-bound `DataService.Transact`; no profile auto-load, GUI, remote, model placement,
-or schema migration is introduced.
+`BaseExpansionPurchase.new(dataSource, checkAccess?).Expand(player, request)` owns payment and the
+sequential purchase through one revision-bound `DataService.Transact`; no profile auto-load, GUI,
+model placement, or schema migration is introduced. Production supplies the mandatory world-access
+guard described [below](#base-request-endpoints-and-world-access); headless tests may omit it.
 
 The closed request carries `requestId`, `expectedRevision`, `expectedUpgradeCount`,
 `expectedGoldCost`, and `expectedMaterialQuantity`. The final field quotes the whole quantity of
@@ -1633,8 +1634,9 @@ worker, or add a waiting timer.
 Use transaction operation `Base.Expand` and bind the receipt signature to every quoted field.
 Success returns `previousUpgradeCount`, `upgradeCount`, `unlockedShrineSlots`, `maxShrineSlots`,
 `goldSpent`, and `materialsSpentPerType`. The normal State projection carries derived Base status;
-after success the service also refreshes capacity attributes on its existing runtime Base, if present.
-No runtime Base model is required to purchase logical capacity.
+after a fresh success the service also refreshes capacity attributes on its existing runtime Base.
+Replayed results do not perform that refresh or a second profile read. The private purchase arithmetic
+remains headless; fresh public purchases require the caller's live Base and authored interaction anchor.
 
 Retrying the original request returns its recorded result; reusing the ID with different quotes
 conflicts, and stale/evicted requests cannot purchase again. Purchased slots remain owned through
@@ -1644,13 +1646,15 @@ durable-save acknowledgement.
 
 ### Base management read view
 
-Server-only `BaseService.GetBase(player)` returns `{ ok, code?, revision, view? }` for a genuine
+`BaseService.GetBase(player)` returns `{ ok, code?, revision, view? }` for a genuine
 connected Player while the service is running. It reads only that caller's already-loaded profile;
 unavailable callers/profiles return `DataUnavailable` with revision zero. Private `BaseView` validates
 the transaction revision, current schema, Base/Station/slot ownership shape, Gold, owned Material
 quantities, purchased Material capacity, and active refund reservations before returning any view.
 An invalid revision returns `InvalidTransaction` with revision -1; other failures retain the
 loaded transaction revision and omit the whole view. This revision is not the State packet sequence.
+Production injects the same Base world-access guard used for fresh purchases; the read invokes it
+after loaded-profile/revision validation and before projecting any offers.
 
 The detached, allowlisted view contains:
 
@@ -1679,8 +1683,50 @@ reservation, sample time, load a profile, or save. Eligibility describes committ
 simulation of mutation preparation: a due job may still reserve space in the view until its normal
 settlement releases it. Every real action revalidates its quote and state after transactional
 preparation. Private receipts, progress/XP ledgers, prototype stands, other inventory, and arbitrary
-saved extras are omitted; returned rows never alias saved/configuration tables. This adds no Base
-remote, proximity authorization, authored placement, or GUI; those remain separate integration work.
+saved extras are omitted; returned rows never alias saved/configuration tables. The admitted
+transport and world boundary follow below; no authored placement or GUI is added.
+
+### Base request endpoints and world access
+
+`Network.Base.GetBase`, `BuildShrine`, and `ExpandBase` are Rojo-declared RemoteFunctions returning
+the existing `BaseViewResult` and `TransactionResult` shapes. Get takes no payload; the two purchases
+forward their closed envelopes unchanged to the public Base service. Private `BaseRequests` admits
+the genuine connected Player and running service before its shared token bucket, profile, or world
+work. `Configurations.BaseRequests` initially allows twelve tokens and refills four per second.
+Unavailable and limited calls return `DataUnavailable` or `RateLimited` with revision zero.
+The existing prototype PlaceMythling/RemoveMythling routes retain their separate six/two bucket and
+behavior. Departures forget both buckets; Stop clears all five handlers and limiter state.
+Retained callbacks reject after Stop.
+
+Production initialization injects one access guard into BaseView, ShrineConstruction, and
+BaseExpansionPurchase; their private constructors may omit it for headless tests. `BaseAccess`
+validates saved Base state, resolves the caller's unique server-owned slot, and requires its Base
+model to remain directly under the runtime Bases folder in Workspace. `Configurations.Bases`
+owns `interactionAnchorPath`, initially `NameSign/BasePromptAttachment` beneath BaseLevel1, and
+`interactionDistanceStuds`, initially four. Every path segment must be unique; its final Attachment
+must be parented to a BasePart. Missing, detached, wrong-class, or ambiguous bindings return
+`BaseUnavailable`; malformed saved ownership returns `InvalidBaseState`.
+
+The current character must remain in Workspace with a living Humanoid and unique HumanoidRootPart.
+Its finite three-dimensional root-to-anchor distance must be within the inclusive configured radius.
+Missing/dead characters return `CharacterUnavailable`; outside or nonfinite positions return
+`OutOfRange`. Private same-feature `WorldAccessUtil` supplies this rule and unique ownership/path
+resolution to both BaseAccess and CraftingAccess. There is no client Instance, position, OwnerId
+attribute, model-pivot fallback, or menu-open claim. These checks do not implement movement locking;
+that remains the separate GUI's responsibility.
+
+Read checks occur before projection. Fresh purchase checks occur only inside the transaction
+callback, after receipt/revision admission and shared draft preparation, before costs, slots, or IDs
+are changed. A fresh access denial rolls back preparation with the purchase. Exact recorded success
+and rejection receipts replay without checking current character/anchor state, including after reset,
+relocation, or Base removal. Public success replays also skip capacity-attribute refresh and its
+profile reread. Payload signatures, due-job settlement, production, and durable-save semantics do
+not change; automatic work never depends on proximity.
+
+Studio inspection confirmed the existing NameSign Part but no BasePromptAttachment. The user reserved
+anchor/prompt placement for asset/UI work, so no authored instance is added and missing bindings fail
+closed. Verify those bindings and real connected-player dispatch before claiming playable Base
+management; disposable transaction tests alone do not establish durable retention.
 
 ### Atomic Inventory-capacity upgrade command
 
@@ -1833,8 +1879,8 @@ Tests establish transaction behavior, not live durable persistence or connected-
   Price changes do not revoke purchased slots or require a retroactive payment.
   Base build capacity counts constructed Shrines only; the permanent Crafting Station is outside
   that capacity. Shrine construction must validate available build space against the same count.
-  The [server-only command](#atomic-base-expansion-command) implements this purchase without a
-  player-facing endpoint or new model placement.
+  The [atomic command](#atomic-base-expansion-command) implements this purchase through the admitted
+  Base endpoint without new model placement or GUI.
 - **Shrine upgrade:** validate ownership, the expected current level, the next configured level,
   and sufficient Gold and collected matching normal Material. Launch permits only level 1 to 2
   and level 2 to 3. Settle production under the old level, then atomically spend the costs and
@@ -3115,8 +3161,8 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | --- | --- | --- |
 | Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 7 with initial Gold, Inventory upgrades, transactions, crafting reservations, and Base ownership; recurring Equipment/loadout defaults are empty. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) stages one-time protected starter grants only for clearly untouched initialization state, preserves established/ambiguous data and chosen empty slots, and retains the existing v4–v6 layout/accounting upgrades. New Crafting Jobs add versioned receipts without reconstructing legacy payment history. | Add remaining atomic feature mutations and replace prototype form consumers separately. Schema preparation awards no work and does not prove durable persistence. The deliberate fresh namespace is not permission to reset subsequent progress, regrant missing items, or invent job payments. |
 | Base foundation | [BaseState](../src/ServerScriptService/Shared/BaseState.lua) derives two initial Shrine-only slots and four configurable one-slot expansions from purchased state. Load initializes one free, unique Station identity; [BaseRuntime](../src/ServerScriptService/Services/BaseService/BaseRuntime.lua) binds it to the existing authored `PB_CraftingStation_Root` model. `base.status`, allowlisted `base.shrines`, and world attributes expose presentation state, not purchase authority; headless crafting validates that saved Station identity. | Add Station interaction separately. Keep `base.stands` and its existing placement/collection paths functional until the replacement can preserve their earned work. Authored Shrine markers/models remain separate work; the Shrine asset is provisional. |
-| Base expansion and build offers | Server-only `BaseService.GetBase` uses private [BaseView](../src/ServerScriptService/Services/BaseService/BaseView.lua) to return detached capacity, owned Shrine summaries, six build offers, and the next expansion quote or explicit maximum state. The owning construction/expansion modules share read-only eligibility with their revision-bound purchases; [UpgradePaymentUtil](../src/ServerScriptService/Shared/UpgradePaymentUtil.lua) shares fixed-mix pre-debit checks. ExpandBase advances purchased capacity once while preserving existing layout, accounting, Station identity, and reservations. | Add Base proximity/transport and player-facing integration; verify connected-player dispatch and durable retention separately. Reads never simulate settlement or spend inputs. No GUI, world placement, schema migration, Station charge, or production multiplier is added; duplicates remain valid and only collected Materials can pay. |
-| Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. Saved records contain identity, definition, slot, level, and empty `stored`/`progress`/`newWork`/`workerIdsBySlot` fields. Construction leaves the common clock unchanged; projection exposes only identity, definition, slot, and level. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete player-facing integration separately; assignment, collection, upgrade, dismantling, and the production lifecycle share its canonical records. |
+| Base expansion and build offers | `BaseService.GetBase` uses private [BaseView](../src/ServerScriptService/Services/BaseService/BaseView.lua) to return detached capacity, owned Shrine summaries, six build offers, and the next expansion quote or explicit maximum state. [BaseRequests](../src/ServerScriptService/Services/BaseService/BaseRequests.lua) admits GetBase/BuildShrine/ExpandBase; [BaseAccess](../src/ServerScriptService/Services/BaseService/BaseAccess.lua) checks fresh actions against the caller's live Base and configured anchor. Owning modules share read-only eligibility and revision-bound payments; ExpandBase preserves layout, accounting, Station identity, and reservations. | Place the explicit Base anchor and add prompt/GUI integration separately; verify connected-player dispatch and durable retention. Reads never settle or spend; retries never recheck world access or refresh attributes. No world placement, schema migration, Station charge, or production multiplier is added; duplicates remain valid and only collected Materials can pay. |
+| Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through admitted `Network.Base.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. Saved records contain identity, definition, slot, level, and empty `stored`/`progress`/`newWork`/`workerIdsBySlot` fields. Construction leaves the common clock unchanged; projection exposes only identity, definition, slot, and level. | No menu binding or Shrine model spawning is added. Supply the Base anchor and complete player-facing integration separately; assignment, collection, upgrade, dismantling, and the production lifecycle share its canonical records. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. [MutationPreparations](../src/ServerScriptService/Services/DataService/MutationPreparations.lua) resolves registered draft work before an admitted mutation with one shared timestamp and rollback boundary. [ProfileSettlements](../src/ServerScriptService/Services/DataService/ProfileSettlements.lua) runs Ready/Checkpoint/Release hooks before publication or finalization. `SaveNow` checkpoints before requesting ProfileStore's asynchronous save. | Move remaining prototype Base writers when replacing their features; their `MarkDirty` writes run neither preparation nor rollback. Loadout changes now use transactions. Runtime success, an in-memory checkpoint, or `SaveNow == true` still does not prove durable persistence. Playtest real session/shutdown/save ordering. |
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Canonical production, collection, paid upgrades, Material-sale/discard, and crafting commands use these references; integrate Shop separately. Metadata alone adds none of those actions. |
 | Material sales and discard | `InventoryService.SellMaterial`/`DiscardMaterial` and their matching admitted Inventory endpoints delegate to private [MaterialDisposalCommand](../src/ServerScriptService/Services/InventoryService/MaterialDisposalCommand.lua). One revision-bound `DataService.Transact` validates the exact owned quantity and configured sale quote, removes only the selected owned amount, and grants sale Gold or zero for discard. Receipts prevent repeated removal/payment, and [GoldCreditUtil](../src/ServerScriptService/Shared/GoldCreditUtil.lua) protects recorded cancellation headroom. | Add player-facing confirmation and verify connected-player dispatch and durable retention separately. Only enabled normal Materials are eligible; valid over-capacity inventories can recover space. The command never consumes reservations or uncollected output; shared preparation may resolve due jobs atomically before it. |
@@ -3140,7 +3186,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
 | Shop | [ShopService](../src/ServerScriptService/Services/ShopService/init.lua) returns read-only offers/eligibility/upgrade quotes and revision-bound atomic purchases through its public API and the declared `Shop.GetShop`/`BuyOffer` endpoints. [ShopRequests](../src/ServerScriptService/Services/ShopService/ShopRequests.lua) admits callers before protected work and keeps refreshed quotes separate from recorded transaction results. A shared hourly schedule rotates the matching Featured pair; saved personal usage is independent of catalogue revisions and purchased upgrades. | Add menu integration and verify connected-player dispatch, live refresh boundaries, and durable retention separately. No GUI, asset activation, automatic equip, XP, or refresh timer is added. Future tuning must be deployed at a shared period boundary. |
-| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes typed Shop view/purchase endpoints, Crafting GetStation/StartJob/CancelJob, six canonical Inventory actions, and retryable Combat EquipEquipment/UnequipEquipment resolved by [RemoteUtil](../src/ServerScriptService/Infrastructure/RemoteUtil.lua). Adapters admit callers before protected work and forward unchanged requests to public command owners; the retained delete endpoint never mutates. Canonical responses preserve bounded transaction results without exposing private receipts, profiles, or extra loadout snapshots. | Add Base construction/expansion and Shrine assignment/collection/upgrade/dismantling transports independently of GUI work. Existing server commands and disposable endpoint tests do not by themselves establish connected-player dispatch or durable-save guarantees. |
+| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes typed Shop view/purchase endpoints, Crafting GetStation/StartJob/CancelJob, Base GetBase/BuildShrine/ExpandBase, six canonical Inventory actions, and retryable Combat EquipEquipment/UnequipEquipment resolved by [RemoteUtil](../src/ServerScriptService/Infrastructure/RemoteUtil.lua). Adapters admit callers before protected work and forward unchanged requests to public command owners; the retained delete endpoint never mutates. Canonical responses preserve bounded transaction results without exposing private receipts, profiles, or extra loadout snapshots. | Add canonical Shrine read/assignment/collection/upgrade/dismantling transports independently of GUI work. Existing server commands and disposable endpoint tests do not by themselves establish connected-player dispatch or durable-save guarantees. |
 | Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored `Workspace.World.Arena.Markers.Bounds`, Base Islands, and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |
 
 `HUDGui`, `StaminaGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,

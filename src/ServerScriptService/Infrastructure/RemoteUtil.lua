@@ -61,6 +61,9 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 			Collect = request(production, "Collect"),
 		},
 		Base = {
+			GetBase = request(base, "GetBase"),
+			BuildShrine = request(base, "BuildShrine"),
+			ExpandBase = request(base, "ExpandBase"),
 			PlaceMythling = request(base, "PlaceMythling"),
 			RemoveMythling = request(base, "RemoveMythling"),
 		},

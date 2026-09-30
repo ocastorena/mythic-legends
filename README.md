@@ -275,8 +275,8 @@ stand production.
 A Base starts with two Shrine-only slots and one free permanent Crafting Station, whose unique saved
 identity is reused on rebuild/reconnect. The Station and legacy stands do not occupy Shrine slots.
 Capacity derives from the purchased expansion count and configuration (maximum six); it is not saved
-as a copied limit. The server-only expansion and crafting commands are described below; Station
-interaction remains separate work. Existing stand gameplay remains available.
+as a copied limit. The expansion and crafting commands and admitted endpoints are described below;
+authored interaction anchors and GUI integration remain separate work. Existing stand gameplay remains available.
 
 After syncing source and starting a fresh play session, inspect the player's runtime Base attributes:
 `UsedShrineSlots = 0`, `UnlockedShrineSlots = 2`, `MaxShrineSlots = 6`. The existing
@@ -288,7 +288,7 @@ allocation failure, and Base reconstruction; they do not establish live save dur
 
 ### Base management read view review
 
-Server-only `BaseService.GetBase(player)` returns the caller's loaded transaction revision and a
+`BaseService.GetBase(player)` returns the caller's loaded transaction revision and a
 detached Base view: used/unlocked/maximum capacity, permanent Station identity, sorted owned Shrine
 summaries, all six build quotes, and the next expansion's Gold/Material costs and owned inputs.
 At six unlocked slots it returns `MaxBaseSlots` without another price. Empty and duplicate-element
@@ -302,8 +302,27 @@ normal settlement releases its reservation; mutations always revalidate after pr
 Run the verification commands above for all six build choices, every sequential expansion and cap,
 same-snapshot quote/action parity, reservation pressure, retained over-capacity holdings, strict
 state validation, projection isolation, and service admission. See the
-[read-view contract](docs/TECHNICAL_DESIGN.md#base-management-read-view). This step adds no GUI,
-remotes, world placement, or connected-player/durable-save verification.
+[read-view contract](docs/TECHNICAL_DESIGN.md#base-management-read-view). The transport and proximity
+boundary are below; no GUI or world placement is added.
+
+### Base request and proximity review
+
+`Network.Base.GetBase`, `BuildShrine`, and `ExpandBase` forward the existing service requests and
+results. They share a configured twelve-token burst/four-per-second budget, separate from the
+unchanged legacy stand routes. Admission precedes loaded-profile and world access. Fresh actions
+require the caller's current living character within four studs of their own server-owned Base's
+explicit `NameSign/BasePromptAttachment` binding. No client position, OwnerId attribute, model
+pivot, or menu-open flag grants access. The separate GUI work owns movement locking.
+
+Read access precedes projection; mutation access is inside the transaction after receipt/revision
+admission. Exact retries return their recorded result after reset, relocation, or Base removal,
+without refreshing world attributes. Fresh denied actions roll back payment and preparation together.
+
+Run the verification commands above for dispatch, shared admission, cleanup, distance and ownership
+boundaries, replay, and rollback. Studio inspection confirmed the NameSign but no Base prompt anchor;
+placement stays with the asset/UI work and these routes fail closed until it is supplied. Disposable
+tests do not prove live connected-player interaction or durable saves. See the
+[endpoint contract](docs/TECHNICAL_DESIGN.md#base-request-endpoints-and-world-access).
 
 ### Atomic Base-expansion review
 
@@ -329,13 +348,14 @@ It adds one empty logical build slot without requiring a particular Shrine layou
 all six elements. There is no construction timer or production multiplier.
 The full payment mix must fit the existing Material capacity alongside active refund reservations;
 the new Base slot cannot supply capacity for its own ingredients. Confirmed State exposes the
-derived Base status, and an existing runtime Base's capacity attributes refresh after success.
+derived Base status, and the runtime Base's capacity attributes refresh after a fresh success.
 
 Run the static suite and runtime tests above, then verify connected-player dispatch and saved
 purchase retention through reset/rejoin in a suitable playtest. Tests cover sequential purchases,
 fixed-mix affordability, stale/replayed requests, capacity limits, and preservation of unrelated
-state; they do not prove durable saves. This command adds no GUI, remote, model placement, or schema
-migration. See the [command contract](docs/TECHNICAL_DESIGN.md#atomic-base-expansion-command).
+state; they do not prove durable saves. This command adds no GUI, model placement, or schema
+migration; the admitted Base endpoint above uses it. See the
+[command contract](docs/TECHNICAL_DESIGN.md#atomic-base-expansion-command).
 
 ### Atomic Inventory-capacity upgrade review
 
@@ -375,8 +395,8 @@ adds no GUI, remote, timer, Shop refresh, model, or schema migration. See the
 
 ### Shrine-construction logic review
 
-`BaseService.BuildShrine(player, request)` is a server-only command; there is no new menu, remote, or
-Shrine model spawn. It supports Fire, Water, Earth, Air, Light, and Dark definitions in
+`BaseService.BuildShrine(player, request)` is the atomic command behind the admitted Base endpoint;
+there is no new menu or Shrine model spawn. It supports Fire, Water, Earth, Air, Light, and Dark definitions in
 `Shared.Configurations.Shrines`. Each costs 100 configured Gold, starts at level 1, and takes the
 lowest-numbered empty unlocked Shrine slot. Duplicate elements are allowed. Neither Materials nor
 an owned Mythling are required. The prototype Shrine asset does not define this behavior.

@@ -205,7 +205,10 @@ function BaseExpansionPurchase.ReadOffer(
 		nil
 end
 
-function BaseExpansionPurchase.new(DataService: DataSource): BaseExpansionPurchase
+function BaseExpansionPurchase.new(
+	DataService: DataSource,
+	checkAccess: ((Player, Types.PlayerDoc) -> string?)?
+): BaseExpansionPurchase
 	assert(
 		type(DataService) == "table"
 			and type(DataService.GetLoadedData) == "function"
@@ -235,6 +238,11 @@ function BaseExpansionPurchase.new(DataService: DataSource): BaseExpansionPurcha
 			operation = "Base.Expand",
 			signature = `count={count};gold={gold};quantity={quantity}`,
 		}, function(draft: Types.PlayerDoc): Types.TransactionOutcome
+			-- Do not let displacement, reset, or missing models rewrite a committed retry.
+			local accessProblem = if checkAccess then checkAccess(player, draft) else nil
+			if accessProblem then
+				return { ok = false, code = accessProblem }
+			end
 			local status, statusError = readStatus(draft)
 			if not status then
 				return { ok = false, code = statusError or "InvalidBaseState" }

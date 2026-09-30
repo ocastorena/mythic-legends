@@ -151,7 +151,8 @@ end
 
 function ShrineConstruction.new(
 	DataService: DataSource,
-	makeId: (() -> string)?
+	makeId: (() -> string)?,
+	checkAccess: ((Player, Types.PlayerDoc) -> string?)?
 ): ShrineConstruction
 	assert(type(DataService) == "table", "[BaseService.ShrineConstruction] DataService required")
 	assert(
@@ -185,6 +186,11 @@ function ShrineConstruction.new(
 			operation = OPERATION,
 			signature = signature,
 		}, function(draft: Types.PlayerDoc): Types.TransactionOutcome
+			-- Receipt replay and revision admission precede current-world eligibility.
+			local accessProblem = if checkAccess then checkAccess(player, draft) else nil
+			if accessProblem then
+				return { ok = false, code = accessProblem }
+			end
 			local definition = getDefinition(request.shrineId)
 			if not definition then
 				return { ok = false, code = "InvalidShrine" }

@@ -17,6 +17,8 @@ local log = LogUtil.For("BaseService")
 -- Module dependencies
 local StandPlacement = require(script.StandPlacement)
 local BaseRuntime = require(script.BaseRuntime)
+local BaseAccess = require(script.BaseAccess)
+local BaseRequests = require(script.BaseRequests)
 local CraftingAccess = require(script.CraftingAccess)
 local BaseView = require(script.BaseView)
 local ShrineConstruction = require(script.ShrineConstruction)
@@ -25,6 +27,8 @@ local ShrineWorkers = require(script.ShrineWorkers)
 local ShrineUpgradePurchase = require(script.ShrineUpgradePurchase)
 local ShrineRemoval = require(script.ShrineRemoval)
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+local BaseRequestsConfiguration =
+	require(game:GetService("ReplicatedStorage").Shared.Configurations.BaseRequests)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local Trove = require(game:GetService("ReplicatedStorage").Packages.Trove)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -57,6 +61,11 @@ local shrineRemoval: ShrineRemoval.ShrineRemoval?
 local InventoryService: ServerTypes.InventoryApi
 local ProductionService: ServerTypes.ProductionApi
 local placementLimiter = RateLimiter.new(6, 2)
+local requestLimiter: RateLimiter.RateLimiter?
+local requests: BaseRequests.Requests?
+local getBaseRemote: RemoteFunction?
+local buildShrineRemote: RemoteFunction?
+local expandBaseRemote: RemoteFunction?
 
 local playerTroves: { [Player]: Trove.Trove } = {}
 
@@ -70,6 +79,9 @@ local function resolveAssets()
 	MythlingsMeta = serviceContext.Configurations.Mythlings
 	placeMythlingRemote = serviceContext.Remotes.Base.PlaceMythling
 	removeMythlingRemote = serviceContext.Remotes.Base.RemoveMythling
+	getBaseRemote = serviceContext.Remotes.Base.GetBase
+	buildShrineRemote = serviceContext.Remotes.Base.BuildShrine
+	expandBaseRemote = serviceContext.Remotes.Base.ExpandBase
 	DataService = serviceContext.Services.DataService
 	InventoryService = serviceContext.Services.InventoryService
 	ProductionService = serviceContext.Services.ProductionService
@@ -107,6 +119,13 @@ local function available(player: Player): boolean
 		and player.Parent == Players
 end
 
+local function checkAccess(player: Player, data: Types.PlayerDoc): string?
+	if not available(player) then
+		return "DataUnavailable"
+	end
+	return BaseAccess.Check(player.UserId, player.Character, data.base, slots, basesFolder)
+end
+
 function BaseService.GetBase(player: Player): Types.BaseViewResult
 	local reader = baseView
 	if not reader or not available(player) then
@@ -138,7 +157,7 @@ function BaseService.CheckCraftingAccess(
 	)
 end
 
--- Server-only command until the separate menu/network integration is ready.
+-- Fresh purchases update the existing Base projection; replay performs no presentation work.
 function BaseService.BuildShrine(
 	player: Player,
 	request: Types.BuildShrineRequest
@@ -148,7 +167,7 @@ function BaseService.BuildShrine(
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	local result = construction.Build(player, request)
-	if result.ok then
+	if result.ok and not result.replayed then
 		local base = getPlayerBase(player)
 		local data = DataService.GetLoadedData(player)
 		if base and base.Parent == basesFolder and data then
@@ -173,7 +192,7 @@ function BaseService.ExpandBase(
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	local result = expansion.Expand(player, request)
-	if result.ok then
+	if result.ok and not result.replayed then
 		local base = getPlayerBase(player)
 		local data = DataService.GetLoadedData(player)
 		if base and base.Parent == basesFolder and data then
@@ -479,15 +498,48 @@ local function handlePlayerRemoving(player: Player)
 	end
 	BaseRuntime.RemoveBaseFor(player, slots)
 	placementLimiter:Forget(player)
+	if requestLimiter then
+		requestLimiter:Forget(player)
+	end
 end
 
 -- ===== Service lifecycle =====
 function BaseService.Init(context: ServerTypes.Context)
 	serviceContext = context
 	resolveAssets()
-	shrineConstruction = ShrineConstruction.new(DataService)
-	baseView = BaseView.new(DataService)
-	baseExpansion = BaseExpansionPurchase.new(DataService)
+	local burst = BaseRequestsConfiguration.requestBurst
+	local refill = BaseRequestsConfiguration.requestRefillPerSecond
+	assert(
+		type(burst) == "number"
+			and burst >= 1
+			and burst < math.huge
+			and burst % 1 == 0
+			and type(refill) == "number"
+			and refill > 0
+			and refill < math.huge,
+		"[BaseService] Invalid Base request tuning"
+	)
+	local limiter = RateLimiter.new(burst, refill)
+	requestLimiter = limiter
+	shrineConstruction = ShrineConstruction.new(DataService, nil, checkAccess)
+	baseView = BaseView.new(DataService, checkAccess)
+	baseExpansion = BaseExpansionPurchase.new(DataService, checkAccess)
+	requests = BaseRequests.new({
+		isAvailable = available,
+		allowRequest = function(player: Player): boolean
+			return limiter:Allow(player)
+		end,
+		getBase = function(player: Player): Types.BaseViewResult
+			return BaseService.GetBase(player)
+		end,
+		buildShrine = function(player: Player, input: unknown): Types.TransactionResult
+			-- The command validates the whole request at the untrusted-to-typed API boundary.
+			return BaseService.BuildShrine(player, input :: Types.BuildShrineRequest)
+		end,
+		expandBase = function(player: Player, input: unknown): Types.TransactionResult
+			return BaseService.ExpandBase(player, input :: Types.ExpandBaseRequest)
+		end,
+	})
 	shrineWorkers = ShrineWorkers.new(DataService)
 	shrineUpgradePurchase = ShrineUpgradePurchase.new(DataService)
 	shrineRemoval = ShrineRemoval.new(DataService)
@@ -497,6 +549,15 @@ function BaseService.Start()
 	if not lifecycle:Start() then
 		return
 	end
+	local handler = assert(requests, "[BaseService] Init must precede Start")
+	local getRemote = assert(getBaseRemote, "[BaseService] GetBase remote is not initialized")
+	local buildRemote =
+		assert(buildShrineRemote, "[BaseService] BuildShrine remote is not initialized")
+	local expandRemote =
+		assert(expandBaseRemote, "[BaseService] ExpandBase remote is not initialized")
+	getRemote.OnServerInvoke = handler.GetBase
+	buildRemote.OnServerInvoke = handler.BuildShrine
+	expandRemote.OnServerInvoke = handler.ExpandBase
 	PlayerUtil.OnPlayer(handlePlayerAdded, lifecycle.trove)
 	lifecycle.trove:Connect(Players.PlayerRemoving, handlePlayerRemoving)
 	placeMythlingRemote.OnServerInvoke = handlePlaceMythling
@@ -509,6 +570,15 @@ function BaseService.Stop()
 	end
 	RemoteUtil.ClearServerHandler(placeMythlingRemote)
 	RemoteUtil.ClearServerHandler(removeMythlingRemote)
+	if getBaseRemote then
+		RemoteUtil.ClearServerHandler(getBaseRemote)
+	end
+	if buildShrineRemote then
+		RemoteUtil.ClearServerHandler(buildShrineRemote)
+	end
+	if expandBaseRemote then
+		RemoteUtil.ClearServerHandler(expandBaseRemote)
+	end
 	for player in playerTroves do
 		handlePlayerRemoving(player)
 	end
@@ -517,6 +587,11 @@ function BaseService.Stop()
 		slots[index] = nil
 	end
 	placementLimiter:Clear()
+	if requestLimiter then
+		requestLimiter:Clear()
+	end
+	requestLimiter = nil
+	requests = nil
 	shrineConstruction = nil
 	baseView = nil
 	baseExpansion = nil

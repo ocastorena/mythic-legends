@@ -777,7 +777,13 @@ export type Network = {
 	Shop: { GetShop: RemoteFunction, BuyOffer: RemoteFunction },
 	Crafting: { GetStation: RemoteFunction, StartJob: RemoteFunction, CancelJob: RemoteFunction },
 	Production: { GetStatus: RemoteFunction, Collect: RemoteFunction },
-	Base: { PlaceMythling: RemoteFunction, RemoveMythling: RemoteFunction },
+	Base: {
+		PlaceMythling: RemoteFunction,
+		RemoveMythling: RemoteFunction,
+		GetBase: RemoteFunction,
+		BuildShrine: RemoteFunction,
+		ExpandBase: RemoteFunction,
+	},
 	Combat: {
 		StartAttack: RemoteEvent,
 		ReportHit: RemoteEvent,

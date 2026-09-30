@@ -12,7 +12,13 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local Trove = require(ReplicatedStorage.Packages.Trove)
 local Mythlings = require(ReplicatedStorage.Shared.Configurations.Mythlings)
+local RequestConfiguration = require(ReplicatedStorage.Shared.Configurations.BaseRequests)
 local BaseView = require(ServerScriptService.Services.BaseService.BaseView)
+local BaseRequests = require(ServerScriptService.Services.BaseService.BaseRequests)
+local ShrineConstruction = require(ServerScriptService.Services.BaseService.ShrineConstruction)
+local BaseExpansionPurchase =
+	require(ServerScriptService.Services.BaseService.BaseExpansionPurchase)
+local RateLimiter = require(ServerScriptService.Infrastructure.RateLimiter)
 local ProfileSchema = require(ServerScriptService.Services.DataService.ProfileSchema)
 local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 local PlayerDataTemplate = require(ServerStorage.Databases.PlayerDataTemplate)
@@ -26,7 +32,13 @@ local describe, expect, it, afterEach, jest =
 local viewModule = ServerScriptService.Services.BaseService.BaseView
 local playersModule = ServerScriptService.Infrastructure.PlayerUtil
 local remoteModule = ServerScriptService.Infrastructure.RemoteUtil
+local requestsModule = ServerScriptService.Services.BaseService.BaseRequests
+local constructionModule = ServerScriptService.Services.BaseService.ShrineConstruction
+local expansionModule = ServerScriptService.Services.BaseService.BaseExpansionPurchase
+local accessModule = ServerScriptService.Services.BaseService.BaseAccess
+local limiterModule = ServerScriptService.Infrastructure.RateLimiter
 local cleanup: { () -> () } = {}
+type AccessCheck = (Player, Types.PlayerDoc) -> string?
 
 type Service = {
 	Init: (ServerTypes.Context) -> (),
@@ -34,6 +46,7 @@ type Service = {
 	Stop: () -> (),
 	GetBase: (Player) -> Types.BaseViewResult,
 	BuildShrine: (Player, Types.BuildShrineRequest) -> Types.TransactionResult,
+	ExpandBase: (Player, Types.ExpandBaseRequest) -> Types.TransactionResult,
 }
 
 local function fixture()
@@ -43,10 +56,21 @@ local function fixture()
 		loads = 0,
 		factories = 0,
 		viewCalls = 0,
+		requestFactories = 0,
+		admissions = 0,
+		accessChecks = 0,
+		canonicalLimiterFactories = 0,
+		legacyLimiterFactories = 0,
+		canonicalLimiterClears = 0,
+		legacyLimiterClears = 0,
 		observations = 0,
 		observationCleanups = 0,
 		loaded = nil :: Types.PlayerDoc?,
 		reader = nil :: BaseView.BaseView?,
+		requests = nil :: BaseRequests.Requests?,
+		viewGuard = nil :: AccessCheck?,
+		buildGuard = nil :: AccessCheck?,
+		expandGuard = nil :: AccessCheck?,
 		cleared = {} :: { RemoteFunction },
 	}
 	local root = Instance.new("Folder")
@@ -57,6 +81,12 @@ local function fixture()
 	arena.Parent = root
 	local place, remove = Instance.new("RemoteFunction"), Instance.new("RemoteFunction")
 	place.Parent, remove.Parent = root, root
+	local get, build, expand =
+		Instance.new("RemoteFunction"),
+		Instance.new("RemoteFunction"),
+		Instance.new("RemoteFunction")
+	get.Name, build.Name, expand.Name = "GetBase", "BuildShrine", "ExpandBase"
+	get.Parent, build.Parent, expand.Parent = root, root, root
 	table.insert(cleanup, function()
 		root:Destroy()
 	end)
@@ -76,10 +106,14 @@ local function fixture()
 	}
 	jest.mock(viewModule, function()
 		return {
-			new = function(dataSource: BaseView.DataSource): BaseView.BaseView
+			new = function(
+				dataSource: BaseView.DataSource,
+				checkAccess: AccessCheck?
+			): BaseView.BaseView
 				expect(dataSource).toBe(source)
 				state.factories += 1
-				local real = BaseView.new(dataSource)
+				state.viewGuard = checkAccess
+				local real = BaseView.new(dataSource, checkAccess)
 				local reader = {
 					Get = function(player: Player): Types.BaseViewResult
 						state.viewCalls += 1
@@ -88,6 +122,85 @@ local function fixture()
 				}
 				state.reader = reader
 				return reader
+			end,
+		}
+	end)
+	jest.mock(constructionModule, function()
+		return {
+			ReadOffer = ShrineConstruction.ReadOffer,
+			new = function(
+				dataSource: ShrineConstruction.DataSource,
+				makeId: (() -> string)?,
+				checkAccess: AccessCheck?
+			): ShrineConstruction.ShrineConstruction
+				expect(dataSource).toBe(source)
+				expect(makeId).toBeNil()
+				state.buildGuard = checkAccess
+				return ShrineConstruction.new(dataSource, makeId, checkAccess)
+			end,
+		}
+	end)
+	jest.mock(expansionModule, function()
+		return {
+			ReadOffer = BaseExpansionPurchase.ReadOffer,
+			new = function(
+				dataSource: BaseExpansionPurchase.DataSource,
+				checkAccess: AccessCheck?
+			): BaseExpansionPurchase.BaseExpansionPurchase
+				expect(dataSource).toBe(source)
+				state.expandGuard = checkAccess
+				return BaseExpansionPurchase.new(dataSource, checkAccess)
+			end,
+		}
+	end)
+	jest.mock(requestsModule, function()
+		return {
+			new = function(dependencies: BaseRequests.Dependencies): BaseRequests.Requests
+				state.requestFactories += 1
+				local handlers = BaseRequests.new(dependencies)
+				state.requests = handlers
+				return handlers
+			end,
+		}
+	end)
+	jest.mock(accessModule, function()
+		return {
+			Check = function(): string?
+				state.accessChecks += 1
+				return "OutOfRange"
+			end,
+		}
+	end)
+	jest.mock(limiterModule, function()
+		return {
+			new = function(burst: number, refill: number)
+				local isCanonical = burst == RequestConfiguration.requestBurst
+				if isCanonical then
+					expect(refill).toBe(RequestConfiguration.requestRefillPerSecond)
+					state.canonicalLimiterFactories += 1
+				else
+					expect(burst).toBe(6)
+					expect(refill).toBe(2)
+					state.legacyLimiterFactories += 1
+				end
+				local real = RateLimiter.new(burst, refill)
+				return {
+					Allow = function(_self: unknown, player: Player): boolean
+						state.admissions += 1
+						return real:Allow(player)
+					end,
+					Forget = function(_self: unknown, player: Player)
+						real:Forget(player)
+					end,
+					Clear = function()
+						if isCanonical then
+							state.canonicalLimiterClears += 1
+						else
+							state.legacyLimiterClears += 1
+						end
+						real:Clear()
+					end,
+				}
 			end,
 		}
 	end)
@@ -128,11 +241,25 @@ local function fixture()
 				BaseAssets = root,
 			},
 			Configurations = { Mythlings = Mythlings },
-			Remotes = { Base = { PlaceMythling = place, RemoveMythling = remove } },
+			Remotes = {
+				Base = {
+					PlaceMythling = place,
+					RemoveMythling = remove,
+					GetBase = get,
+					BuildShrine = build,
+					ExpandBase = expand,
+				},
+			},
 			Services = { DataService = source, InventoryService = {}, ProductionService = {} },
 		} :: unknown
 	) :: ServerTypes.Context
-	return { api = api, context = context, state = state, root = root, remotes = { place, remove } }
+	return {
+		api = api,
+		context = context,
+		state = state,
+		root = root,
+		remotes = { place, remove, get, build, expand },
+	}
 end
 
 afterEach(function()
@@ -143,14 +270,19 @@ afterEach(function()
 	jest.unmock(viewModule)
 	jest.unmock(playersModule)
 	jest.unmock(remoteModule)
+	jest.unmock(requestsModule)
+	jest.unmock(constructionModule)
+	jest.unmock(expansionModule)
+	jest.unmock(accessModule)
+	jest.unmock(limiterModule)
 end)
 
-describe("BaseService view and construction admission", function()
+describe("BaseService view and purchase admission", function()
 	it(
 		"rejects forged identities before reader, load, or transaction work throughout its lifetime",
 		function()
 			local f = fixture()
-			local get, build = f.api.GetBase, f.api.BuildShrine
+			local get, build, expand = f.api.GetBase, f.api.BuildShrine, f.api.ExpandBase
 			local request: Types.BuildShrineRequest = {
 				requestId = "0:build",
 				expectedRevision = 0,
@@ -162,6 +294,15 @@ describe("BaseService view and construction admission", function()
 				local unavailable = { ok = false, code = "DataUnavailable", revision = 0 }
 				expect(get(player)).toEqual(unavailable)
 				expect(build(player, request)).toEqual(unavailable)
+				expect(expand(player, ({} :: unknown) :: Types.ExpandBaseRequest)).toEqual(
+					unavailable
+				)
+				local handlers = f.state.requests
+				if handlers then
+					expect(handlers.GetBase(player)).toEqual(unavailable)
+					expect(handlers.BuildShrine(player, request)).toEqual(unavailable)
+					expect(handlers.ExpandBase(player, {})).toEqual(unavailable)
+				end
 			end
 			local function noProtectedWork()
 				rejected(nil)
@@ -171,6 +312,7 @@ describe("BaseService view and construction admission", function()
 				expect(f.state.viewCalls + f.state.reads + f.state.loads + f.state.transactions).toBe(
 					0
 				)
+				expect(f.state.admissions + f.state.accessChecks).toBe(0)
 			end
 			noProtectedWork()
 			f.api.Init(f.context)
@@ -188,6 +330,9 @@ describe("BaseService view and construction admission", function()
 			local f = fixture()
 			f.api.Init(f.context)
 			expect(f.state.factories).toBe(1)
+			expect(f.state.requestFactories).toBe(1)
+			expect(f.state.canonicalLimiterFactories).toBe(1)
+			expect(f.state.legacyLimiterFactories).toBe(1)
 			expect(f.state.reader).never.toBeNil()
 			f.api.Start()
 			f.api.Start()
@@ -196,6 +341,8 @@ describe("BaseService view and construction admission", function()
 			f.api.Stop()
 			expect(f.state.observationCleanups).toBe(1)
 			expect(f.state.cleared).toEqual(f.remotes)
+			expect(f.state.canonicalLimiterClears).toBe(1)
+			expect(f.state.legacyLimiterClears).toBe(1)
 			expect(f.state.viewCalls + f.state.reads + f.state.loads + f.state.transactions).toBe(0)
 			expect(function()
 				f.api.Start()
@@ -224,9 +371,7 @@ describe("BaseService view and construction admission", function()
 			end, 0))
 			f.state.loaded = data
 			local result = reader.Get(identity)
-			expect(result.ok).toBe(true)
-			local view = assert(result.view, "[BaseServiceView.spec] Expected loaded Base view")
-			expect(view.status.craftingStation.id).toBe("base_view_station")
+			expect(result).toEqual({ ok = false, code = "DataUnavailable", revision = 0 })
 			expect(f.state.reads).toBe(2)
 			expect(f.state.loads + f.state.transactions).toBe(0)
 			f.api.Start()
@@ -236,6 +381,44 @@ describe("BaseService view and construction admission", function()
 				revision = 0,
 			})
 			expect(f.state.reads).toBe(2)
+		end
+	)
+
+	it(
+		"injects one production access guard into reads and both purchases without weakening identity checks",
+		function()
+			local f = fixture()
+			f.api.Init(f.context)
+			local viewGuard =
+				assert(f.state.viewGuard, "[BaseServiceView.spec] Expected view guard")
+			local buildGuard =
+				assert(f.state.buildGuard, "[BaseServiceView.spec] Expected build guard")
+			local expandGuard =
+				assert(f.state.expandGuard, "[BaseServiceView.spec] Expected expansion guard")
+			expect(buildGuard).toBe(viewGuard)
+			expect(expandGuard).toBe(viewGuard)
+			local data: Types.PlayerDoc =
+				HttpService:JSONDecode(HttpService:JSONEncode(PlayerDataTemplate))
+			assert(ProfileSchema.Prepare(data, function()
+				return "base_guard_station"
+			end, 0))
+			local function denied()
+				for _, raw in { { UserId = 1001, Parent = Players }, f.root, false } do
+					local player = (raw :: unknown) :: Player
+					for _, guard in { viewGuard, buildGuard, expandGuard } do
+						expect(guard(player, data)).toBe("DataUnavailable")
+					end
+				end
+				expect(f.state.accessChecks).toBe(0)
+				expect(f.state.reads + f.state.loads + f.state.transactions + f.state.admissions).toBe(
+					0
+				)
+			end
+			denied()
+			f.api.Start()
+			denied()
+			f.api.Stop()
+			denied()
 		end
 	)
 end)
