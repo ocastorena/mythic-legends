@@ -50,10 +50,11 @@ descendants are preserved only at explicitly mixed-ownership containers.
 - **Shared configuration** is version-controlled Luau content under
   `ReplicatedStorage.Shared.Configurations`. It contains static definitions and balance values only;
   it must never be written at runtime.
-- **DataService** owns one ProfileStore session per Roblox user ID using the current store namespace
-  `MythicLegends_MVP_v1`. It reconciles defaults, associates the user ID, handles session
-  termination, and ends the session when the player leaves. The approved pre-release namespace
-  leaves the old prototype store untouched. Within the MVP namespace, forward-only schema upgrades
+- **DataService** owns one ProfileStore session per Roblox user ID using the configured development
+  namespace `MythicLegends_MVP_v1`. It reconciles defaults, associates the user ID, handles session
+  termination, and ends the session when the player leaves. At launch readiness, the approved
+  one-time switch to `MythicLegends_v1` leaves both the old prototype and development stores
+  untouched. Within whichever namespace is active, forward-only schema upgrades
   add Base ownership, Shrine slots/levels, and schema-7 accounting before reconciliation; the old v2-to-v3
   prototype migration is not invoked.
   Future target-schema changes still require explicit migrations; reconciliation alone is not a
@@ -299,15 +300,19 @@ persistent profiles merely to display them.
 - Keep the store name and profile-key namespace stable when increasing the document's schema
   version. Changing a namespace is a separate data migration, not a routine version increment.
 
-**Approved pre-release fresh start (2026-09-28):** no prototype-data migration is required for this
-implementation trial. Schema 4 starts in the separate `MythicLegends_MVP_v1` namespace with configured
-100 Gold, protected starter identities, independently saved Inventory-upgrade levels, empty crafting
-reservation bookkeeping, and private transaction state. The old `MythicLegends_PlayerData_v2` store is
-neither read nor overwritten; its historical migration module/tests remain isolated. Reconnecting to
-the new namespace does not reset balances or ownership. Later versions within it require ordinary
-forward-only migrations. Prototype `base.stands` and Mythling fields remain temporary compatibility
-state until the Shrine/form slice replaces their consumers; this baseline does not declare them MVP
-content or establish the final roster.
+**Approved data boundaries:** the 2026-09-28 implementation trial started schema 4 in the separate
+`MythicLegends_MVP_v1` namespace without migrating or overwriting the old
+`MythicLegends_PlayerData_v2` prototype store. Development remains on that namespace. When the
+experience is ready to launch, change the configured store once to `MythicLegends_v1`; do not make
+that change during ordinary development. The launch boundary starts fresh schema-7 profiles without
+reading, copying, deleting, or overwriting either earlier store. New launch profiles receive the
+configured 100 Gold, protected starter identities, Inventory-upgrade defaults, empty crafting
+reservation bookkeeping, and private transaction state. This is a one-time release boundary, not a
+reset mechanism. Reconnects and future updates retain balances and ownership in
+`MythicLegends_v1`; later schema versions require ordinary forward-only migrations without changing
+its name. Prototype `base.stands` and Mythling fields remain temporary compatibility state until the
+Shrine/form slice replaces their consumers; this baseline does not declare them launch content or
+establish the final roster.
 
 ## Client-reported sword combat
 
@@ -2938,7 +2943,7 @@ Shrines or jobs. No separate purchased-Station flag or construction receipt is r
 ### Schema-7 Shrine accounting foundation
 
 `ProfileSchema.Prepare(data, createStationId, now?)` adds the empty Shrine accounting foundation
-within the existing MVP namespace. Server time defaults to `os.time()` and may be injected for
+within the configured namespace. Server time defaults to `os.time()` and may be injected for
 deterministic tests. The schema-4/5 layout upgrades remain; schema-4–6 Shrine records with wholly
 absent accounting receive `stored = 0`, `progress = 0`, `newWork = 0`, and `workerIdsBySlot = {}`.
 The common clock is initialized once at preparation time with `lastAccruedAt = now` and

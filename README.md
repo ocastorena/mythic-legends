@@ -280,10 +280,13 @@ In-memory and serialized tests do not prove durable persistence or crafted comba
 
 ### Player-data foundation review
 
-The pre-release foundation uses the intentionally fresh `MythicLegends_MVP_v1` data namespace;
-the prototype store is left untouched and is not migrated. New profiles start with 100 Gold and
-the protected wooden pair. This is a foundation increment, not the complete MVP economy or roster.
-Prototype stand assignment and menus remain until their separate replacement tasks.
+Development uses the intentionally separate `MythicLegends_MVP_v1` data namespace; the prototype
+`MythicLegends_PlayerData_v2` store is left untouched and is not migrated. At launch readiness,
+change the configured store once to `MythicLegends_v1`, leaving both earlier stores untouched.
+Do not make that switch during ordinary development. After launch, reconnects and future updates
+keep `MythicLegends_v1` and use forward-only schema migrations rather than another reset. Current
+fresh development profiles start with 100 Gold and the protected wooden pair. Prototype stand
+assignment and menus remain until their separate replacement tasks.
 
 The runtime suite covers transaction rollback, duplicate/stale requests, bounded receipts, session
 loss, client-safe projection, category capacities, active reservations, and partial collection.
@@ -294,7 +297,7 @@ are added in this increment. Mock tests do not establish live durable-save behav
 
 ### Base foundation review
 
-The Base foundation keeps the same MVP data namespace and adds Base state to schema-4 profiles
+The Base foundation keeps the same configured data namespace and adds Base state to schema-4 profiles
 without resetting Gold, Inventory, purchased upgrades, active-job bookkeeping, receipts, or legacy
 stand production.
 A Base starts with two Shrine-only slots and one free permanent Crafting Station, whose unique saved

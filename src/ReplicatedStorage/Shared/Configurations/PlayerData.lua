@@ -4,7 +4,8 @@
 local FreezeUtil = require(script.Parent.Parent.FreezeUtil)
 
 return FreezeUtil.DeepFreeze({
-	-- Deliberate pre-release fresh start; the prototype namespace is left untouched.
+	-- Development namespace. At launch readiness, switch once to MythicLegends_v1 and keep that
+	-- namespace stable afterward; never copy, reset, or delete the earlier stores as part of release.
 	storeName = "MythicLegends_MVP_v1",
 	profileKeyPrefix = "Player_",
 	schemaVersion = 7,

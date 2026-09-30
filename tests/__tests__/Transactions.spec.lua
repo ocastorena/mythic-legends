@@ -71,7 +71,7 @@ local function receiptCount(data: Types.PlayerDoc): number
 end
 
 describe("fresh player data", function()
-	it("uses the fresh MVP namespace and scoped fresh-profile defaults", function()
+	it("uses the development namespace and scoped fresh-profile defaults", function()
 		expect(Configuration.storeName).toBe("MythicLegends_MVP_v1")
 		expect(Configuration.schemaVersion).toBe(7)
 		expect(PlayerDataTemplate.version).toBe(Configuration.schemaVersion)

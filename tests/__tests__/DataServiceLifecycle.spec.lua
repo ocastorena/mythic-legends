@@ -9,6 +9,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 
 local JestGlobals = require(script.Parent.Parent.DevPackages.JestGlobals)
+local Configuration = require(ReplicatedStorage.Shared.Configurations.PlayerData)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
@@ -163,6 +164,8 @@ local function fixture()
 	local state = {
 		loads = 0,
 		newCalls = 0,
+		storeNames = {} :: { string },
+		profileKeys = {} :: { string },
 		kicks = {} :: { string },
 		packets = {} :: { Types.StatePacket },
 		packetPlayers = {} :: { Player },
@@ -185,10 +188,11 @@ local function fixture()
 	local store = {
 		StartSessionAsync = function(
 			_self: unknown,
-			_key: string,
+			key: string,
 			parameters: { Cancel: () -> boolean }
 		): FakeProfile?
 			state.loads += 1
+			table.insert(state.profileKeys, key)
 			if parameters.Cancel() then
 				return nil
 			end
@@ -198,8 +202,9 @@ local function fixture()
 	}
 	local vendor = {
 		IsClosing = false,
-		New = function()
+		New = function(storeName: string)
 			state.newCalls += 1
+			table.insert(state.storeNames, storeName)
 			return { Mock = store, StartSessionAsync = store.StartSessionAsync }
 		end,
 	}
@@ -275,6 +280,17 @@ local function expectBlocked(result: PublicProbe)
 end
 
 describe("DataService profile lifecycle", function()
+	it("opens only the configured development namespace and stable player key", function()
+		local f = fixture()
+		f.api.Start()
+		expect(f.state.newCalls).toBe(1)
+		expect(f.state.storeNames).toEqual({ "MythicLegends_MVP_v1" })
+		expect(f.state.storeNames[1]).toBe(Configuration.storeName)
+		expect(f.api.Load(f.player)).toBe(true)
+		expect(f.state.profileKeys).toEqual({ "Player_1001" })
+		expect(f.state.profileKeys[1]).toBe(Configuration.profileKeyPrefix .. f.player.UserId)
+	end)
+
 	it(
 		"preserves personal Shop usage through reconciliation without replicating its ledger",
 		function()

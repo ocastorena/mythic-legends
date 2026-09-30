@@ -1,6 +1,6 @@
 --!strict
 -- ServerScriptService/Services/DataService/ProfileSchema
--- Additive upgrades within the MVP namespace only; never reads the old prototype store.
+-- Additive upgrades within the configured namespace only; never reads another store.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
