@@ -50,6 +50,7 @@ export type MythlingSpawnConfiguration = {
 	maxPlacementTries: number,
 	fallbackStepStuds: number,
 	rarityWeights: { [string]: number },
+	prototypeRarityWeights: { [string]: number },
 	expireSeconds: { [string]: number },
 	formExpireSeconds: { [string]: number },
 	defaultExpireSeconds: number,

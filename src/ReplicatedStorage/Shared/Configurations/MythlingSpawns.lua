@@ -14,9 +14,14 @@ local MythlingSpawns: Types.MythlingSpawnConfiguration = {
 	boundaryClearance = 12,
 	maxPlacementTries = 32,
 	fallbackStepStuds = 4,
-	-- Preserve the three existing prototype forms and their effective distribution.
-	-- The approved 75/20/5 launch pool still requires form assets and live catalogue integration.
+	-- Canonical launch selection is validated before startup; activation still needs form assets.
 	rarityWeights = {
+		Common = 75,
+		Rare = 20,
+		Epic = 5,
+	},
+	-- Explicit compatibility pool until approved model bindings replace the three live prototypes.
+	prototypeRarityWeights = {
 		Common = 100,
 		Rare = 50,
 		Legendary = 15,
@@ -28,7 +33,7 @@ local MythlingSpawns: Types.MythlingSpawnConfiguration = {
 		Legendary = 240,
 	},
 	formExpireSeconds = {},
-	defaultExpireSeconds = 240,
+	defaultExpireSeconds = 240, -- Retained compatibility metadata; enabled rarities require defaults.
 }
 
 return FreezeUtil.DeepFreeze(MythlingSpawns)

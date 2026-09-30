@@ -14,6 +14,9 @@ local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifec
 local ClaimEscort = require(script.ClaimEscort)
 local SpawnPlacement = require(script.SpawnPlacement)
 local SpawnPopulation = require(script.SpawnPopulation)
+local SpawnSelection = require(script.SpawnSelection)
+local SpawnLifetimeUtil = require(script.SpawnLifetimeUtil)
+local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
 
 local MythlingSpawnService = {}
 local log = LogUtil.For("MythlingSpawnService")
@@ -23,13 +26,19 @@ local serviceContext: ServerTypes.Context
 local population: SpawnPopulation.State
 local contests: { [string]: ServerTypes.SpawnEntry } = {}
 local encounterTroves: { [string]: Trove.Trove } = {}
-local typesByRarity: { [string]: { string } } = {}
-local weightedRarities: { { rarity: string, weight: number } } = {}
-local totalWeight = 0
+local selection: SpawnSelection.Pool?
 local pumpQueued = false
 local freedPositions: { Vector3 } = {}
 local maxRefillSeconds = 0
 local deadlineMisses = 0
+local activationFailed = false
+
+type Activation = {
+	entry: ServerTypes.SpawnEntry,
+	startedAt: number,
+	lifetime: number,
+	deadline: number,
+}
 
 local function timeNow(): number
 	return workspace:GetServerTimeNow()
@@ -40,18 +49,10 @@ local function isPositive(value: number): boolean
 end
 
 local function chooseForm(): string?
-	if totalWeight <= 0 then
-		return nil
-	end
-	local roll = random:NextNumber(0, totalWeight)
-	for _, option in weightedRarities do
-		roll -= option.weight
-		if roll <= 0 then
-			local forms = typesByRarity[option.rarity]
-			return forms[random:NextInteger(1, #forms)]
-		end
-	end
-	return nil
+	local pool = selection
+	return if pool
+		then SpawnSelection.Choose(pool, random:NextNumber(), random:NextNumber())
+		else nil
 end
 
 local function countContests(): number
@@ -204,22 +205,38 @@ local function makeZone(radius: number, position: Vector3): BasePart
 	return zone
 end
 
-local function resolveLifetime(typeId: string, definition: Types.MythlingDef): number
-	local cfg = serviceContext.Configurations.MythlingSpawns
-	return cfg.formExpireSeconds[typeId]
-		or cfg.expireSeconds[definition.rarity]
-		or cfg.defaultExpireSeconds
+local function resolveLifetime(typeId: string, definition: Types.MythlingDef): number?
+	local lifetime = SpawnLifetimeUtil.Resolve(
+		typeId,
+		definition.rarity,
+		definition.fillRate,
+		serviceContext.Configurations.MythlingSpawns
+	)
+	return lifetime
 end
 
-local function activate(entry: ServerTypes.SpawnEntry, now: number)
-	local lifetime =
-		resolveLifetime(entry.typeId, serviceContext.Configurations.Mythlings[entry.typeId])
-	entry.startedAt = now
-	entry.lifetimeSeconds = lifetime
-	entry.expireAt = now + lifetime
+local function prepareActivation(entry: ServerTypes.SpawnEntry, now: number): Activation?
+	local lifetime = SpawnLifetimeUtil.Resolve(
+		entry.typeId,
+		entry.rarity,
+		entry.fillRate,
+		serviceContext.Configurations.MythlingSpawns
+	)
+	local deadline = if lifetime then SpawnLifetimeUtil.GetDeadline(now, lifetime) else nil
+	if not lifetime or not deadline then
+		return nil
+	end
+	return { entry = entry, startedAt = now, lifetime = lifetime, deadline = deadline }
+end
+
+local function activate(activation: Activation)
+	local entry = activation.entry
+	entry.startedAt = activation.startedAt
+	entry.lifetimeSeconds = activation.lifetime
+	entry.expireAt = activation.deadline
 	setState(entry, "SPAWNED")
 	entry.model:SetAttribute("CaptureReady", true)
-	entry.model:SetAttribute("StartedAt", now)
+	entry.model:SetAttribute("StartedAt", entry.startedAt)
 	entry.model:SetAttribute("ExpireAt", entry.expireAt)
 	local timer = entry.model:FindFirstChild("MythlingExpireTimer")
 	if timer and timer:IsA("BillboardGui") then
@@ -247,8 +264,7 @@ local function spawnAttempt(attempt: SpawnPopulation.Attempt): (boolean, string)
 		or not isPositive(definition.zoneRadius)
 		or not isPositive(definition.fillRate)
 		or not (definition.drainRate >= 0 and definition.drainRate < math.huge)
-		or not isPositive(resolveLifetime(typeId, definition))
-		or resolveLifetime(typeId, definition) <= 100 / definition.fillRate
+		or not resolveLifetime(typeId, definition)
 	then
 		return false, "invalid form radius/capture rates, or lifetime leaves no arrival time"
 	end
@@ -320,14 +336,20 @@ local function spawnAttempt(attempt: SpawnPopulation.Attempt): (boolean, string)
 	model:SetAttribute("State", "PREFILL")
 	model:SetAttribute("CaptureReady", false)
 	model:SetAttribute("ExpireAt", nil)
+	-- A replacement must have a representable deadline before it consumes capturable capacity.
+	local activation = if population.ready then prepareActivation(entry, timeNow()) else nil
+	if population.ready and not activation then
+		model:Destroy()
+		return false, "invalid activation time or lifetime deadline"
+	end
 	local owner = lifecycle.trove:Extend()
 	encounterTroves[id] = owner
 	owner:Add(model)
 	contests[id] = entry
 	model.Parent = serviceContext.Instances.Mythlings
 	SpawnPopulation.Complete(population, attempt.id)
-	if population.ready then
-		activate(entry, timeNow())
+	if activation then
+		activate(activation)
 	end
 	return true, ""
 end
@@ -364,12 +386,40 @@ local function refill()
 			)
 		end
 	end
-	if SpawnPopulation.OpenIfFilled(population, countContests()) then
+	if
+		not population.ready
+		and countContests() >= population.target
+		and next(population.pending) == nil
+	then
 		local startedAt = timeNow()
+		local activations: { Activation } = {}
+		local valid = true
 		for _, entry in contests do
-			activate(entry, startedAt)
+			local activation = prepareActivation(entry, startedAt)
+			if activation then
+				table.insert(activations, activation)
+			else
+				valid = false
+			end
 		end
-		serviceContext.Instances.Mythlings:SetAttribute("CaptureReady", true)
+		-- No partial opening: preserve prefilled forms and retry timing without rerolling them.
+		if not valid then
+			if not activationFailed then
+				log.error(
+					"Initial capture activation failed: invalid server time or lifetime deadline"
+				)
+			end
+			activationFailed = true
+			serviceContext.Instances.Mythlings:SetAttribute("RefillFailed", true)
+			return
+		end
+		activationFailed = false
+		if SpawnPopulation.OpenIfFilled(population, countContests()) then
+			for _, activation in activations do
+				activate(activation)
+			end
+			serviceContext.Instances.Mythlings:SetAttribute("CaptureReady", true)
+		end
 	end
 	local failed = false
 	for _, attempt in population.pending do
@@ -436,31 +486,25 @@ function MythlingSpawnService.Init(context: ServerTypes.Context)
 		"Invalid random placement budget"
 	)
 	population = SpawnPopulation.New(cfg.targetActive, cfg.refillDeadlineSeconds)
-	for typeId, definition in context.Configurations.Mythlings do
-		local rarity = definition.rarity
-		local forms = typesByRarity[rarity] or {}
-		typesByRarity[rarity] = forms
-		table.insert(forms, typeId)
-	end
-	for rarity, weight in cfg.rarityWeights do
-		local forms = typesByRarity[rarity]
-		if isPositive(weight) and forms and #forms > 0 then
-			table.sort(forms)
-			table.insert(weightedRarities, { rarity = rarity, weight = weight })
-			totalWeight += weight
-		elseif weight > 0 then
-			log.error(`Configured spawn rarity {rarity} has no forms`)
-		end
-	end
-	table.sort(
-		weightedRarities,
-		function(
-			left: { rarity: string, weight: number },
-			right: { rarity: string, weight: number }
-		)
-			return left.rarity < right.rarity
-		end
+	-- Validate the approved asset-independent policy without activating absent model bindings.
+	local launchPool, launchProblem = SpawnSelection.Build(MythlingForms, cfg.rarityWeights)
+	assert(launchPool, `[MythlingSpawnService] Invalid launch selection: {launchProblem}`)
+	local validLaunchLifetimes, launchLifetimeProblem =
+		SpawnLifetimeUtil.Validate(MythlingForms, cfg, "captureProgressPerSecond")
+	assert(
+		validLaunchLifetimes,
+		`[MythlingSpawnService] Invalid launch lifetimes: {launchLifetimeProblem}`
 	)
+	local prototypePool, prototypeProblem =
+		SpawnSelection.Build(context.Configurations.Mythlings, cfg.prototypeRarityWeights)
+	assert(prototypePool, `[MythlingSpawnService] Invalid prototype selection: {prototypeProblem}`)
+	local validPrototypeLifetimes, prototypeLifetimeProblem =
+		SpawnLifetimeUtil.Validate(context.Configurations.Mythlings, cfg, "fillRate")
+	assert(
+		validPrototypeLifetimes,
+		`[MythlingSpawnService] Invalid prototype lifetimes: {prototypeLifetimeProblem}`
+	)
+	selection = prototypePool
 	context.Instances.Mythlings:SetAttribute("CaptureReady", false)
 	context.Instances.Mythlings:SetAttribute("RefillFailed", false)
 	context.Instances.Mythlings:SetAttribute("LastRefillSeconds", 0)

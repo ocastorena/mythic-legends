@@ -744,9 +744,10 @@ The client receives character-bound `ClaimUpdate` projections for the current ri
 decaying meter; these projections do not replace the independent server meters. Timers render
 the server's `State` and fixed `ExpireAt`, including an explicit overtime label.
 
-This lifecycle repair preserves the three existing prototype form IDs and their effective spawn
-weights. It does not activate the separate [18-form business catalogue](#launch-mythling-form-catalogue)
-or its 75%/20%/5% launch distribution. Ember Fang
+The live lifecycle preserves the three existing prototype form IDs and their effective spawn
+weights through explicit `prototypeRarityWeights`. The shared selection implementation and startup
+validation also consume the separate [18-form business catalogue](#launch-mythling-form-catalogue)
+and canonical 75%/20%/5% `rarityWeights`, without activating its absent model bindings. Ember Fang
 and Shadow Satyr now use their configured 20/35-second captures; Stream Axolotl retains its prototype
 10-second capture. All three decay one second of earned progress per second absent and use a
 240-second lifetime. Author the launch assets and integrate the new catalogue into spawning before
@@ -2712,6 +2713,56 @@ Luck and Passive Trait acquisition/effect definitions, Consumable definitions, b
 expanded Crafting Station queue/upgrade definitions are added with their future updates. They are
 not required launch configuration, and launch validation must accept records without Luck or a Trait.
 
+### Arena spawn selection and lifetime policy
+
+Private `MythlingSpawnService/SpawnSelection.Build(forms, weights)` compiles a detached, recursively
+frozen pool from the catalogue's explicit rarity metadata. It requires nonempty form IDs, plain
+definition records, positive finite weights with exact group coverage, and a safe strictly increasing
+total. A missing or extra weighted rarity, empty pool, zero/invalid weight, or unsafe accumulation
+rejects instead of silently renormalizing the remaining content. Alphabetically sorted rarity names
+and form IDs make intervals deterministic; no property is inferred from an ID, stage, or model.
+
+`Choose(pool, rarityRoll, formRoll)` takes independent normalized rolls from zero through one,
+chooses a weighted rarity and then a uniform form within that rarity, and returns only the selected
+form ID. Internal intervals are half-open; the exact upper endpoint selects the final interval.
+Invalid rolls return no selection. The six complete launch chains give one form of each element
+per rarity, so uniform forms provide equal element probabilities. No rarity is rolled onto an
+owned instance, no fixed Arena quota is imposed, and repeated forms remain possible.
+
+`Configurations.MythlingSpawns.rarityWeights` holds the initial Common/Rare/Epic 75/20/5 weights;
+the separate, explicitly temporary `prototypeRarityWeights` retains Common/Rare/Legendary 100/50/15.
+The service validates both catalogues with the same compiler during Init and delegates its actual
+picker to `Choose` using the prototype pool until approved assets are bound. No canonical names,
+models, radius, or prototype substitutions are invented. `SpawnPopulation.QueueDeficits` invokes
+the picker once per initial/replacement attempt and retains its result across placement retries.
+Simultaneous deficits have independent selections/deadlines; overtime does not release capacity.
+
+Private `SpawnLifetimeUtil.Resolve(formId, rarity, captureProgressPerSecond, tuning)` validates
+the shared lifetime maps and the selected form's capture duration. Every enabled rarity requires
+a positive finite default, even when that form has an override. A present override replaces the
+default; malformed or nonpositive overrides never fall back. All configured keys/values are checked,
+including currently unselected entries; well-formed override IDs may span the separate catalogues.
+The retained `defaultExpireSeconds` field cannot substitute for a missing rarity default. Effective
+lifetime must safely exceed `100 / captureProgressPerSecond` on the existing percentage scale.
+This establishes positive arrival slack, not sufficient travel time on an authored map.
+
+`Validate(forms, tuning, rateField)` runs for canonical `captureProgressPerSecond` and retained
+prototype `fillRate` before startup. The service also resolves before each placement attempt and
+again when the contest becomes capturable, using that contest's recorded rarity and capture rate.
+`GetDeadline` rejects nonfinite/unsafe start times or sums and durations lost to clock precision.
+Initial activation prepares every deadline after full prefill with one shared start time, opening
+none if any is invalid. Failed initial activation retains the selected forms for retry and reports
+`RefillFailed`; replacements validate before consuming capacity and retain their pending selection
+on failure. Each replacement starts at its own activation. Existing runtime
+`startedAt`, `lifetimeSeconds`, and `expireAt` stay fixed through later configuration changes and
+overtime. No lifetime or copied rate is added to owned records. Initial-config tests check all 18
+240-second lifetimes without overrides; validators still permit future valid per-form tuning.
+
+Deterministic policy/population/grant tests and disposable service tests verify the selection,
+validation, and activation boundaries, not live roster activation, map arrival, eight-player
+refill performance, or durable capture delivery. Approved model/radius bindings and those live
+checks remain release requirements. No GUI or authored asset is changed by this policy integration.
+
 ### Launch Mythling form catalogue
 
 `Shared.Configurations.MythlingForms` is the read-only business catalogue for the 18 launch forms,
@@ -2744,8 +2795,9 @@ per second respectively; decay equals progress for each form. Each first form li
 through `evolution = { targetFormId, requiredLevel = 6 }`, and each second form links to its final
 form at level 40. Final forms have no `evolution` link, but still use the shared level cap.
 These values belong to each explicit definition, not a runtime stage/rarity multiplier.
-The existing spawn configuration retains 240-second rarity lifetimes and no overrides for these
-IDs; metadata capture duration is not a new lifetime timer or a request to spawn a form.
+The shared spawn configuration retains 240-second rarity lifetimes and no overrides for these
+IDs; the [spawn policy](#arena-spawn-selection-and-lifetime-policy) validates effective lifetimes
+against their capture rates without activating the forms or copying rates into saves.
 
 `ServerScriptService.Shared.MythlingCatalogUtil.ValidateLaunch(forms, levelCap)` runs from
 `MainServer` before service startup. It checks the launch-specific cardinality, element/rarity/stage
@@ -2754,8 +2806,10 @@ sale-price relationships. Valid tuning changes remain allowed; validation is not
 copy of the initial numbers. This launch-catalogue contract does not narrow the generic accrual,
 evolution, or sale reducers into a universal three-stage/rarity rule.
 
-The catalogue is not passed into the live service context. Existing spawn definitions/weights,
-models, save schema, prototype stand production, and menus remain unchanged. The canonical
+The catalogue is not passed into the prototype definition map in the live service context. Spawn
+policy validation requires it directly; actual selection still uses the explicit prototype pool.
+Existing live definitions/effective weights, models, save schema, prototype stand production, and
+menus remain unchanged. The canonical
 [capture-grant boundary](#canonical-capture-grant-boundary), Shrine commands, evolution, and sales
 consume the relevant metadata directly. Capture grants retain the caught form with new-grant
 progression defaults; evolution changes only the selected owned `typeId`, and sales remove only the
@@ -3283,7 +3337,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Canonical production, collection, paid upgrades, Material-sale/discard, and crafting commands use these references; integrate Shop separately. Metadata alone adds none of those actions. |
 | Material sales and discard | `InventoryService.SellMaterial`/`DiscardMaterial` and their matching admitted Inventory endpoints delegate to private [MaterialDisposalCommand](../src/ServerScriptService/Services/InventoryService/MaterialDisposalCommand.lua). One revision-bound `DataService.Transact` validates the exact owned quantity and configured sale quote, removes only the selected owned amount, and grants sale Gold or zero for discard. Receipts prevent repeated removal/payment, and [GoldCreditUtil](../src/ServerScriptService/Shared/GoldCreditUtil.lua) protects recorded cancellation headroom. | Add player-facing confirmation and verify connected-player dispatch and durable retention separately. Only enabled normal Materials are eligible; valid over-capacity inventories can recover space. The command never consumes reservations or uncollected output; shared preparation may resolve due jobs atomically before it. |
 | Inventory capacity | Server-shared [InventoryCapacity](../src/ServerScriptService/Shared/InventoryCapacity.lua) derives category limits, per-type 1,000-unit stacks, and active job reservations. `InventoryService.UpgradeCapacity` and its admitted Inventory endpoint delegate to [CapacityUpgradePurchase](../src/ServerScriptService/Services/InventoryService/CapacityUpgradePurchase.lua), atomically purchasing the selected category's next +12 slots with Gold and the fixed six-Material mix. [UpgradePaymentUtil](../src/ServerScriptService/Shared/UpgradePaymentUtil.lua) shares Base/Inventory payment validation, including ingredient capacity before the grant and preserved refunds. | Add player-facing integration and validate connected-player dispatch/durable retention. Crafting consumes the same reservation accounting; capacity purchases themselves do not grant output or spend a reservation. No GUI, schema migration, Shop allowance use, or refresh reset is added. |
-| Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, the six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates this separate business catalogue before server services start. Canonical capture grants, Shrine commands, evolution, and Mythling sales consume the relevant metadata directly. | Finalize creative names/concepts/assets and integrate the live canonical spawn pool and remaining features separately. The catalogue is not in the service context and does not replace the three live prototype forms or expose menus; ownership changes occur only through their transactions. |
+| Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates the business catalogue; spawn initialization also compiles its configured 75/20/5 selection pool and validates every form's capture/lifetime policy. Canonical grants, Shrine commands, evolution, and sales consume these IDs. See [spawn selection and lifetime policy](#arena-spawn-selection-and-lifetime-policy). | Finalize creative names/concepts/assets and bind the live canonical pool separately. Validated asset-independent selection and lifetimes do not activate launch models or replace the three live prototype forms. No model/radius substitution or menu is supplied; ownership changes remain transactional. |
 | Capture grants | Server-only `InventoryService.SaveWonMythling` retains its loaded Inventory-session gate and delegates to private [CaptureGrant](../src/ServerScriptService/Services/InventoryService/CaptureGrant.lua). It validates supported selection, generated identity/time, and capacity before granting the exact canonical form at level 1, XP 0, and pending XP 0 through `DataService.Update`. No Luck/Trait roll or static metadata is copied into the new record; configured prototype captures remain supported temporarily. | ClaimService supplies contest-level award uniqueness; the grant is not a retryable client endpoint. Canonical model bindings and live spawn selection remain separate work. Validate connected-player capture and durable saves; injected/serialized tests and asynchronous save requests do not establish them. No GUI, remote, or schema migration is added. |
 | Mythling production | Existing [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) retains prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua) behavior. Canonical [ProfileProduction](../src/ServerScriptService/Services/ProductionService/ProfileProduction.lua) settles Ready/Checkpoint/Release through shared [ShrineAccounting](../src/ServerScriptService/Shared/ShrineAccounting.lua), with [ProfileCheckpoints](../src/ServerScriptService/Services/ProductionService/ProfileCheckpoints.lua) initially scheduling loaded-profile checkpoints every 30 seconds. Server-only `SettleShrines` and atomic assignment/collection/upgrade/dismantling/evolution/sale commands use the same accounting engine in their own transactions. | Integrate remaining features and player-facing views separately. Keep settlement and input changes in one draft; legacy stand paths and inactive Luck/Traits remain unchanged. The private clock and pending XP stay out of projection. Mock/serialized tests and asynchronous save requests do not establish live durable persistence; validate join/leave/shutdown and reconnect behavior in play. |
 | Shrine management view | `BaseService.GetShrine` and its admitted Base endpoint use [ShrineView](../src/ServerScriptService/Services/BaseService/ShrineView.lua) and the shared read-only accounting snapshot to return detached worker slots/candidates, committed storage/progress and nominal production estimates, collection room, upgrade quotes, and dismantle eligibility. World access follows revision/request validation and precedes projection; the read never settles or saves. | Supply permanent slot anchors and prompt/GUI integration separately; verify connected-player interaction and durable retention. Previews are not guaranteed mutation results: real actions settle and revalidate. No raw clock/work/XP ledger, inactive Luck/Traits, prototype conversion, authored placement, or menus are added. |
@@ -3300,7 +3354,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Crafting Jobs | [CraftingService](../src/ServerScriptService/Services/CraftingService/init.lua) supplies admitted GetStation/StartJob/CancelJob remotes through [CraftingRequests](../src/ServerScriptService/Services/CraftingService/CraftingRequests.lua). Commands retain revision-bound receipt replay; BaseService checks fresh actions against the caller's live Base and configured Station anchor. [CraftingJobs](../src/ServerScriptService/Services/CraftingService/CraftingJobs.lua) owns detached views, recorded promises, capacity reservations, and exactly-once resolution. Automatic settlement never requires proximity. | Place the explicit authored Station anchor and add its prompt/menu integration separately. Legacy reservation-only jobs remain opaque and block starts when active; no refund history is invented. No GUI, model fallback, or auto-equip is added. Verify connected-player interactions and durable retention independently of session-atomic tests. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. [CombatState](../src/ServerScriptService/Services/CombatService/CombatState.lua) accounts for Fire drain alongside recovery and guard transitions. Marker sequences and transition timeouts bound cleanup; loadout changes retain these accounting deadlines and never refill Stamina. Client input resolves canonical variants and preserves release/lowering cleanup after a selection changes. | Tune authored animations and transition timing in multiplayer/touch playtests. Approved crafted asset bindings and live effect/guard interaction validation remain outstanding. |
 | Elemental combat | [ElementalHits](../src/ServerScriptService/Services/CombatService/ElementalHits.lua) integrates the six configured effects after accepted-hit and block decisions. CombatState owns snapshotted deadlines, first-effect-wins occupancy, Earth landing/recovery state, and immediate Air/Light/Dark arithmetic. [EarthLanding](../src/ServerScriptService/Services/CombatService/EarthLanding.lua) supplies bounded server support observations; [MovementRestrictions](../src/ServerScriptService/Services/CombatService/MovementRestrictions.lua) composes current voluntary movement rules without changing forced motion or collisions. | Verify server-observed takeoff/landing, effect persistence, movement composition, and force/Stamina behavior in live multiplayer. Client effect presentation and approved crafted bindings remain separate; this implementation adds no GUI or asset activation. |
-| Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
+| Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) compiles detached canonical and prototype pools through [SpawnSelection](../src/ServerScriptService/Services/MythlingSpawnService/SpawnSelection.lua), with weighted rarity and uniform sorted forms. [SpawnLifetimeUtil](../src/ServerScriptService/Services/MythlingSpawnService/SpawnLifetimeUtil.lua) validates both catalogues' defaults/overrides, capture slack, and safe activation deadlines. Live selection still uses explicit prototype 100/50/15 weights. The service prefills 12 before capture, retains each replacement selection across retries with a three-second deadline, and fixes lifetimes at activation; ClaimService owns expiry/overtime. See [policy details](#arena-spawn-selection-and-lifetime-policy). | Author approved model/radius bindings, activate the neutral launch IDs, and verify their configured 75%/20%/5% distribution and equal element chances in play. Deadline and headless selection validation do not establish asset readiness or sufficient map arrival time. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
 | Shop | [ShopService](../src/ServerScriptService/Services/ShopService/init.lua) returns read-only offers/eligibility/upgrade quotes and revision-bound atomic purchases through its public API and the declared `Shop.GetShop`/`BuyOffer` endpoints. [ShopRequests](../src/ServerScriptService/Services/ShopService/ShopRequests.lua) admits callers before protected work and keeps refreshed quotes separate from recorded transaction results. A shared hourly schedule rotates the matching Featured pair; saved personal usage is independent of catalogue revisions and purchased upgrades. | Add menu integration and verify connected-player dispatch, live refresh boundaries, and durable retention separately. No GUI, asset activation, automatic equip, XP, or refresh timer is added. Future tuning must be deployed at a shared period boundary. |

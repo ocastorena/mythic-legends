@@ -155,6 +155,31 @@ not activate them in the Arena or menus. Canonical capture grants, Shrine comman
 Mythling sales consume the relevant metadata directly. The catalogue itself does not rewrite
 existing `typeId` values or change the save schema.
 
+### Arena spawn-policy review
+
+`MythlingSpawns.rarityWeights` configures the canonical Common/Rare/Epic 75/20/5 selection.
+Private `MythlingSpawnService/SpawnSelection` validates and compiles each catalogue's rarity groups,
+then selects one group and one equally likely form using independent rolls. The same implementation
+now drives live selection, but the live service explicitly uses `prototypeRarityWeights` and the
+three existing model-bound definitions. This does not activate the 18-form roster or add fallback
+models. Both policies are validated before the service starts; missing groups cannot silently
+redistribute their probability. Sorted IDs establish deterministic intervals, not encoded rarity
+or player-facing ordering.
+
+`SpawnLifetimeUtil` requires a positive rarity default and validates every configured override.
+An override takes precedence; invalid values reject instead of falling back. Effective lifetime
+must exceed that form's configured uninterrupted capture duration. All 18 initial forms resolve
+to 240 seconds with no overrides. The real map must still prove sufficient arrival time.
+Countdowns are fixed at capturable activation, after all initial contests are placed, not when
+a form is selected; later configuration changes do not restart an active contest.
+
+Run the verification commands above for exact selection boundaries/proportions, equal element
+coverage, retained choices through placement retries, initial and simultaneous replacement paths,
+canonical capture grants, invalid lifetime tuning, and disposable service wiring. These do not
+prove eight-player performance, approved asset bindings, or durable saves. No GUI, Studio asset,
+owned record, or capture/production value is changed. See the
+[policy contract](docs/TECHNICAL_DESIGN.md#arena-spawn-selection-and-lifetime-policy).
+
 ### Canonical capture-grant review
 
 The existing server-only `InventoryService.SaveWonMythling(player, params)` boundary now accepts
