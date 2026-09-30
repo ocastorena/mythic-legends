@@ -206,11 +206,12 @@ Crafted definitions require a valid finish; plain wooden items reject one. Names
 `EquipmentCatalogUtil.ValidateLaunch` checks definitions, recipes, effects, Material references,
 and resale relationships before startup. Run the verification commands above; real-catalogue tests
 also pin the approved initial values and unchanged wooden gameplay. Server loadout/combat resolution
-uses the canonical definitions; the unchanged client still uses the wooden-only `profiles` map.
+and non-GUI client attack/guard input use canonical definition/finish metadata. Existing previews
+and VFX consumers retain the wooden-only compatibility map.
 
 Crafted model bindings and thumbnails are explicitly empty while assets remain undecided. There is
 no wooden-model fallback, GUI change, or saved-stat copy. Server elemental-effect logic is implemented
-below, but crafted combat still needs approved assets and client variant integration.
+below, but crafted combat still needs approved assets and live verification.
 Headless crafting, Shop delivery, and atomic loadout commands consume this catalogue, but unbound crafted items
 cannot pass the server's mounted-Equipment action checks. See the
 [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-equipment-catalogue).
@@ -237,13 +238,19 @@ Only a fresh successful selection change updates the current live character: it 
 old swing authorization, removes guard protection, and rebuilds attachments without resetting
 Stamina, cooldowns, swing locks, or an existing lowering deadline. Replays and unchanged selections
 skip those runtime effects. Server actions require the exact owned instance, definition, finish,
-and matching hand-mounted model. Client/GUI integration is unchanged; crafted assets remain unbound,
-with no wooden fallback. Existing effects survive loadout changes under the accounting rules below.
+and matching hand-mounted model. Client attack/guard input uses private `EquipmentSelection` to
+bind prediction to the same instance/definition/finish and mounted model, Hitbox, and hand Motor6D.
+Delayed activation/contact callbacks reject replaced selections; Equipment changes invalidate local
+actions without resetting cooldowns or swing locks. Guard release/lowering still completes using
+the original profile when the old selection disappears. GUI rendering is unchanged; crafted assets
+remain unbound, with no wooden fallback. Existing effects survive loadout changes under the
+accounting rules below.
 
 Run the verification commands above for one-time defaults, retained/ambiguous saves, empty-slot
 reconnects, stale/replayed commands, compatibility, mount identity, rollback, and cross-endpoint
-admission/cleanup. Playtest normal
-wooden combat, death/reset, and Equipment changes during attack/guard transitions separately.
+admission/cleanup. Client selection tests use disposable models and explicitly bound fixture profiles;
+they do not activate production assets. Playtest normal wooden combat, death/reset, and Equipment
+changes during attack/guard transitions separately, including replication and animation timing.
 In-memory and serialized tests do not prove durable persistence or crafted combat readiness.
 
 ### Player-data foundation review

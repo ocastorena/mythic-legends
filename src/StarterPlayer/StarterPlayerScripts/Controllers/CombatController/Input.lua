@@ -5,6 +5,7 @@ local Input = {}
 local stopImpl: (() -> ())?
 local Types = require(script.Parent.Parent.Parent.Types)
 local SharedTypes = require(game:GetService("ReplicatedStorage").Shared.Types)
+local EquipmentSelection = require(script.Parent.EquipmentSelection)
 local combatView: Types.CombatActionView?
 local isRunning = false
 local generation = 0
@@ -81,6 +82,7 @@ function Input.Start()
 	local nextSwingSequence = 0
 	local activeTransitionTrack: AnimationTrack? = nil
 	local activeAttackTrack: AnimationTrack? = nil
+	local activeAttackSelection: EquipmentSelection.Selection? = nil
 	local attackToken = 0
 	local isGuardRequested = false
 	local guardPhase = "Lowered"
@@ -92,6 +94,7 @@ function Input.Start()
 	local activeGuardRaiseTrack: AnimationTrack? = nil
 	local activeGuardHoldTrack: AnimationTrack? = nil
 	local activeGuardLowerTrack: AnimationTrack? = nil
+	local activeGuardSelection: EquipmentSelection.Selection? = nil
 
 	local function getCharacter(): Model?
 		return localPlayer.Character
@@ -146,6 +149,7 @@ function Input.Start()
 			end
 			if activeAttackTrack == track then
 				activeAttackTrack = nil
+				activeAttackSelection = nil
 			end
 			if activeGuardRaiseTrack == track then
 				activeGuardRaiseTrack = nil
@@ -167,19 +171,17 @@ function Input.Start()
 		return if type(value) == "string" then value else ""
 	end
 
-	local function getProfile(character: Model, hand: string): SharedTypes.EquipmentProfile?
-		return Equipment.profiles[getEquipped(character, hand)]
+	local function getProfile(
+		character: Model,
+		hand: EquipmentSelection.Hand
+	): SharedTypes.EquipmentProfile?
+		local selection = EquipmentSelection.Resolve(character, hand)
+		return if selection then selection.item.profile else nil
 	end
 
-	local function getEquipmentModel(character: Model, hand: string): Model?
-		local folder = character:FindFirstChild("EquippedEquipment")
-		local equipment = folder and folder:FindFirstChild(`{hand}Equipment`)
-		return if equipment and equipment:IsA("Model") then equipment else nil
-	end
-
-	local function getWeaponHitbox(weapon: Model?): BasePart?
-		local hitbox = weapon and weapon:FindFirstChild("Hitbox", true)
-		return if hitbox and hitbox:IsA("BasePart") then hitbox else nil
+	local function getEquipmentModel(character: Model, hand: EquipmentSelection.Hand): Model?
+		local selection = EquipmentSelection.Resolve(character, hand)
+		return if selection then selection.model else nil
 	end
 
 	local function setWeaponTrail(weapon: Model?, isEnabled: boolean)
@@ -200,6 +202,7 @@ function Input.Start()
 
 	local function clearActiveAttack()
 		attackToken += 1
+		activeAttackSelection = nil
 		activeAttackTrove:Clean()
 		if activeAttackTrack then
 			activeAttackTrack:Stop(0.05)
@@ -260,32 +263,6 @@ function Input.Start()
 		end)
 	end
 
-	local function startGuardHold(character: Model, expectedToken: number)
-		if
-			not isGuardRequested
-			or guardToken ~= expectedToken
-			or localPlayer.Character ~= character
-			or character:GetAttribute("CombatReady") ~= true
-		then
-			return
-		end
-		if activeGuardRaiseTrack then
-			activeGuardRaiseTrack:Stop(0.06)
-			activeGuardRaiseTrack = nil
-		end
-		local profile = getShieldProfile(character)
-		local track = profile
-			and playAnimation(character, profile.holdAnimationId, Enum.AnimationPriority.Action4)
-		if track then
-			if not isGuardRequested or guardToken ~= expectedToken then
-				track:Stop(0)
-				return
-			end
-			track.Looped = true
-			activeGuardHoldTrack = track
-		end
-	end
-
 	local function endGuard(character: Model?, shouldPlayLower: boolean)
 		if guardPhase == "Lowered" or guardPhase == "Lowering" then
 			return
@@ -308,9 +285,12 @@ function Input.Start()
 
 		if not shouldPlayLower or not character or localPlayer.Character ~= character then
 			guardPhase = "Lowered"
+			activeGuardSelection = nil
 			return
 		end
-		local profile = getShieldProfile(character)
+		-- Cleanup belongs to the original guard, even after its item/model stops being current.
+		local selection = activeGuardSelection
+		local profile = if selection then selection.item.profile else nil
 		local minimumSeconds = if profile then profile.lowerSeconds else nil
 		local timeoutSeconds = if profile then profile.lowerTimeoutSeconds else nil
 		local lowerSeconds = minimumSeconds or Equipment.presentationDefaults.lowerSeconds
@@ -348,6 +328,7 @@ function Input.Start()
 				setShieldGuard:FireServer(request)
 			end
 			guardPhase = "Lowered"
+			activeGuardSelection = nil
 			stopGuardTracks(0.05)
 		end
 		delayGuard(lowerTimeout, finishLower)
@@ -374,6 +355,52 @@ function Input.Start()
 		end
 	end
 
+	local function isCurrentGuard(
+		character: Model,
+		expectedToken: number,
+		selection: EquipmentSelection.Selection
+	): boolean
+		if not isGuardRequested or guardToken ~= expectedToken then
+			return false
+		end
+		if
+			not isRunning
+			or generation ~= currentGeneration
+			or localPlayer.Character ~= character
+			or character:GetAttribute("CombatReady") ~= true
+			or not EquipmentSelection.IsCurrent(character, selection)
+		then
+			endGuard(character, true)
+			return false
+		end
+		return true
+	end
+
+	local function startGuardHold(
+		character: Model,
+		expectedToken: number,
+		selection: EquipmentSelection.Selection
+	)
+		if not isCurrentGuard(character, expectedToken, selection) then
+			return
+		end
+		if activeGuardRaiseTrack then
+			activeGuardRaiseTrack:Stop(0.06)
+			activeGuardRaiseTrack = nil
+		end
+		local profile = selection.item.profile
+		local track =
+			playAnimation(character, profile.holdAnimationId, Enum.AnimationPriority.Action4)
+		if track then
+			if not isCurrentGuard(character, expectedToken, selection) then
+				track:Stop(0)
+				return
+			end
+			track.Looped = true
+			activeGuardHoldTrack = track
+		end
+	end
+
 	local function beginGuard(character: Model)
 		if
 			isGuardRequested
@@ -383,16 +410,14 @@ function Input.Start()
 		then
 			return
 		end
-		local profile = getShieldProfile(character)
-		if
-			not profile
-			or not getEquipmentModel(character, "Left")
-			or not hasGuardStamina(profile)
-		then
+		local selection = EquipmentSelection.Resolve(character, "Left")
+		if not selection or not hasGuardStamina(selection.item.profile) then
 			return
 		end
+		local profile = selection.item.profile
 
 		stopGuardTracks(0.04)
+		activeGuardSelection = selection
 		isGuardRequested = true
 		guardPhase = "Raising"
 		hasGuardAcknowledgement = false
@@ -415,14 +440,7 @@ function Input.Start()
 
 		local hasTransitioned = false
 		local function transitionToHold()
-			if
-				hasTransitioned
-				or not isRunning
-				or generation ~= currentGeneration
-				or guardToken ~= expectedToken
-				or not isGuardRequested
-				or localPlayer.Character ~= character
-			then
+			if hasTransitioned or not isCurrentGuard(character, expectedToken, selection) then
 				return
 			end
 			hasTransitioned = true
@@ -432,7 +450,7 @@ function Input.Start()
 				character = character,
 			}
 			setShieldGuard:FireServer(raisedRequest)
-			startGuardHold(character, expectedToken)
+			startGuardHold(character, expectedToken, selection)
 		end
 		local raiseSeconds = profile.raiseSeconds or Equipment.presentationDefaults.raiseSeconds
 		local raiseTimeout = profile.raiseTimeoutSeconds
@@ -444,7 +462,7 @@ function Input.Start()
 		end)
 		local track =
 			playAnimation(character, profile.raiseAnimationId, Enum.AnimationPriority.Action4)
-		if not isGuardRequested or guardToken ~= expectedToken or not isRunning then
+		if not isCurrentGuard(character, expectedToken, selection) then
 			if track then
 				track:Stop(0)
 			end
@@ -503,12 +521,11 @@ function Input.Start()
 		then
 			return
 		end
-		local profile = getProfile(character, "Right")
-		local weapon = getEquipmentModel(character, "Right")
-		local hitbox = getWeaponHitbox(weapon)
-		if not profile or profile.kind ~= "PrimaryWeapon" or not weapon or not hitbox then
+		local selection = EquipmentSelection.Resolve(character, "Right")
+		if not selection then
 			return
 		end
+		local profile, weapon, hitbox = selection.item.profile, selection.model, selection.hitbox
 		local stamina = localPlayer:GetAttribute("CombatStamina")
 		if type(stamina) == "number" and stamina + 0.001 < (profile.staminaCost or 0) then
 			return
@@ -524,6 +541,7 @@ function Input.Start()
 		attackLockedUntil = now
 			+ (profile.swingDurationSeconds or Equipment.presentationDefaults.swingDurationSeconds)
 		clearActiveAttack()
+		activeAttackSelection = selection
 		activeAttackTrove:Add(function()
 			setWeaponTrail(weapon, false)
 		end)
@@ -541,11 +559,15 @@ function Input.Start()
 				and attackToken == currentToken
 				and localPlayer.Character == character
 				and character:GetAttribute("CombatReady") == true
+				and EquipmentSelection.IsCurrent(character, selection)
 		end
 
 		local function closeContactWindow()
 			isWindowClosed = true
 			setWeaponTrail(weapon, false)
+			if attackToken == currentToken and not activeAttackTrack then
+				activeAttackSelection = nil
+			end
 		end
 
 		local function playSwingSound()
@@ -617,7 +639,11 @@ function Input.Start()
 								task.delay(
 									math.clamp(profile.hitStopSeconds or 0, 0, 0.08),
 									function()
-										if activeAttackTrack == track and track.IsPlaying then
+										if
+											isCurrentAttack()
+											and activeAttackTrack == track
+											and track.IsPlaying
+										then
 											track:AdjustSpeed(1)
 										end
 									end
@@ -940,10 +966,18 @@ function Input.Start()
 	end)
 
 	local function bindCharacter(character: Model)
+		if
+			not isRunning
+			or generation ~= currentGeneration
+			or localPlayer.Character ~= character
+		then
+			return
+		end
 		characterTrove:Clean()
 		isGuardRequested = false
 		guardPhase = "Lowered"
 		activeGuardSequence = nil
+		activeGuardSelection = nil
 		hasGuardAcknowledgement = false
 		isKeyboardGuardHeld = UserInputService:IsKeyDown(Enum.KeyCode.F)
 		guardToken += 1
@@ -995,6 +1029,7 @@ function Input.Start()
 			elseif serverPhase == "Lowered" and hasGuardAcknowledgement then
 				isGuardRequested = false
 				guardPhase = "Lowered"
+				activeGuardSelection = nil
 				guardToken += 1
 				stopGuardTracks(0.05)
 				hasGuardAcknowledgement = false
@@ -1003,13 +1038,48 @@ function Input.Start()
 		for _, attribute in { "GuardPhase", "GuardSequence", "GuardRejectedSequence" } do
 			characterTrove:Connect(character:GetAttributeChangedSignal(attribute), synchronizeGuard)
 		end
-		for _, attribute in { "LeftEquipped", "RightEquipped" } do
+		for _, attribute in
+			{
+				"LeftEquipped",
+				"LeftEquipmentInstanceId",
+				"LeftEquipmentFinishId",
+				"RightEquipped",
+				"RightEquipmentInstanceId",
+				"RightEquipmentFinishId",
+			}
+		do
 			characterTrove:Connect(character:GetAttributeChangedSignal(attribute), function()
+				clearActiveAttack()
 				endGuard(character, true)
 			end)
 		end
+		-- Mounts can be replaced/removed before their identity attributes replicate. Prediction
+		-- must not keep using the old objects; cleanup never resets action deadlines or sequences.
+		characterTrove:Connect(RunService.Heartbeat, function()
+			local attackSelection = activeAttackSelection
+			if
+				attackSelection
+				and (
+					localPlayer.Character ~= character
+					or not EquipmentSelection.IsCurrent(character, attackSelection)
+				)
+			then
+				clearActiveAttack()
+			end
+			local guardSelection = activeGuardSelection
+			if isGuardRequested and guardSelection then
+				isCurrentGuard(character, guardToken, guardSelection)
+			end
+		end)
 	end
 
+	lifecycleTrove:Connect(localPlayer.CharacterRemoving, function(character: Model)
+		characterTrove:Clean()
+		clearActiveAttack()
+		endGuard(character, false)
+		stopGuardTracks(0)
+		activeGuardSelection = nil
+	end)
 	lifecycleTrove:Connect(localPlayer.CharacterAdded, bindCharacter)
 	if localPlayer.Character then
 		lifecycleTrove:Add(task.defer(bindCharacter, localPlayer.Character))
@@ -1029,6 +1099,7 @@ function Input.Start()
 		end
 		clearActiveAttack()
 		stopGuardTracks(0)
+		activeGuardSelection = nil
 		lifecycleTrove:Destroy()
 	end
 end
