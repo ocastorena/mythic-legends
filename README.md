@@ -540,6 +540,26 @@ earlier test-ledger shape was never persisted, so no player-data migration is ne
 commands below now derive this view from canonical owned state and commit through the existing
 transaction and duplicate-request protection. Prototype stand assignment remains separate.
 
+### Shrine management read view review
+
+Server-only `BaseService.GetShrine(player, { shrineInstanceId })` returns the loaded transaction
+revision and a detached view of that owned Shrine: numeric unlocked worker slots, matching unassigned
+canonical candidates, confirmed worker XP/Yield, whole stored output, storage capacity, collection
+room, and next-level upgrade costs/capacity. Maximum Shrine level has no further purchase offer.
+Dismantle eligibility reports assigned workers before stored Materials; it grants no refund.
+
+Reads do not advance accounting, complete jobs, award XP, or save. Separate derived production
+progress and a batch-aware nominal next-item estimate preserve unfinished work without presenting
+it as stored Materials. The estimate is relative to committed state, not a realtime countdown.
+Collection protects crafting reservations and allows partial transfers. Actual mutations settle
+and revalidate atomically: pending work can change dismantle eligibility, and a due job can free
+collection space after the preview. Private ledgers, inactive Luck/Traits, and receipts stay private.
+
+Run the verification commands above for all elements/levels, offer/action parity at the same cursor,
+capacity pressure, malformed state, detached/frozen reads, and no unintended settlement. This step
+adds no remote, authored Shrine placement, or menu. Those interactions and durable saves still need
+separate verification. See the [read-view contract](docs/TECHNICAL_DESIGN.md#shrine-management-read-view).
+
 ### Atomic Shrine-assignment command review
 
 `BaseService.AssignShrineWorker(player, request)` and `RemoveShrineWorker(player, request)` are

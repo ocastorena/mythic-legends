@@ -36,6 +36,12 @@ export type Metadata = {
 	forms: { [string]: FormDefinition },
 	shrines: { [string]: ShrineDefinition },
 }
+export type ProductionView = {
+	yieldPerHour: number,
+	isProducing: boolean,
+	productionProgress: number,
+	estimatedSecondsToNextMaterial: number?,
+}
 
 local MAX_SAFE_INTEGER = 9007199254740991
 local ShrineAccrual = {}
@@ -381,6 +387,87 @@ function ShrineAccrual.Validate(
 		productionConfig or Production,
 		progressionConfig or MythlingProgression
 	)
+end
+
+-- A current-rate estimate relative to the confirmed cursor, not a wall-clock deadline or grant.
+-- Future level gains can shorten it; this read never accrues work or changes the batch phase.
+function ShrineAccrual.ReadProduction(
+	state: State,
+	shrineInstanceId: string,
+	metadata: Metadata,
+	productionConfig: ProductionConfig?,
+	progressionConfig: ProgressionConfig?
+): (ProductionView?, string?)
+	if not isId(shrineInstanceId) then
+		return nil, "InvalidRequest"
+	end
+	local production = productionConfig or Production
+	local progression = progressionConfig or MythlingProgression
+	local savedAt = if type(state) == "table" then state.lastAccruedAt else 0
+	local problem = validate(state, savedAt, metadata, production, progression)
+	if problem then
+		return nil, problem
+	end
+	local shrine = state.shrines[shrineInstanceId]
+	if not shrine then
+		return nil, "ShrineNotOwned"
+	end
+	local yieldPerHour = 0
+	for _, slot in getOrderedSlots(shrine) do
+		local worker = state.workers[shrine.workerIdsBySlot[tostring(slot)]]
+		local workerYield = MythlingProgressionUtil.GetYield(
+			metadata.forms[worker.formId].baseYieldPerHour,
+			worker.level,
+			progression
+		)
+		if workerYield > MAX_SAFE_INTEGER - yieldPerHour then
+			return nil, "ArithmeticOverflow"
+		end
+		yieldPerHour += workerYield
+	end
+	if shrine.progress > MAX_SAFE_INTEGER - shrine.newWork then
+		return nil, "ArithmeticOverflow"
+	end
+	local earned = snapInteger(shrine.progress + shrine.newWork)
+	if not isNumber(earned) or not isNumber(yieldPerHour) then
+		return nil, "ArithmeticOverflow"
+	end
+	local hasSpace = shrine.stored < getCapacity(shrine, metadata)
+	local estimate: number? = nil
+	if hasSpace and (earned >= 1 or yieldPerHour > 0) then
+		local phase = state.nextBatchAt - state.lastAccruedAt
+		if earned >= 1 then
+			estimate = phase
+		else
+			local neededSeconds = (1 - earned) / (yieldPerHour / 3600)
+			if not isNumber(neededSeconds) then
+				return nil, "ArithmeticOverflow"
+			end
+			-- Counting from one, rather than zero, lets the same integer-noise correction handle
+			-- an item finishing exactly at the first boundary as well as later complete batches.
+			local batchUnits =
+				math.max(1, (neededSeconds - phase) / production.batchIntervalSeconds + 1)
+			if not isNumber(batchUnits) then
+				return nil, "ArithmeticOverflow"
+			end
+			local batches = math.max(1, math.ceil(snapInteger(batchUnits)))
+			local tail = (batches - 1) * production.batchIntervalSeconds
+			if not isNumber(tail) or tail > MAX_SAFE_INTEGER - phase then
+				return nil, "ArithmeticOverflow"
+			end
+			estimate = phase + tail
+			if not isNumber(estimate) then
+				return nil, "ArithmeticOverflow"
+			end
+		end
+	end
+	return {
+		yieldPerHour = yieldPerHour,
+		isProducing = hasSpace and yieldPerHour > 0,
+		productionProgress = math.min(1, earned),
+		estimatedSecondsToNextMaterial = estimate,
+	},
+		nil
 end
 
 function ShrineAccrual.Accrue(

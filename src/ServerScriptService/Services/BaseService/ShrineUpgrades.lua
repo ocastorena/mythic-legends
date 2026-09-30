@@ -160,6 +160,93 @@ local function getAccountingMetadata(metadata: Metadata): ShrineAccrual.Metadata
 	return accounting
 end
 
+local function nextLevel(
+	level: number,
+	definition: ShrineAccrual.ShrineDefinition & { maxLevel: number }
+): (number?, string?)
+	if not hasValidUpgradePath(definition) or level > definition.maxLevel then
+		return nil, "InvalidUpgradeConfiguration"
+	end
+	if level == definition.maxLevel then
+		return nil, "MaxLevel"
+	end
+	return level + 1, nil
+end
+
+local function checkPayment(
+	resources: Resources,
+	cost: Types.ShrineUpgradeCost,
+	materialId: string
+): string?
+	local problem = InventoryCapacity.ValidateMaterialState(resources)
+	if problem then
+		return problem
+	end
+	if not isWhole(resources.gold) then
+		return "InvalidCurrency"
+	end
+	if resources.gold < cost.gold then
+		return "InsufficientGold"
+	end
+	local ownedMaterial = resources.materials[materialId]
+	if not ownedMaterial or ownedMaterial.total < cost.materialQuantity then
+		return "InsufficientMaterials"
+	end
+	return nil
+end
+
+-- Inspect the confirmed schedule only: a preview neither advances work nor invokes the reducer.
+function ShrineUpgrades.ReadOffer(
+	state: State,
+	resources: Resources,
+	shrineInstanceId: string,
+	metadata: Metadata,
+	production: ShrineAccrual.ProductionConfig?,
+	progression: ShrineAccrual.ProgressionConfig?
+): (Types.ShrineUpgradeOffer?, string?)
+	if not isId(shrineInstanceId) then
+		return nil, "InvalidRequest"
+	end
+	local accounting = getAccountingMetadata(metadata)
+	if not accounting then
+		return nil, "InvalidMetadata"
+	end
+	local savedAt = if type(state) == "table" then state.lastAccruedAt else 0
+	local problem = ShrineAccrual.Validate(state, savedAt, accounting, production, progression)
+	if problem then
+		return nil, problem
+	end
+	local shrine = state.shrines[shrineInstanceId]
+	if not shrine then
+		return nil, "ShrineNotOwned"
+	end
+	local definition = metadata.shrines[shrine.shrineId]
+	local targetLevel, pathError = nextLevel(shrine.level, definition)
+	if not targetLevel then
+		return nil, pathError
+	end
+	local level = definition.levels[targetLevel]
+	local cost = level.upgradeCost :: Types.ShrineUpgradeCost
+	problem = checkPayment(resources, cost, definition.materialId)
+	if problem and problem ~= "InsufficientGold" and problem ~= "InsufficientMaterials" then
+		return nil, problem
+	end
+	local owned = resources.materials[definition.materialId]
+	return {
+		expectedLevel = shrine.level,
+		level = targetLevel,
+		materialId = definition.materialId,
+		goldCost = cost.gold,
+		materialQuantity = cost.materialQuantity,
+		ownedMaterialQuantity = if owned then owned.total else 0,
+		workerSlots = level.workerSlots,
+		storageCapacity = level.capacity,
+		canUpgrade = problem == nil,
+		upgradeCode = problem,
+	},
+		nil
+end
+
 -- State, resources and server-authored time must come from one authenticated loaded profile.
 -- This reducer supplies no authentication, revision check, receipt, or durable save on its own.
 -- Commit production, materials and gold together; preserve jobs/upgrades outside this result.
@@ -195,14 +282,11 @@ function ShrineUpgrades.Upgrade(
 		return nil, "LevelChanged"
 	end
 	local definition = metadata.shrines[ownedShrine.shrineId]
-	if not hasValidUpgradePath(definition) or ownedShrine.level > definition.maxLevel then
-		return nil, "InvalidUpgradeConfiguration"
+	local targetLevel, pathError = nextLevel(ownedShrine.level, definition)
+	if not targetLevel then
+		return nil, pathError
 	end
-	if ownedShrine.level == definition.maxLevel then
-		return nil, "MaxLevel"
-	end
-	local nextLevel = ownedShrine.level + 1
-	local cost = definition.levels[nextLevel].upgradeCost :: Types.ShrineUpgradeCost
+	local cost = definition.levels[targetLevel].upgradeCost :: Types.ShrineUpgradeCost
 	local materialId = definition.materialId
 	if request.expectedMaterialId ~= materialId then
 		return nil, "MaterialChanged"
@@ -213,19 +297,9 @@ function ShrineUpgrades.Upgrade(
 	then
 		return nil, "PriceChanged"
 	end
-	problem = InventoryCapacity.ValidateMaterialState(resources)
+	problem = checkPayment(resources, cost, materialId)
 	if problem then
 		return nil, problem
-	end
-	if not isWhole(resources.gold) then
-		return nil, "InvalidCurrency"
-	end
-	if resources.gold < cost.gold then
-		return nil, "InsufficientGold"
-	end
-	local ownedMaterial = resources.materials[materialId]
-	if not ownedMaterial or ownedMaterial.total < cost.materialQuantity then
-		return nil, "InsufficientMaterials"
 	end
 
 	-- Settle under the OLD level, so increased capacity cannot recover time spent full.
@@ -243,14 +317,14 @@ function ShrineUpgrades.Upgrade(
 	if paidMaterial.total == 0 then
 		materials[materialId] = nil
 	end
-	settled.shrines[request.shrineInstanceId].level = nextLevel
+	settled.shrines[request.shrineInstanceId].level = targetLevel
 	return {
 		production = settled,
 		materials = materials,
 		gold = resources.gold - cost.gold,
 		shrineInstanceId = request.shrineInstanceId,
 		previousLevel = ownedShrine.level,
-		level = nextLevel,
+		level = targetLevel,
 		materialId = materialId,
 		goldSpent = cost.gold,
 		materialsSpent = cost.materialQuantity,

@@ -113,6 +113,27 @@ local function upgradeMetadata(metadata: ShrineAccrual.Metadata): ShrineUpgrades
 	return definitions
 end
 
+function ShrineUpgradePurchase.ReadOffer(
+	data: Types.PlayerDoc,
+	state: ShrineAccrual.State,
+	metadata: ShrineAccrual.Metadata,
+	shrineInstanceId: string
+): (Types.ShrineUpgradeOffer?, string?)
+	if type(data.currency) ~= "table" or getmetatable(data.currency) ~= nil then
+		return nil, "InvalidCurrency"
+	end
+	local definitions = upgradeMetadata(metadata)
+	if not definitions then
+		return nil, "InvalidUpgradeConfiguration"
+	end
+	return ShrineUpgrades.ReadOffer(state, {
+		gold = data.currency.gold,
+		materials = data.materials,
+		inventoryUpgrades = data.inventoryUpgrades,
+		craftingJobs = data.craftingJobs,
+	}, shrineInstanceId, definitions)
+end
+
 function ShrineUpgradePurchase.new(
 	DataService: DataSource,
 	clock: (() -> number)?

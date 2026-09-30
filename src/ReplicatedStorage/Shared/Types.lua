@@ -378,6 +378,58 @@ export type EquipmentEntry = {
 
 export type CraftingStationRecord = { id: string, craftingStationId: string }
 
+export type GetShrineRequest = { shrineInstanceId: string }
+export type ShrineWorkerView = {
+	workerId: string,
+	formId: string,
+	level: number,
+	xp: number,
+	yieldPerHour: number,
+}
+export type ShrineSlotView = { slotId: number, worker: ShrineWorkerView? }
+export type ShrineUpgradeOffer = {
+	expectedLevel: number,
+	level: number,
+	materialId: string,
+	goldCost: number,
+	materialQuantity: number,
+	ownedMaterialQuantity: number,
+	workerSlots: number,
+	storageCapacity: number,
+	canUpgrade: boolean,
+	upgradeCode: string?,
+}
+export type ShrineView = {
+	shrineInstanceId: string,
+	shrineId: string,
+	buildSlotId: number,
+	level: number,
+	maxLevel: number,
+	element: Element,
+	materialId: string,
+	stored: number,
+	storageCapacity: number,
+	yieldPerHour: number,
+	isProducing: boolean,
+	productionProgress: number,
+	estimatedSecondsToNextMaterial: number?,
+	slots: { ShrineSlotView },
+	availableWorkers: { ShrineWorkerView },
+	collectable: number,
+	canCollect: boolean,
+	collectCode: string?,
+	canDismantle: boolean,
+	dismantleCode: string?,
+	upgrade: ShrineUpgradeOffer?,
+	upgradeCode: string?,
+}
+export type ShrineViewResult = {
+	ok: boolean,
+	code: string?,
+	revision: number,
+	view: ShrineView?,
+}
+
 export type ShrineUpgradeCost = { gold: number, materialQuantity: number }
 export type ShrineLevelDef = {
 	capacity: number,

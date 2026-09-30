@@ -21,6 +21,7 @@ local BaseAccess = require(script.BaseAccess)
 local BaseRequests = require(script.BaseRequests)
 local CraftingAccess = require(script.CraftingAccess)
 local BaseView = require(script.BaseView)
+local ShrineView = require(script.ShrineView)
 local ShrineConstruction = require(script.ShrineConstruction)
 local BaseExpansionPurchase = require(script.BaseExpansionPurchase)
 local ShrineWorkers = require(script.ShrineWorkers)
@@ -54,6 +55,7 @@ local MythlingsMeta: { [string]: Types.MythlingDef }
 local DataService: ServerTypes.DataApi
 local shrineConstruction: ShrineConstruction.ShrineConstruction?
 local baseView: BaseView.BaseView?
+local shrineView: ShrineView.ShrineView?
 local baseExpansion: BaseExpansionPurchase.BaseExpansionPurchase?
 local shrineWorkers: ShrineWorkers.ShrineWorkers?
 local shrineUpgradePurchase: ShrineUpgradePurchase.ShrineUpgradePurchase?
@@ -132,6 +134,18 @@ function BaseService.GetBase(player: Player): Types.BaseViewResult
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return reader.Get(player)
+end
+
+-- Server-only read until the separate Shrine endpoint and world-binding step is connected.
+function BaseService.GetShrine(
+	player: Player,
+	request: Types.GetShrineRequest
+): Types.ShrineViewResult
+	local reader = shrineView
+	if not reader or not available(player) then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return reader.Get(player, request)
 end
 
 function BaseService.CheckCraftingAccess(
@@ -523,6 +537,7 @@ function BaseService.Init(context: ServerTypes.Context)
 	requestLimiter = limiter
 	shrineConstruction = ShrineConstruction.new(DataService, nil, checkAccess)
 	baseView = BaseView.new(DataService, checkAccess)
+	shrineView = ShrineView.new(DataService)
 	baseExpansion = BaseExpansionPurchase.new(DataService, checkAccess)
 	requests = BaseRequests.new({
 		isAvailable = available,
@@ -594,6 +609,7 @@ function BaseService.Stop()
 	requests = nil
 	shrineConstruction = nil
 	baseView = nil
+	shrineView = nil
 	baseExpansion = nil
 	shrineWorkers = nil
 	shrineUpgradePurchase = nil

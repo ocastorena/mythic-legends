@@ -24,6 +24,8 @@ export type AccountingChange = (
 	ShrineAccrual.ProgressionConfig?
 ) -> (ShrineAccrual.State?, string?)
 
+export type Snapshot = { state: ShrineAccrual.State, metadata: ShrineAccrual.Metadata }
+
 type ChangeScope =
 	{ kind: "Accounting" }
 	| { kind: "Assignments" }
@@ -64,7 +66,7 @@ local function snapshot(
 	draft: Types.PlayerDoc,
 	metadata: ShrineAccrual.Metadata
 ): (ShrineAccrual.State?, string?)
-	if not isPlain(draft) or table.isfrozen(draft) then
+	if not isPlain(draft) then
 		return nil, "InvalidProfileDraft"
 	end
 	if draft.version ~= PlayerData.schemaVersion then
@@ -164,6 +166,32 @@ local function snapshot(
 	return state, nil
 end
 
+-- Server-only detached read; this never accrues time or exposes an Apply operation. Consumers
+-- must project an explicit allowlist rather than replicate this internal accounting snapshot.
+function ShrineAccounting.ReadSnapshot(
+	data: Types.PlayerDoc,
+	metadata: ShrineAccrual.Metadata?,
+	production: ShrineAccrual.ProductionConfig?,
+	progression: ShrineAccrual.ProgressionConfig?
+): (Snapshot?, string?)
+	local definitions = if metadata == nil then DEFAULT_METADATA else metadata
+	local state, problem = snapshot(data, definitions)
+	if not state then
+		return nil, problem
+	end
+	problem =
+		ShrineAccrual.Validate(state, state.lastAccruedAt, definitions, production, progression)
+	if problem then
+		return nil, problem
+	end
+	FreezeUtil.DeepFreeze(state)
+	-- The default metadata is immutable; custom test metadata is borrowed read-only, never frozen.
+	local result: Snapshot = { state = state, metadata = definitions }
+	local response: Snapshot = result
+	table.freeze(result)
+	return response, nil
+end
+
 -- Use only inside a synchronous DataService.Transact/Update callback on its detached draft.
 -- The caller supplies authenticated ownership and server time; this helper neither saves nor
 -- publishes. No input defaults, acquisition grants, arbitrary-ledger Apply API, or clock reset.
@@ -176,6 +204,9 @@ local function changeToDraft(
 	production: ShrineAccrual.ProductionConfig?,
 	progression: ShrineAccrual.ProgressionConfig?
 ): (boolean, string?)
+	if type(draft) == "table" and table.isfrozen(draft) then
+		return false, "InvalidProfileDraft"
+	end
 	local definitions = if metadata == nil then DEFAULT_METADATA else metadata
 	local state, snapshotError = snapshot(draft, definitions)
 	if not state then

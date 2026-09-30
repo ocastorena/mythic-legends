@@ -45,6 +45,7 @@ type Service = {
 	Start: () -> (),
 	Stop: () -> (),
 	GetBase: (Player) -> Types.BaseViewResult,
+	GetShrine: (Player, Types.GetShrineRequest) -> Types.ShrineViewResult,
 	BuildShrine: (Player, Types.BuildShrineRequest) -> Types.TransactionResult,
 	ExpandBase: (Player, Types.ExpandBaseRequest) -> Types.TransactionResult,
 }
@@ -293,6 +294,9 @@ describe("BaseService view and purchase admission", function()
 				local player = raw :: Player
 				local unavailable = { ok = false, code = "DataUnavailable", revision = 0 }
 				expect(get(player)).toEqual(unavailable)
+				expect(f.api.GetShrine(player, { shrineInstanceId = "selected" })).toEqual(
+					unavailable
+				)
 				expect(build(player, request)).toEqual(unavailable)
 				expect(expand(player, ({} :: unknown) :: Types.ExpandBaseRequest)).toEqual(
 					unavailable
