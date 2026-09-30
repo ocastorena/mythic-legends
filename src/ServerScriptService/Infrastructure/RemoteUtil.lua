@@ -32,6 +32,7 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 	local admin = folder(root, "Admin")
 	local state = folder(root, "State")
 	local inventory = folder(root, "Inventory")
+	local shop = folder(root, "Shop")
 	local production = folder(root, "Production")
 	local base = folder(root, "Base")
 	local combat = folder(root, "Combat")
@@ -40,6 +41,7 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 		Admin = { Feedback = event(admin, "Feedback") },
 		State = { Update = event(state, "Update"), Request = request(state, "Request") },
 		Inventory = { DeleteMythling = request(inventory, "DeleteMythling") },
+		Shop = { GetShop = request(shop, "GetShop"), BuyOffer = request(shop, "BuyOffer") },
 		Production = {
 			GetStatus = request(production, "GetStatus"),
 			Collect = request(production, "Collect"),

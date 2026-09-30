@@ -557,6 +557,12 @@ export type BuyShopOfferRequest = {
 	quantity: number,
 }
 
+-- A fresh offer view belongs to the transport response, never the durable purchase receipt.
+export type BuyShopOfferResult = {
+	transaction: TransactionResult,
+	shop: ShopViewResult?,
+}
+
 export type BaseRecord = {
 	-- Transitional prototype ledger, independent of the new Shrine build slots.
 	stands: { [string]: { production: StandProduction? } },
@@ -679,6 +685,7 @@ export type Network = {
 	Admin: { Feedback: RemoteEvent },
 	State: { Update: RemoteEvent, Request: RemoteFunction },
 	Inventory: { DeleteMythling: RemoteFunction },
+	Shop: { GetShop: RemoteFunction, BuyOffer: RemoteFunction },
 	Production: { GetStatus: RemoteFunction, Collect: RemoteFunction },
 	Base: { PlaceMythling: RemoteFunction, RemoveMythling: RemoteFunction },
 	Combat: {

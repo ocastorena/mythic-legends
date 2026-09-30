@@ -62,6 +62,11 @@
           "$className": "Folder",
           "DeleteMythling": { "$className": "RemoteFunction" }
         },
+        "Shop": {
+          "$className": "Folder",
+          "GetShop": { "$className": "RemoteFunction" },
+          "BuyOffer": { "$className": "RemoteFunction" }
+        },
         "Production": {
           "$className": "Folder",
           "GetStatus": { "$className": "RemoteFunction" },

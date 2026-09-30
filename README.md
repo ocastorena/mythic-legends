@@ -834,10 +834,15 @@ advanced only with a successful purchase, not by opening a view or by a reset ti
 future-period state fails closed without being erased. Crafting output/refund reservations remain
 protected. Featured delivery retains the exact definition/finish and never equips or grants XP.
 
+`Network.Shop.GetShop` and `BuyOffer` expose those commands through rate-limited RemoteFunctions.
+Get returns the read-only Shop result; Buy returns `{ transaction, shop? }`, adding a fresh Shop
+result only for expired/changed offers. Successful retries still replay after refresh. Quote revisions
+are transaction revisions, not State packet sequences. No GUI, asset binding, or extra save is added.
+
 Run the verification commands above for refresh boundaries, stale quotes, retry/reconnect behavior,
-exact delivery, old capacity, crafting reservations, numeric limits, and rollback. No GUI, remote,
-asset binding, or active elemental effect is added. Connected-player dispatch and durable saves
-remain separate checks. See the [Shop implementation contract](docs/TECHNICAL_DESIGN.md#headless-shop-implementation).
+exact delivery, old capacity, crafting reservations, numeric limits, rollback, request admission,
+and endpoint cleanup. Connected-player transport and durable saves remain separate checks. See the
+[Shop endpoint contract](docs/TECHNICAL_DESIGN.md#shop-request-endpoints).
 
 ### Elemental combat accounting review
 

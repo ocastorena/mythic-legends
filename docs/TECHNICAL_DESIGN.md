@@ -110,6 +110,7 @@ Network
   Admin       Feedback
   State       Update, Request
   Inventory   DeleteMythling
+  Shop        GetShop, BuyOffer
   Production  GetStatus, Collect
   Base        PlaceMythling, RemoveMythling
   Combat      StartAttack, ReportHit, SetShieldGuard, Reaction, Impact, GetLoadout, Equip
@@ -136,7 +137,7 @@ Network
   arbitrary state keys, Instance paths, or generic mutation commands.
 
 This endpoint inventory matches [default.project.json](../default.project.json). It does not claim
-that all launch features already have endpoints: Shop views/purchases, crafting, sales, Shrine
+that all launch features already have endpoints: crafting, sales, Shrine
 construction, evolution, inventory upgrades, Shrine dismantling, and Material discard need
 purpose-specific contracts as they are implemented. `Inventory.DeleteMythling` must not be treated
 as an already implemented sale API.
@@ -1970,7 +1971,8 @@ Exhausted allowances remain unavailable until their scheduled restock.
 
 Server-only `ShopService.GetShop(player)` and `BuyOffer(player, request)` require a running service,
 a connected Player, and an already-loaded profile. `Init` validates the complete launch catalogue;
-there is no refresh task, lifecycle stock mutation, new remote, or GUI binding. Private `ShopCatalog`
+there is no refresh task, lifecycle stock mutation, or GUI binding. The transport endpoints below
+delegate to these same public service methods. Private `ShopCatalog`
 derives one period and eight offers from `Configurations/Shop`: six Materials and one Featured pair.
 The launch epoch is Unix zero, with 3,600-second periods; period zero is Fire and the rotation is
 Fire → Water → Earth → Air → Light → Dark. Material prices come from their owning definitions;
@@ -1997,8 +1999,8 @@ Existing bounded receipt/revision rules govern stale requests after receipt evic
 
 Success values include `offerId`, `offerRevision`, `periodId`, `quantity`, `unitGold`, `goldSpent`,
 `goldBalance`, and `remainingStock`, plus `materialId` or `instanceId`/`definitionId`/`finishId`.
-Headless rejection returns its code; the eventual remote adapter must pair expired-offer rejection
-with a fresh `GetShop` view rather than embedding mutable catalogue data in the persisted receipt.
+Headless rejection returns its code; the remote adapter pairs expired/changed-offer rejection
+with a fresh `GetShop` result rather than embedding mutable catalogue data in the persisted receipt.
 
 The optional saved shape is `shop = { periodId, purchased = { [stockKey] = quantity } }`. Absence
 means no purchases yet. Stable keys are the Material IDs and `featured_sword`/`featured_shield`, not
@@ -2020,6 +2022,39 @@ Offer revisions prevent accepting a different quote but do not synchronize rolli
 themselves. Keep catalogue values stable within a window and publish future tuning at an agreed
 shared boundary; changing a revision is never grounds for another allowance. Hot-reloaded catalogue
 distribution is not introduced by this launch implementation.
+
+### Shop request endpoints
+
+Rojo declares `Network.Shop.GetShop` and `BuyOffer` as RemoteFunctions; `RemoteUtil.Resolve` validates
+their classes without creating instances. `ShopService.Start` binds both handlers and owns their
+cleanup. They accept only the engine-supplied calling Player; payloads cannot choose another account.
+Shop access has no character-alive, Arena, Base-ownership, or proximity prerequisite. The permanent
+Station and Shrine interaction rules do not apply to this globally available Shop.
+
+Private `ShopRequests` rejects unavailable callers before rate admission, then spends one token from
+the shared per-player Shop request budget before any profile read, view construction, or mutation.
+`Configurations.ShopRequests` initially permits a burst of six requests and refills two per second.
+Rejected requests return small `DataUnavailable`/`RateLimited` results with revision zero and no view.
+The adapter neither loads profiles nor adds settlement, saving, or direct profile writes. Player
+departure forgets the bucket; stopping clears handlers and all buckets. Retained callbacks reject
+after shutdown before doing protected work.
+
+`GetShop:InvokeServer()` returns `ShopViewResult`. `BuyOffer:InvokeServer(request)` returns
+`BuyShopOfferResult = { transaction, shop? }`, where `transaction` is the original canonical
+`TransactionResult`. Buy forwards the closed envelope described above to the existing command parser;
+it does not accept prices, result IDs, player IDs, time, or arbitrary state mutations. It never
+pre-rejects a stale period before transaction receipt lookup. Only unsuccessful `OfferExpired` or
+`OfferChanged` responses add a fresh `ShopViewResult` under `shop`. That refresh is covered by the
+already-admitted request and is separate from the recorded result, including when refreshing the
+view itself fails. Replayed expired/changed rejections also receive current quotes; successful
+replays and responses with other codes construct no extra view. No response rewrites a receipt.
+
+The Shop view's `revision` is the persistent transaction revision used as `expectedRevision` on
+purchases. It is not the State channel's packet sequence; projected `transactionRevision` is the
+corresponding value. State updates confirm owned balances/items. No raw profile, purchase ledger,
+crafting receipt, or transaction history is exposed. Inventory upgrade quotes remain read-only here;
+`InventoryService.UpgradeCapacity` retains its separate mutation contract. GUI bindings, real-client
+transport checks, and durable-save validation remain separate work.
 
 ## Content configuration
 
@@ -2900,8 +2935,8 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
-| Shop | Server-only [ShopService](../src/ServerScriptService/Services/ShopService/init.lua) returns read-only offers/eligibility/upgrade quotes and revision-bound atomic purchases. A shared hourly schedule rotates the matching Featured pair; saved personal usage survives reconnects and is independent of catalogue revisions and purchased upgrades. | Add remote/menu integration and verify connected-player dispatch, live refresh boundaries, and durable retention separately. No GUI, asset activation, automatic equip, XP, or refresh timer is added. Future tuning must be deployed at a shared period boundary. |
-| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes the network domains listed above, but does not declare Shop, crafting/sale/evolution/build/upgrade, Shrine dismantling, or Material discard endpoints. | Add typed, domain-specific contracts as the approved features ship; target transactional guarantees are requirements, not claims of existing implementations. |
+| Shop | [ShopService](../src/ServerScriptService/Services/ShopService/init.lua) returns read-only offers/eligibility/upgrade quotes and revision-bound atomic purchases through its public API and the declared `Shop.GetShop`/`BuyOffer` endpoints. [ShopRequests](../src/ServerScriptService/Services/ShopService/ShopRequests.lua) admits callers before protected work and keeps refreshed quotes separate from recorded transaction results. A shared hourly schedule rotates the matching Featured pair; saved personal usage is independent of catalogue revisions and purchased upgrades. | Add menu integration and verify connected-player dispatch, live refresh boundaries, and durable retention separately. No GUI, asset activation, automatic equip, XP, or refresh timer is added. Future tuning must be deployed at a shared period boundary. |
+| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes the network domains listed above, including typed Shop view/purchase endpoints resolved by [RemoteUtil](../src/ServerScriptService/Infrastructure/RemoteUtil.lua). Shop uses the existing atomic command and bounded receipt contract; crafting/sale/evolution/build/upgrade, Shrine dismantling, and Material discard endpoints remain undeclared. | Add the remaining typed, domain-specific transports independently of GUI work; existing server commands do not by themselves establish connected-player dispatch or durable-save guarantees. |
 | Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored `Workspace.World.Arena.Markers.Bounds`, Base Islands, and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |
 
 `HUDGui`, `StaminaGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,
