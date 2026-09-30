@@ -29,6 +29,8 @@ local EarthLanding = require(script.EarthLanding)
 local MovementRestrictions = require(script.MovementRestrictions)
 local CombatRuntimeConfiguration = require(ReplicatedStorage.Shared.Configurations.CombatRuntime)
 local LoadoutRequests = require(script.LoadoutRequests)
+local LoadoutRequestsConfiguration =
+	require(ReplicatedStorage.Shared.Configurations.LoadoutRequests)
 local LoadoutCommands = require(script.LoadoutCommands)
 local LoadoutUtil = require(script.LoadoutUtil)
 local EquipmentCatalog = require(ReplicatedStorage.Shared.EquipmentCatalog)
@@ -42,9 +44,11 @@ local reportHit: RemoteEvent
 local setShieldGuardRemote: RemoteEvent
 local combatReaction: RemoteEvent
 local combatImpact: RemoteEvent
-local getLoadoutRemote: RemoteFunction
-local equipRemote: RemoteFunction
-local loadoutRequests: LoadoutRequests.Requests
+local getLoadoutRemote: RemoteFunction?
+local equipRemote: RemoteFunction?
+local equipEquipmentRemote: RemoteFunction?
+local unequipEquipmentRemote: RemoteFunction?
+local loadoutRequests: LoadoutRequests.Requests?
 local loadoutCommands: LoadoutCommands.LoadoutCommands?
 local arena: BasePart
 
@@ -87,7 +91,7 @@ local playerLifecycles: { [Player]: PlayerLifecycle } = {}
 local nextHitId = 0
 local serviceTrove: TroveInstance?
 local shieldTweens: { [Model]: Tween } = {}
-local loadoutLimiter = RateLimiter.new(12, 4)
+local loadoutLimiter: RateLimiter.RateLimiter?
 local guardLimiter = RateLimiter.new(16, 8)
 local startAttackLimiter = RateLimiter.new(8, 4)
 local reportHitLimiter = RateLimiter.new(12, 6)
@@ -901,7 +905,9 @@ local function onPlayerRemoving(player: Player)
 		playerLifecycles[player] = nil
 		lifecycle.trove:Remove(playerLifetime.trove)
 	end
-	loadoutRequests.Forget(player)
+	if loadoutRequests then
+		loadoutRequests.Forget(player)
+	end
 	local runtime: CombatRuntime? = runtimes[player]
 	if runtime then
 		restoreMovement(runtime)
@@ -915,13 +921,29 @@ local function onPlayerRemoving(player: Player)
 	end
 	player:SetAttribute("KnockbackImmune", false)
 	runtimes[player] = nil
-	loadoutLimiter:Forget(player)
+	if loadoutLimiter then
+		loadoutLimiter:Forget(player)
+	end
 	guardLimiter:Forget(player)
 	startAttackLimiter:Forget(player)
 	reportHitLimiter:Forget(player)
 end
 
 function CombatService.Init(serviceContext: ServerTypes.Context)
+	local burst = LoadoutRequestsConfiguration.requestBurst
+	local refill = LoadoutRequestsConfiguration.requestRefillPerSecond
+	assert(
+		type(burst) == "number"
+			and burst >= 1
+			and burst < math.huge
+			and burst % 1 == 0
+			and type(refill) == "number"
+			and refill > 0
+			and refill < math.huge,
+		"[CombatService] Invalid loadout request tuning"
+	)
+	local requestLimiter = RateLimiter.new(burst, refill)
+	loadoutLimiter = requestLimiter
 	local observation = CombatRuntimeConfiguration.earthLanding
 	assert(
 		CombatRuntimeConfiguration.stateStepSeconds > 0
@@ -946,16 +968,28 @@ function CombatService.Init(serviceContext: ServerTypes.Context)
 	combatImpact = serviceContext.Remotes.Combat.Impact
 	getLoadoutRemote = serviceContext.Remotes.Combat.GetLoadout
 	equipRemote = serviceContext.Remotes.Combat.Equip
+	equipEquipmentRemote = serviceContext.Remotes.Combat.EquipEquipment
+	unequipEquipmentRemote = serviceContext.Remotes.Combat.UnequipEquipment
 	loadoutRequests = LoadoutRequests.new({
 		DataService = DataService,
 		isAvailable = function(player)
-			return lifecycle:IsRunning() and player.Parent == Players
+			return lifecycle:IsRunning()
+				and typeof(player) == "Instance"
+				and player:IsA("Player")
+				and player.Parent == Players
 		end,
 		allowRequest = function(player)
-			return loadoutLimiter:Allow(player)
+			return requestLimiter:Allow(player)
 		end,
 		snapshotLoadout = snapshotLoadout,
 		equipOwnedInstance = equipOwnedInstance,
+		equipEquipment = function(player: Player, input: unknown): Types.TransactionResult
+			-- Canonical commands validate these untrusted payloads before any transaction edit.
+			return CombatService.EquipEquipment(player, input :: Types.EquipEquipmentRequest)
+		end,
+		unequipEquipment = function(player: Player, input: unknown): Types.TransactionResult
+			return CombatService.UnequipEquipment(player, input :: Types.UnequipEquipmentRequest)
+		end,
 	})
 	arena = serviceContext.Instances.Arena
 end
@@ -966,6 +1000,13 @@ function CombatService.Start()
 	end
 	local trove = lifecycle.trove
 	serviceTrove = trove
+	local requests = assert(loadoutRequests, "[CombatService] Init must precede Start")
+	local getRemote = assert(getLoadoutRemote, "[CombatService] GetLoadout is not initialized")
+	local legacyEquipRemote = assert(equipRemote, "[CombatService] Equip is not initialized")
+	local equipCommandRemote =
+		assert(equipEquipmentRemote, "[CombatService] EquipEquipment is not initialized")
+	local unequipCommandRemote =
+		assert(unequipEquipmentRemote, "[CombatService] UnequipEquipment is not initialized")
 
 	for _, authoringName in { "R15WeaponPositioningRig", "WeaponPosePreview" } do
 		local authoringInstance = workspace:FindFirstChild(authoringName)
@@ -974,8 +1015,10 @@ function CombatService.Start()
 		end
 	end
 
-	getLoadoutRemote.OnServerInvoke = loadoutRequests.Get
-	equipRemote.OnServerInvoke = loadoutRequests.Equip
+	getRemote.OnServerInvoke = requests.Get
+	legacyEquipRemote.OnServerInvoke = requests.Equip
+	equipCommandRemote.OnServerInvoke = requests.EquipEquipment
+	unequipCommandRemote.OnServerInvoke = requests.UnequipEquipment
 
 	trove:Connect(setShieldGuardRemote.OnServerEvent, handleGuardRequest)
 	trove:Connect(startAttack.OnServerEvent, function(player: Player, payload: unknown)
@@ -1025,8 +1068,18 @@ function CombatService.Stop()
 		return
 	end
 	loadoutCommands = nil
-	RemoteUtil.ClearServerHandler(getLoadoutRemote)
-	RemoteUtil.ClearServerHandler(equipRemote)
+	if getLoadoutRemote then
+		RemoteUtil.ClearServerHandler(getLoadoutRemote)
+	end
+	if equipRemote then
+		RemoteUtil.ClearServerHandler(equipRemote)
+	end
+	if equipEquipmentRemote then
+		RemoteUtil.ClearServerHandler(equipEquipmentRemote)
+	end
+	if unequipEquipmentRemote then
+		RemoteUtil.ClearServerHandler(unequipEquipmentRemote)
+	end
 	if serviceTrove then
 		serviceTrove:Destroy()
 		serviceTrove = nil
@@ -1034,8 +1087,14 @@ function CombatService.Stop()
 	for player in pairs(playerLifecycles) do
 		onPlayerRemoving(player)
 	end
-	loadoutLimiter:Clear()
-	loadoutRequests.Clear()
+	if loadoutLimiter then
+		loadoutLimiter:Clear()
+	end
+	if loadoutRequests then
+		loadoutRequests.Clear()
+	end
+	loadoutLimiter = nil
+	loadoutRequests = nil
 	guardLimiter:Clear()
 	startAttackLimiter:Clear()
 	reportHitLimiter:Clear()

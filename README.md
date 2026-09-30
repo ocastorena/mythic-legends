@@ -223,10 +223,14 @@ it does not refill chosen empty slots, replace missing items, or reinterpret amb
 progress as a new player. Reconnect/reset preserves the saved selection. See the
 [initialization contract](docs/TECHNICAL_DESIGN.md#one-time-starter-equipment-initialization).
 
-Server-only `CombatService.EquipEquipment` and `UnequipEquipment` use revision-bound transactions
+Canonical `CombatService.EquipEquipment` and `UnequipEquipment` use revision-bound transactions
 and exact owned identities. Equip derives the slot from metadata; unequip requires the expected
 slot occupant. The existing `Combat.Equip` endpoint now adapts its instance-only request to that
 atomic command, while `Combat.GetLoadout` is read-only and never selects a replacement automatically.
+The matching `Combat.EquipEquipment`/`UnequipEquipment` RemoteFunctions preserve caller-owned retry
+envelopes and return `TransactionResult`. All four loadout endpoints share request admission; legacy
+and canonical changes share the existing configurable 0.5-second interval. Use the projected
+`transactionRevision`, not the State packet sequence. No profile loads or GUI changes are added.
 See the [request/result contract](docs/TECHNICAL_DESIGN.md#atomic-loadout-implementation).
 
 Only a fresh successful selection change updates the current live character: it invalidates the
@@ -237,7 +241,8 @@ and matching hand-mounted model. Client/GUI integration is unchanged; crafted as
 with no wooden fallback. Existing effects survive loadout changes under the accounting rules below.
 
 Run the verification commands above for one-time defaults, retained/ambiguous saves, empty-slot
-reconnects, stale/replayed commands, compatibility, mount identity, and rollback. Playtest normal
+reconnects, stale/replayed commands, compatibility, mount identity, rollback, and cross-endpoint
+admission/cleanup. Playtest normal
 wooden combat, death/reset, and Equipment changes during attack/guard transitions separately.
 In-memory and serialized tests do not prove durable persistence or crafted combat readiness.
 

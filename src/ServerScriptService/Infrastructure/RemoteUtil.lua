@@ -66,6 +66,8 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 			Impact = event(combat, "Impact"),
 			GetLoadout = request(combat, "GetLoadout"),
 			Equip = request(combat, "Equip"),
+			EquipEquipment = request(combat, "EquipEquipment"),
+			UnequipEquipment = request(combat, "UnequipEquipment"),
 		},
 		World = { Spawned = event(world, "Spawned"), ClaimState = event(world, "ClaimState") },
 	}

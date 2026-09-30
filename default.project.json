@@ -91,7 +91,9 @@
           "Reaction": { "$className": "RemoteEvent" },
           "Impact": { "$className": "RemoteEvent" },
           "GetLoadout": { "$className": "RemoteFunction" },
-          "Equip": { "$className": "RemoteFunction" }
+          "Equip": { "$className": "RemoteFunction" },
+          "EquipEquipment": { "$className": "RemoteFunction" },
+          "UnequipEquipment": { "$className": "RemoteFunction" }
         },
         "World": {
           "$className": "Folder",

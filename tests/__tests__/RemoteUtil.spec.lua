@@ -30,6 +30,8 @@ local DECLARATIONS: { [string]: { [string]: string } } = {
 		Impact = "RemoteEvent",
 		GetLoadout = "RemoteFunction",
 		Equip = "RemoteFunction",
+		EquipEquipment = "RemoteFunction",
+		UnequipEquipment = "RemoteFunction",
 	},
 	World = { Spawned = "RemoteEvent", ClaimState = "RemoteEvent" },
 }
@@ -93,10 +95,15 @@ describe("RemoteUtil", function()
 				"SellMaterial",
 				"DiscardMaterial",
 				"UpgradeCapacity",
+				"EquipEquipment",
+				"UnequipEquipment",
 			}
 		do
 			local root, network = fixture(name, "RemoteEvent")
-			local domain = if name == "GetShop" or name == "BuyOffer" then "Shop" else "Inventory"
+			local domain = if name == "GetShop" or name == "BuyOffer"
+				then "Shop"
+				elseif name == "EquipEquipment" or name == "UnequipEquipment" then "Combat"
+				else "Inventory"
 			local folder = assert(network:FindFirstChild(domain))
 			local original = folder:FindFirstChild(name)
 			local before = #network:GetDescendants()

@@ -704,6 +704,8 @@ export type Network = {
 		Impact: RemoteEvent,
 		GetLoadout: RemoteFunction,
 		Equip: RemoteFunction,
+		EquipEquipment: RemoteFunction,
+		UnequipEquipment: RemoteFunction,
 	},
 	World: { Spawned: RemoteEvent, ClaimState: RemoteEvent },
 }
