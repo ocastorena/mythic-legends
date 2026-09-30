@@ -29,6 +29,7 @@ type Service = {
 	Stop: () -> (),
 	StartJob: (Player, Types.StartCraftingRequest) -> Types.TransactionResult,
 	CancelJob: (Player, Types.CancelCraftingRequest) -> Types.TransactionResult,
+	GetStation: (Player, Types.GetCraftingStationRequest) -> Types.CraftingStationViewResult,
 }
 
 local function profile(): Types.PlayerDoc
@@ -192,6 +193,11 @@ describe("CraftingService", function()
 						revision = 0,
 					})
 					expect(f.api.CancelJob(player, ({} :: unknown) :: Types.CancelCraftingRequest)).toEqual({
+						ok = false,
+						code = "DataUnavailable",
+						revision = 0,
+					})
+					expect(f.api.GetStation(player, { stationInstanceId = "craft_station" })).toEqual({
 						ok = false,
 						code = "DataUnavailable",
 						revision = 0,

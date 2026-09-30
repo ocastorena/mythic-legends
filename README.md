@@ -827,6 +827,27 @@ durable acknowledgement. No GUI, remote, Station prompt, model binding, or craft
 See the [implementation contract](docs/TECHNICAL_DESIGN.md#headless-crafting-implementation) for
 request/result fields and compatibility boundaries.
 
+### Crafting Station read view review
+
+Server-only `CraftingService.GetStation(player, { stationInstanceId })` returns a read-only
+`CraftingStationViewResult` for the caller's loaded profile. Its revision is the transaction
+revision, not the State packet sequence. The view contains sorted recipe quotes and eligibility,
+the permanent Station identity, and an allowlisted active-job summary with server-derived timing
+and exact available cancellation refunds. It never returns private receipts, promised item IDs,
+reservations, or unrelated profile fields.
+
+Reading does not settle jobs, allocate IDs, charge costs, mutate state, or request a save. A due
+but unsettled job stays busy with zero remaining seconds and `completionPending = true`; cancellation
+cannot refund it, and the existing resolver owns completion. There is no claim action.
+An active legacy job blocks new starts without gaining invented deadlines or refunds. Recorded
+promises remain independent of later recipe edits. See the
+[read-view contract](docs/TECHNICAL_DESIGN.md#crafting-station-read-view).
+
+Run the verification commands above for read/Start eligibility parity, all twelve recipes,
+deadline boundaries, malformed state, unavailable profiles, projection isolation, and unchanged
+state/ID counts. This server API does not add remotes, proximity authorization, or menus;
+connected-player transport and live Station interactions remain separate work.
+
 ### Inventory request review
 
 `Network.Inventory` exposes rate-limited `EvolveMythling`, `SellMythling`, `SellEquipment`,

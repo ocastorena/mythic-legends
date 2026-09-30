@@ -1979,6 +1979,49 @@ Saved receipts remain private. Existing prototype Base `MarkDirty` writes still 
 transaction preparation; replace those writers separately rather than claiming global rollback.
 Verify actual session/shutdown and durable retention independently of mocked/serialized tests.
 
+### Crafting Station read view
+
+Server-only `CraftingService.GetStation(player, request)` shares the running-service and genuine
+connected-Player gate with crafting mutations. `request` is the closed
+`{ stationInstanceId }` selection, with one nonempty ID of at most 128 bytes. Private
+`CraftingCommands.GetStation` reads only an already-loaded profile, validates its transaction
+revision, and samples `Workspace:GetServerTimeNow()` once, in the same fractional-epoch clock
+domain as crafting transactions. It returns `{ ok, code?, revision, view? }`; unavailable
+profiles return `DataUnavailable` with revision zero, malformed revisions return
+`InvalidTransaction` with revision -1, and no failure returns a partial view.
+
+`CraftingJobs.ReadStation` reuses receipt, Base, Inventory, currency, recipe, and capacity validation.
+The nonmutating pre-allocation checks are shared with Start, which still settles due work before
+checking fresh-start eligibility. Reads never call Start, settlement, ID generation, history
+pruning, `Transact`, `Update`, or saving. A view reports current confirmed state rather than
+simulating a grant or changing a job's promise.
+
+The detached view contains `sampledAt`, `stationInstanceId`, `craftingStationId`, `busy`, optional
+`blockingCode`, recipe rows sorted by `recipeId`, and an optional `activeJob`:
+
+- Recipe rows contain `recipeId`, `goldCost`, `materialId`, `materialQuantity`,
+  `resultDefinitionId`, `resultFinishId`, `quantity`, `durationSeconds`, `canStart`, and optional
+  `startCode`. These quotes map to Start's expected fields; the server still revalidates mutations.
+- A canonical active job contains its `jobId`, `recipeId`, `stationInstanceId`, Active `status`,
+  recorded `startedAt`/`completesAt`, `remainingSeconds`, `completionPending`, result definition/finish
+  IDs and quantity, `canCancel`, `cancelRefundGold`, and copied `cancelRefundMaterials`.
+- Before the deadline, refund fields use actual recorded payment, never current recipe prices.
+  At/after the deadline, the job remains busy until settlement, with zero remaining time,
+  `completionPending = true`, `canCancel = false`, zero refund Gold, and an empty refund-Material map.
+  No awaiting-claim or prematurely idle state is invented.
+- Nil or resolved-only job collections are idle. Active opaque legacy records are busy with
+  `UnsupportedLegacyJob` and no fabricated legacy-job summary. If a valid canonical active receipt
+  coexists with retained legacy jobs, its summary remains visible while legacy work still blocks
+  new starts. Invalid canonical receipts, multiple
+  canonical active jobs, and active receipts bound to a different permanent Station fail closed.
+
+Current recipe metadata supplies new quotes only. Existing jobs retain their recorded result,
+payment, and deadline even when their former recipe is edited or removed. Shared/static tables and
+saved tables never escape by reference; raw receipts, versions, promised output instance IDs,
+reservations, private transaction history, stage fields, and unrecognized saved extras are omitted.
+This view adds no remote, proximity policy, prompt, or GUI. Apply the eventual world-interaction
+authorization in its owning boundary without changing receipt replay semantics for mutations.
+
 ## Shop transactions
 
 Implement the GDD's [Shop](GDD.md#shop) through the existing server-authoritative, per-profile
@@ -3005,7 +3048,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Equipment sales | `InventoryService.SellEquipment` and its admitted Inventory endpoint delegate to private [EquipmentSaleCommand](../src/ServerScriptService/Services/InventoryService/EquipmentSaleCommand.lua). One revision-bound transaction checks ownership, exact definition/finish/price, starter protection, and both loadout slots before removing the selected item and crediting configured Gold while preserving refund headroom. | Add player-facing confirmation and verify connected-player dispatch and durable retention separately. Equipped or protected starter items remain unsellable; no automatic unequip, GUI, asset binding, or schema migration is added. |
 | Equipment catalogue | [Equipment](../src/ReplicatedStorage/Shared/Configurations/Equipment.lua) defines the wooden pair and twelve named elemental items through shared bases and explicit finishes. [EquipmentCatalog](../src/ReplicatedStorage/Shared/EquipmentCatalog.lua) resolves fixed item metadata by IDs; recipes/effects have separate static owners and startup validation. Headless crafting, Shop grants, server combat, and client attack/guard input use canonical definitions. Private [EquipmentSelection](../src/StarterPlayer/StarterPlayerScripts/Controllers/CombatController/EquipmentSelection.lua) binds predicted actions to exact replicated identities and mounted objects; preview/VFX consumers retain the compatibility map. | Bind approved assets separately; empty crafted model names cannot authorize combat and never select a wooden fallback. Live multiplayer and animation/replication behavior remain unverified. No GUI or saved-stat copy is added. |
 | Atomic loadout | [LoadoutCommands](../src/ServerScriptService/Services/CombatService/LoadoutCommands.lua) implements revision-bound EquipEquipment/UnequipEquipment through the public CombatService API and matching canonical remotes. [LoadoutRequests](../src/ServerScriptService/Services/CombatService/LoadoutRequests.lua) shares admission across these routes, read-only GetLoadout, and legacy Equip; all three mutation routes share the configured cooldown. The legacy endpoint retains its snapshot response and server-generated request identity. [LoadoutUtil](../src/ServerScriptService/Services/CombatService/LoadoutUtil.lua) binds saved, mounted, guard, and swing identities to instance/definition/finish. Fresh changed commits retain Stamina, action deadlines, and elemental effects; replay/no-op results skip runtime reconciliation. | Add client command integration separately and verify connected-player dispatch, live transition/reset behavior, and durable selections. No GUI or playable crafted assets are supplied; unbound models fail closed. |
-| Crafting Jobs | Server-only [CraftingService](../src/ServerScriptService/Services/CraftingService/init.lua) supplies revision-bound StartJob/CancelJob through [CraftingCommands](../src/ServerScriptService/Services/CraftingService/CraftingCommands.lua). [CraftingJobs](../src/ServerScriptService/Services/CraftingService/CraftingJobs.lua) snapshots payments/output/deadlines, reserves capacity, and grants output or exact refund once. The same pure resolver runs before transactional mutations, at Ready/Checkpoint/Release, and on due-job timer requests. | Add Station/player-facing integration separately. Legacy reservation-only jobs remain opaque and block starts when active; no refund history is invented. No GUI, remote, model, auto-equip, or crafted-combat runtime is added. Verify connected-player dispatch and durable retention independently of session-atomic tests. |
+| Crafting Jobs | Server-only [CraftingService](../src/ServerScriptService/Services/CraftingService/init.lua) supplies revision-bound StartJob/CancelJob and read-only GetStation through [CraftingCommands](../src/ServerScriptService/Services/CraftingService/CraftingCommands.lua). [CraftingJobs](../src/ServerScriptService/Services/CraftingService/CraftingJobs.lua) snapshots payments/output/deadlines, reserves capacity, and grants output or exact refund once. ReadStation shares pre-allocation eligibility checks without settlement or ID generation and projects detached quotes/job summaries, not private receipts. The same pure resolver runs before transactional mutations, at Ready/Checkpoint/Release, and on due-job timer requests. | Add Station proximity/transport/player-facing integration separately. Legacy reservation-only jobs remain opaque and block starts when active; no refund history is invented. No GUI, remote, model, or auto-equip is added. Verify connected-player dispatch and durable retention independently of session-atomic tests. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. [CombatState](../src/ServerScriptService/Services/CombatService/CombatState.lua) accounts for Fire drain alongside recovery and guard transitions. Marker sequences and transition timeouts bound cleanup; loadout changes retain these accounting deadlines and never refill Stamina. Client input resolves canonical variants and preserves release/lowering cleanup after a selection changes. | Tune authored animations and transition timing in multiplayer/touch playtests. Approved crafted asset bindings and live effect/guard interaction validation remain outstanding. |
 | Elemental combat | [ElementalHits](../src/ServerScriptService/Services/CombatService/ElementalHits.lua) integrates the six configured effects after accepted-hit and block decisions. CombatState owns snapshotted deadlines, first-effect-wins occupancy, Earth landing/recovery state, and immediate Air/Light/Dark arithmetic. [EarthLanding](../src/ServerScriptService/Services/CombatService/EarthLanding.lua) supplies bounded server support observations; [MovementRestrictions](../src/ServerScriptService/Services/CombatService/MovementRestrictions.lua) composes current voluntary movement rules without changing forced motion or collisions. | Verify server-observed takeoff/landing, effect persistence, movement composition, and force/Stamina behavior in live multiplayer. Client effect presentation and approved crafted bindings remain separate; this implementation adds no GUI or asset activation. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |

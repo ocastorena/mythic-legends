@@ -325,6 +325,51 @@ export type CancelCraftingRequest = {
 	jobId: string,
 }
 
+export type GetCraftingStationRequest = { stationInstanceId: string }
+export type CraftingRecipeView = {
+	recipeId: string,
+	goldCost: number,
+	materialId: string,
+	materialQuantity: number,
+	resultDefinitionId: string,
+	resultFinishId: string,
+	quantity: number,
+	durationSeconds: number,
+	canStart: boolean,
+	startCode: string?,
+}
+export type CraftingActiveJobView = {
+	jobId: string,
+	recipeId: string,
+	stationInstanceId: string,
+	status: "Active",
+	startedAt: number,
+	completesAt: number,
+	remainingSeconds: number,
+	completionPending: boolean,
+	resultDefinitionId: string,
+	resultFinishId: string,
+	quantity: number,
+	canCancel: boolean,
+	cancelRefundGold: number,
+	cancelRefundMaterials: { [string]: number },
+}
+export type CraftingStationView = {
+	sampledAt: number,
+	stationInstanceId: string,
+	craftingStationId: string,
+	busy: boolean,
+	blockingCode: string?,
+	recipes: { CraftingRecipeView },
+	activeJob: CraftingActiveJobView?,
+}
+export type CraftingStationViewResult = {
+	ok: boolean,
+	code: string?,
+	revision: number,
+	view: CraftingStationView?,
+}
+
 export type EquipmentEntry = {
 	definitionId: string,
 	finishId: string?,

@@ -67,6 +67,17 @@ local function available(player: Player): boolean
 		and player.Parent == Players
 end
 
+function CraftingService.GetStation(
+	player: Player,
+	request: Types.GetCraftingStationRequest
+): Types.CraftingStationViewResult
+	local handler = commands
+	if not handler or not available(player) then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return handler.GetStation(player, request)
+end
+
 function CraftingService.StartJob(
 	player: Player,
 	request: Types.StartCraftingRequest

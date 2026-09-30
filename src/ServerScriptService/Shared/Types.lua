@@ -122,6 +122,10 @@ export type Services = {
 		) -> SharedTypes.TransactionResult,
 	},
 	CraftingService: {
+		GetStation: (
+			Player,
+			SharedTypes.GetCraftingStationRequest
+		) -> SharedTypes.CraftingStationViewResult,
 		StartJob: (Player, SharedTypes.StartCraftingRequest) -> SharedTypes.TransactionResult,
 		CancelJob: (Player, SharedTypes.CancelCraftingRequest) -> SharedTypes.TransactionResult,
 	},

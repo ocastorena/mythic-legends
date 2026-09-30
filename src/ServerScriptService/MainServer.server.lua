@@ -85,6 +85,7 @@ local services: ServerTypes.Services = {
 		AddMaterial = InventoryService.AddMaterial,
 	},
 	CraftingService = {
+		GetStation = CraftingService.GetStation,
 		StartJob = CraftingService.StartJob,
 		CancelJob = CraftingService.CancelJob,
 	},

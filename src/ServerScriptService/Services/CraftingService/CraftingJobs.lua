@@ -22,6 +22,7 @@ export type Options = {
 	createId: ((string) -> string)?,
 }
 export type CraftingJobs = {
+	ReadStation: (Types.PlayerDoc, number, string) -> (Types.CraftingStationView?, string?),
 	SettleDueToDraft: (Types.PlayerDoc, number) -> Types.TransactionOutcome,
 	StartToDraft: (Types.PlayerDoc, number, Types.StartCraftingRequest) -> Types.TransactionOutcome,
 	CancelToDraft: (Types.PlayerDoc, number, string) -> Types.TransactionOutcome,
@@ -239,6 +240,71 @@ local function validateInventory(draft: Types.PlayerDoc): string?
 	return nil
 end
 
+local function validateResources(data: Types.PlayerDoc): string?
+	local inventoryError = validateInventory(data)
+	if inventoryError then
+		return inventoryError
+	end
+	if not plain(data.currency) or not whole(data.currency.gold) then
+		return "InvalidCurrency"
+	end
+	local refundGold, refundError = GoldCreditUtil.GetRefundReserve(data)
+	if refundGold == nil then
+		return refundError or "InvalidCraftingState"
+	end
+	if refundGold > MAX_SAFE_INTEGER - data.currency.gold then
+		return "ArithmeticOverflow"
+	end
+	return nil
+end
+
+local function getStation(data: Types.PlayerDoc): Types.CraftingStationRecord?
+	if not plain(data.base) or not plain(data.base.craftingStation) then
+		return nil
+	end
+	local base = BaseState.GetStatus(data.base)
+	return if base then base.craftingStation else nil
+end
+
+-- Shared by a quoted start and its read-only preview. This stops before allocating identities,
+-- spending inputs, or reserving capacity, and keeps the command's rejection order unchanged.
+local function startEligibility(
+	data: Types.PlayerDoc,
+	now: number,
+	recipe: Types.EquipmentRecipe
+): (number?, string?)
+	local resourcesError = validateResources(data)
+	if resourcesError then
+		return nil, resourcesError
+	end
+	local materialCapacity = InventoryCapacity.GetUsage(data, "materials")
+	if materialCapacity.used > materialCapacity.limit then
+		return nil, "MaterialCapacityTooSmall"
+	end
+	local equipmentCapacity = InventoryCapacity.GetUsage(data, "equipment")
+	if recipe.quantity > equipmentCapacity.limit - equipmentCapacity.used then
+		return nil, "InventoryFull"
+	end
+	if data.currency.gold < recipe.goldCost then
+		return nil, "InsufficientGold"
+	end
+	for id, quantity in recipe.materials do
+		local owned = data.materials[id]
+		if not owned or owned.total < quantity then
+			return nil, "InsufficientMaterials"
+		end
+	end
+	local completesAt = now + recipe.durationSeconds
+	if
+		recipe.durationSeconds > MAX_SAFE_INTEGER - now
+		or not number(completesAt)
+		or completesAt <= now
+	then
+		return nil, "ArithmeticOverflow"
+	end
+	return completesAt, nil
+end
+
 local function pruneResolved(jobs: JobMap, keepId: string?)
 	local resolved: { { id: string, time: number } } = {}
 	for id, job in jobs do
@@ -339,6 +405,117 @@ function CraftingJobs.new(options: Options?): CraftingJobs
 		end
 	local api = {}
 
+	function api.ReadStation(
+		data: Types.PlayerDoc,
+		now: number,
+		stationInstanceId: string
+	): (Types.CraftingStationView?, string?)
+		local jobs, jobsError = validateJobs(data, now)
+		if not jobs then
+			return nil, jobsError or "InvalidCraftingState"
+		end
+		local station = getStation(data)
+		if not station then
+			return nil, "InvalidBaseState"
+		end
+		if station.id ~= stationInstanceId then
+			return nil, "StationChanged"
+		end
+		local activeJob: Types.CraftingActiveJobView? = nil
+		local blockingCode: string? = nil
+		for id, job in jobs do
+			if job.status ~= "Active" then
+				continue
+			end
+			local receipt = job.receipt
+			if not receipt then
+				blockingCode = "UnsupportedLegacyJob"
+				continue
+			end
+			if
+				receipt.stationId ~= station.id
+				or receipt.craftingStationId ~= station.craftingStationId
+			then
+				return nil, "InvalidCraftingState"
+			end
+			if now < receipt.startedAt then
+				return nil, "InvalidTimestamp"
+			end
+			local due = now >= receipt.completesAt
+			activeJob = {
+				jobId = id,
+				recipeId = receipt.recipeId,
+				stationInstanceId = receipt.stationId,
+				status = "Active",
+				startedAt = receipt.startedAt,
+				completesAt = receipt.completesAt,
+				remainingSeconds = math.max(0, receipt.completesAt - now),
+				completionPending = due,
+				resultDefinitionId = receipt.result.definitionId,
+				resultFinishId = receipt.result.finishId,
+				quantity = receipt.result.quantity,
+				canCancel = not due,
+				cancelRefundGold = if due then 0 else receipt.paid.gold,
+				cancelRefundMaterials = if due then {} else table.clone(receipt.paid.materials),
+			}
+			blockingCode = blockingCode or "StationBusy"
+		end
+		-- Corrupt resources are a failed view, not an ordinary unaffordable recipe. An active
+		-- promise is projected from its receipt only, without consulting current result metadata.
+		local resourcesError = validateResources(data)
+		if resourcesError then
+			return nil, resourcesError
+		end
+		if not plain(recipes) then
+			return nil, "InvalidRecipe"
+		end
+		local recipeIds: { string } = {}
+		for id, recipe in recipes do
+			if not isId(id) or not plain(recipe) or not isId(recipe.craftingStationId) then
+				return nil, "InvalidRecipe"
+			end
+			if recipe.craftingStationId == station.craftingStationId then
+				table.insert(recipeIds, id)
+			end
+		end
+		table.sort(recipeIds)
+		local rows: { Types.CraftingRecipeView } = {}
+		for _, id in recipeIds do
+			local recipe = recipes[id]
+			local materialId, recipeError = recipeMaterial(recipe)
+			if not materialId then
+				return nil, recipeError or "InvalidRecipe"
+			end
+			local startCode = blockingCode
+			if not startCode then
+				local _, eligibilityError = startEligibility(data, now, recipe)
+				startCode = eligibilityError
+			end
+			table.insert(rows, {
+				recipeId = id,
+				goldCost = recipe.goldCost,
+				materialId = materialId,
+				materialQuantity = recipe.materials[materialId],
+				resultDefinitionId = recipe.resultDefinitionId,
+				resultFinishId = recipe.resultFinishId,
+				quantity = recipe.quantity,
+				durationSeconds = recipe.durationSeconds,
+				canStart = startCode == nil,
+				startCode = startCode,
+			})
+		end
+		return {
+			sampledAt = now,
+			stationInstanceId = station.id,
+			craftingStationId = station.craftingStationId,
+			busy = blockingCode ~= nil,
+			blockingCode = blockingCode,
+			recipes = rows,
+			activeJob = activeJob,
+		},
+			nil
+	end
+
 	function api.SettleDueToDraft(draft: Types.PlayerDoc, now: number): Types.TransactionOutcome
 		local jobs, problem = validateJobs(draft, now)
 		if not jobs then
@@ -382,14 +559,10 @@ function CraftingJobs.new(options: Options?): CraftingJobs
 				return reject("StationBusy")
 			end
 		end
-		if not plain(draft.base) or not plain(draft.base.craftingStation) then
+		local station = getStation(draft)
+		if not station then
 			return reject("InvalidBaseState")
 		end
-		local base = BaseState.GetStatus(draft.base)
-		if not base then
-			return reject("InvalidBaseState")
-		end
-		local station = base.craftingStation
 		if station.id ~= request.stationInstanceId then
 			return reject("StationChanged")
 		end
@@ -413,44 +586,9 @@ function CraftingJobs.new(options: Options?): CraftingJobs
 		then
 			return reject("RecipeChanged")
 		end
-		local inventoryError = validateInventory(draft)
-		if inventoryError then
-			return reject(inventoryError)
-		end
-		if not plain(draft.currency) or not whole(draft.currency.gold) then
-			return reject("InvalidCurrency")
-		end
-		local refundGold, refundError = GoldCreditUtil.GetRefundReserve(draft)
-		if refundGold == nil then
-			return reject(refundError or "InvalidCraftingState")
-		end
-		if refundGold > MAX_SAFE_INTEGER - draft.currency.gold then
-			return reject("ArithmeticOverflow")
-		end
-		local materialCapacity = InventoryCapacity.GetUsage(draft, "materials")
-		if materialCapacity.used > materialCapacity.limit then
-			return reject("MaterialCapacityTooSmall")
-		end
-		local equipmentCapacity = InventoryCapacity.GetUsage(draft, "equipment")
-		if recipe.quantity > equipmentCapacity.limit - equipmentCapacity.used then
-			return reject("InventoryFull")
-		end
-		if draft.currency.gold < recipe.goldCost then
-			return reject("InsufficientGold")
-		end
-		for id, quantity in recipe.materials do
-			local owned = draft.materials[id]
-			if not owned or owned.total < quantity then
-				return reject("InsufficientMaterials")
-			end
-		end
-		local completesAt = now + recipe.durationSeconds
-		if
-			recipe.durationSeconds > MAX_SAFE_INTEGER - now
-			or not number(completesAt)
-			or completesAt <= now
-		then
-			return reject("ArithmeticOverflow")
+		local completesAt, eligibilityError = startEligibility(draft, now, recipe)
+		if not completesAt then
+			return reject(eligibilityError or "InvalidCraftingState")
 		end
 		-- Allocate only after eligibility/payment/capacity checks. The owning transaction catches
 		-- a throwing/yielding generator and discards the entire detached transition.
