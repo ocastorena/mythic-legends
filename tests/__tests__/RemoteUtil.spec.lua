@@ -25,13 +25,22 @@ local DECLARATIONS: { [string]: { [string]: string } } = {
 		StartJob = "RemoteFunction",
 		CancelJob = "RemoteFunction",
 	},
-	Production = { GetStatus = "RemoteFunction", Collect = "RemoteFunction" },
+	Production = {
+		GetStatus = "RemoteFunction",
+		Collect = "RemoteFunction",
+		CollectShrine = "RemoteFunction",
+	},
 	Base = {
 		PlaceMythling = "RemoteFunction",
 		RemoveMythling = "RemoteFunction",
 		GetBase = "RemoteFunction",
 		BuildShrine = "RemoteFunction",
 		ExpandBase = "RemoteFunction",
+		GetShrine = "RemoteFunction",
+		AssignShrineWorker = "RemoteFunction",
+		RemoveShrineWorker = "RemoteFunction",
+		UpgradeShrine = "RemoteFunction",
+		DismantleShrine = "RemoteFunction",
 	},
 	Combat = {
 		StartAttack = "RemoteEvent",
@@ -105,6 +114,12 @@ describe("RemoteUtil", function()
 				"GetBase",
 				"BuildShrine",
 				"ExpandBase",
+				"GetShrine",
+				"AssignShrineWorker",
+				"RemoveShrineWorker",
+				"UpgradeShrine",
+				"DismantleShrine",
+				"CollectShrine",
 				"DeleteMythling",
 				"EvolveMythling",
 				"SellMythling",
@@ -117,20 +132,14 @@ describe("RemoteUtil", function()
 			}
 		do
 			local root, network = fixture(name, "RemoteEvent")
-			local domain = if name == "GetShop" or name == "BuyOffer"
-				then "Shop"
-				elseif
-					name == "GetStation"
-					or name == "StartJob"
-					or name == "CancelJob"
-				then "Crafting"
-				elseif
-					name == "GetBase"
-					or name == "BuildShrine"
-					or name == "ExpandBase"
-				then "Base"
-				elseif name == "EquipEquipment" or name == "UnequipEquipment" then "Combat"
-				else "Inventory"
+			local domain: string? = nil
+			for candidate, declarations in DECLARATIONS do
+				if declarations[name] ~= nil then
+					domain = candidate
+					break
+				end
+			end
+			assert(domain, "[RemoteUtil.spec] Expected declared endpoint")
 			local folder = assert(network:FindFirstChild(domain))
 			local original = folder:FindFirstChild(name)
 			local before = #network:GetDescendants()

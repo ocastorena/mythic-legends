@@ -108,6 +108,7 @@ local services: ServerTypes.Services = {
 		GetBase = BaseService.GetBase,
 		GetShrine = BaseService.GetShrine,
 		CheckCraftingAccess = BaseService.CheckCraftingAccess,
+		CheckShrineAccess = BaseService.CheckShrineAccess,
 		ExpandBase = BaseService.ExpandBase,
 		BuildShrine = BaseService.BuildShrine,
 		UpgradeShrine = BaseService.UpgradeShrine,

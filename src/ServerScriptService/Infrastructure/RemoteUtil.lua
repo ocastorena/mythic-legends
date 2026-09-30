@@ -59,11 +59,17 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 		Production = {
 			GetStatus = request(production, "GetStatus"),
 			Collect = request(production, "Collect"),
+			CollectShrine = request(production, "CollectShrine"),
 		},
 		Base = {
 			GetBase = request(base, "GetBase"),
 			BuildShrine = request(base, "BuildShrine"),
 			ExpandBase = request(base, "ExpandBase"),
+			GetShrine = request(base, "GetShrine"),
+			AssignShrineWorker = request(base, "AssignShrineWorker"),
+			RemoveShrineWorker = request(base, "RemoveShrineWorker"),
+			UpgradeShrine = request(base, "UpgradeShrine"),
+			DismantleShrine = request(base, "DismantleShrine"),
 			PlaceMythling = request(base, "PlaceMythling"),
 			RemoveMythling = request(base, "RemoveMythling"),
 		},

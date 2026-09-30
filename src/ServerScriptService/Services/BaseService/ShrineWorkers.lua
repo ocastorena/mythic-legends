@@ -93,7 +93,11 @@ local function parseRequest(value: unknown, action: Action): Request?
 	}
 end
 
-function ShrineWorkers.new(DataService: DataSource, clock: (() -> number)?): ShrineWorkers
+function ShrineWorkers.new(
+	DataService: DataSource,
+	clock: (() -> number)?,
+	checkAccess: ((Player, Types.PlayerDoc, string) -> string?)?
+): ShrineWorkers
 	assert(
 		type(DataService) == "table"
 			and type(DataService.GetLoadedData) == "function"
@@ -127,6 +131,12 @@ function ShrineWorkers.new(DataService: DataSource, clock: (() -> number)?): Shr
 			operation = operation,
 			signature = signature,
 		}, function(draft: Types.PlayerDoc): Types.TransactionOutcome
+			local accessProblem = if checkAccess
+				then checkAccess(player, draft, request.shrineInstanceId)
+				else nil
+			if accessProblem then
+				return { ok = false, code = accessProblem }
+			end
 			local timestamp = now()
 			local ok, problem = ShrineAccounting.ChangeAssignmentsToDraft(
 				draft,

@@ -82,13 +82,19 @@
         "Production": {
           "$className": "Folder",
           "GetStatus": { "$className": "RemoteFunction" },
-          "Collect": { "$className": "RemoteFunction" }
+          "Collect": { "$className": "RemoteFunction" },
+          "CollectShrine": { "$className": "RemoteFunction" }
         },
         "Base": {
           "$className": "Folder",
           "GetBase": { "$className": "RemoteFunction" },
           "BuildShrine": { "$className": "RemoteFunction" },
           "ExpandBase": { "$className": "RemoteFunction" },
+          "GetShrine": { "$className": "RemoteFunction" },
+          "AssignShrineWorker": { "$className": "RemoteFunction" },
+          "RemoveShrineWorker": { "$className": "RemoteFunction" },
+          "UpgradeShrine": { "$className": "RemoteFunction" },
+          "DismantleShrine": { "$className": "RemoteFunction" },
           "PlaceMythling": { "$className": "RemoteFunction" },
           "RemoveMythling": { "$className": "RemoteFunction" }
         },

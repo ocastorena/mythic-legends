@@ -84,7 +84,11 @@ local function parseRequest(value: unknown): Types.DismantleShrineRequest?
 	}
 end
 
-function ShrineRemoval.new(DataService: DataSource, clock: (() -> number)?): ShrineRemoval
+function ShrineRemoval.new(
+	DataService: DataSource,
+	clock: (() -> number)?,
+	checkAccess: ((Player, Types.PlayerDoc, string) -> string?)?
+): ShrineRemoval
 	assert(
 		type(DataService) == "table"
 			and type(DataService.GetLoadedData) == "function"
@@ -115,6 +119,12 @@ function ShrineRemoval.new(DataService: DataSource, clock: (() -> number)?): Shr
 			operation = "Base.DismantleShrine",
 			signature = `shrine={#request.shrineInstanceId}:{request.shrineInstanceId};level={level}`,
 		}, function(draft: Types.PlayerDoc): Types.TransactionOutcome
+			local accessProblem = if checkAccess
+				then checkAccess(player, draft, request.shrineInstanceId)
+				else nil
+			if accessProblem then
+				return { ok = false, code = accessProblem }
+			end
 			local timestamp = now()
 			local removed: ShrineDismantling.Result? = nil
 			local ok, problem = ShrineAccounting.RemoveShrineToDraft(

@@ -17,7 +17,9 @@ local ShrineProduction = require(script.ShrineProduction)
 local ShrineCollector = require(script.ShrineCollector)
 local ProfileProduction = require(script.ProfileProduction)
 local ProfileCheckpoints = require(script.ProfileCheckpoints)
+local ProductionRequests = require(script.ProductionRequests)
 local Production = require(ReplicatedStorage.Shared.Configurations.Production)
+local RequestConfiguration = require(ReplicatedStorage.Shared.Configurations.ProductionRequests)
 local Types = require(ReplicatedStorage.Shared.Types)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 local ServiceLifecycle = require(ServerScriptService.Infrastructure.ServiceLifecycle)
@@ -32,8 +34,37 @@ local ProductionService = {}
 local getStatus: RemoteFunction
 local collect: RemoteFunction
 local requestLimiter = RateLimiter.new(8, 3)
+local shrineRequests: ProductionRequests.Requests?
+local shrineRequestLimiter: RateLimiter.RateLimiter?
+local collectShrineRemote: RemoteFunction?
+
+local function available(player: Player): boolean
+	return lifecycle:IsRunning()
+		and typeof(player) == "Instance"
+		and player:IsA("Player")
+		and player.Parent == Players
+end
 
 function ProductionService.Init(serviceContext: ServerTypes.Context)
+	local BaseService = serviceContext.Services.BaseService
+	assert(
+		type(BaseService) == "table" and type(BaseService.CheckShrineAccess) == "function",
+		"[ProductionService] BaseService.CheckShrineAccess required"
+	)
+	local burst, refill =
+		RequestConfiguration.requestBurst, RequestConfiguration.requestRefillPerSecond
+	assert(
+		type(burst) == "number"
+			and burst >= 1
+			and burst < math.huge
+			and burst % 1 == 0
+			and type(refill) == "number"
+			and refill > 0
+			and refill < math.huge,
+		"[ProductionService] Invalid Production request tuning"
+	)
+	local limiter = RateLimiter.new(burst, refill)
+	shrineRequestLimiter = limiter
 	accrual = Accrual.new(
 		serviceContext.Services.DataService,
 		serviceContext.Configurations.Mythlings,
@@ -42,7 +73,24 @@ function ProductionService.Init(serviceContext: ServerTypes.Context)
 		end
 	)
 	shrineProduction = ShrineProduction.new(serviceContext.Services.DataService)
-	shrineCollector = ShrineCollector.new(serviceContext.Services.DataService)
+	shrineCollector = ShrineCollector.new(
+		serviceContext.Services.DataService,
+		nil,
+		function(player, data, shrineInstanceId)
+			return BaseService.CheckShrineAccess(player, data.base, shrineInstanceId)
+		end
+	)
+	collectShrineRemote = serviceContext.Remotes.Production.CollectShrine
+	shrineRequests = ProductionRequests.new({
+		isAvailable = available,
+		allowRequest = function(player: Player): boolean
+			return limiter:Allow(player)
+		end,
+		collectShrine = function(player: Player, input: unknown): Types.TransactionResult
+			-- The canonical command owns closed-envelope validation at this untrusted boundary.
+			return ProductionService.CollectShrine(player, input :: Types.CollectShrineRequest)
+		end,
+	})
 	serviceContext.Services.DataService.RegisterProfileSettlement(
 		"Production",
 		ProfileProduction.Settle
@@ -71,6 +119,15 @@ function ProductionService.Start()
 	end
 	local scheduler = checkpoints
 	assert(scheduler, "[ProductionService] Init must precede Start")
+	local handler =
+		assert(shrineRequests, "[ProductionService] Shrine requests are not initialized")
+	local limiter = assert(
+		shrineRequestLimiter,
+		"[ProductionService] Shrine request limiter is not initialized"
+	)
+	local shrineRemote =
+		assert(collectShrineRemote, "[ProductionService] CollectShrine remote is not initialized")
+	shrineRemote.OnServerInvoke = handler.CollectShrine
 	lifecycle.trove:Connect(RunService.Heartbeat, scheduler.Step)
 	getStatus.OnServerInvoke = function(
 		player: Player,
@@ -113,6 +170,7 @@ function ProductionService.Start()
 	end
 	lifecycle.trove:Connect(Players.PlayerRemoving, function(player: Player)
 		requestLimiter:Forget(player)
+		limiter:Forget(player)
 	end)
 end
 
@@ -122,7 +180,15 @@ function ProductionService.Stop()
 	end
 	RemoteUtil.ClearServerHandler(getStatus)
 	RemoteUtil.ClearServerHandler(collect)
+	if collectShrineRemote then
+		RemoteUtil.ClearServerHandler(collectShrineRemote)
+	end
 	requestLimiter:Clear()
+	if shrineRequestLimiter then
+		shrineRequestLimiter:Clear()
+	end
+	shrineRequests = nil
+	shrineRequestLimiter = nil
 	shrineProduction = nil
 	shrineCollector = nil
 	checkpoints = nil
@@ -148,31 +214,19 @@ end
 -- calling this first: separate commits would break settlement-plus-mutation atomicity.
 function ProductionService.SettleShrines(player: Player): Types.TransactionResult
 	local production = shrineProduction
-	if
-		not lifecycle:IsRunning()
-		or not production
-		or typeof(player) ~= "Instance"
-		or not player:IsA("Player")
-		or player.Parent ~= Players
-	then
+	if not production or not available(player) then
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return production.Settle(player)
 end
 
--- Server-only retryable command. This is not the retained prototype Collect remote.
+-- Canonical retryable collection. This is separate from the retained prototype Collect remote.
 function ProductionService.CollectShrine(
 	player: Player,
 	request: Types.CollectShrineRequest
 ): Types.TransactionResult
 	local collector = shrineCollector
-	if
-		not lifecycle:IsRunning()
-		or not collector
-		or typeof(player) ~= "Instance"
-		or not player:IsA("Player")
-		or player.Parent ~= Players
-	then
+	if not collector or not available(player) then
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return collector.Collect(player, request)

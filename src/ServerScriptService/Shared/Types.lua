@@ -65,6 +65,7 @@ export type BaseApi = {
 	GetBase: (Player) -> SharedTypes.BaseViewResult,
 	GetShrine: (Player, SharedTypes.GetShrineRequest) -> SharedTypes.ShrineViewResult,
 	CheckCraftingAccess: (Player, SharedTypes.BaseRecord, string?) -> string?,
+	CheckShrineAccess: (Player, SharedTypes.BaseRecord, string) -> string?,
 	ExpandBase: (Player, SharedTypes.ExpandBaseRequest) -> SharedTypes.TransactionResult,
 	BuildShrine: (Player, SharedTypes.BuildShrineRequest) -> SharedTypes.TransactionResult,
 	UpgradeShrine: (Player, SharedTypes.UpgradeShrineRequest) -> SharedTypes.TransactionResult,

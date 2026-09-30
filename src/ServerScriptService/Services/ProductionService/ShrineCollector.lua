@@ -23,6 +23,7 @@ export type DataSource = {
 export type ShrineCollector = {
 	Collect: (Player, Types.CollectShrineRequest) -> Types.TransactionResult,
 }
+export type AccessCheck = (Player, Types.PlayerDoc, string) -> string?
 
 local REQUEST_FIELDS = {
 	requestId = true,
@@ -83,7 +84,11 @@ local function parseRequest(value: unknown): Types.CollectShrineRequest?
 	}
 end
 
-function ShrineCollector.new(DataService: DataSource, clock: (() -> number)?): ShrineCollector
+function ShrineCollector.new(
+	DataService: DataSource,
+	clock: (() -> number)?,
+	checkAccess: AccessCheck?
+): ShrineCollector
 	assert(
 		type(DataService) == "table"
 			and type(DataService.GetLoadedData) == "function"
@@ -115,6 +120,12 @@ function ShrineCollector.new(DataService: DataSource, clock: (() -> number)?): S
 			operation = "Production.CollectShrine",
 			signature = signature,
 		}, function(draft: Types.PlayerDoc): Types.TransactionOutcome
+			if checkAccess then
+				local rejection = checkAccess(player, draft, request.shrineInstanceId)
+				if rejection then
+					return { ok = false, code = rejection }
+				end
+			end
 			-- Both views come from this transaction, not a prior read or caller-submitted ledger.
 			local timestamp = now()
 			local collected: ShrineCollection.Result? = nil

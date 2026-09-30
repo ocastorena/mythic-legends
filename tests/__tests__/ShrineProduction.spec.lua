@@ -13,12 +13,31 @@ local Mythlings = require(ReplicatedStorage.Shared.Configurations.Mythlings)
 local ProfileSchema = require(ServerScriptService.Services.DataService.ProfileSchema)
 local Transactions = require(ServerScriptService.Services.DataService.Transactions)
 local ShrineProduction = require(ServerScriptService.Services.ProductionService.ShrineProduction)
+local ShrineCollector = require(ServerScriptService.Services.ProductionService.ShrineCollector)
+local ProductionRequests =
+	require(ServerScriptService.Services.ProductionService.ProductionRequests)
+local RequestConfiguration = require(ReplicatedStorage.Shared.Configurations.ProductionRequests)
+local RateLimiter = require(ServerScriptService.Infrastructure.RateLimiter)
+local RemoteUtil = require(ServerScriptService.Infrastructure.RemoteUtil)
 local PlayerDataTemplate = require(ServerStorage.Databases.PlayerDataTemplate)
 
 local afterEach = JestGlobals.afterEach
 local describe = JestGlobals.describe
 local expect = JestGlobals.expect
 local it = JestGlobals.it
+local jest = JestGlobals.jest
+
+local collectorModule = ServerScriptService.Services.ProductionService.ShrineCollector
+local requestsModule = ServerScriptService.Services.ProductionService.ProductionRequests
+local limiterModule = ServerScriptService.Infrastructure.RateLimiter
+local remoteUtilModule = ServerScriptService.Infrastructure.RemoteUtil
+
+type ProductionService = {
+	Init: (ServerTypes.Context) -> (),
+	Start: () -> (),
+	Stop: () -> (),
+	CollectShrine: (Player, Types.CollectShrineRequest) -> Types.TransactionResult,
+}
 
 local fixtureRoots: { Instance } = {}
 local stopServices: { () -> () } = {}
@@ -130,6 +149,155 @@ local function savedShrine(data: Types.PlayerDoc): Types.ShrineRecord
 	return assert(data.base.shrines, "[ShrineProduction.spec] Expected Shrine map").first
 end
 
+local function serviceFixture()
+	local root = Instance.new("Folder")
+	table.insert(fixtureRoots, root)
+	local state = {
+		reads = 0,
+		transactions = 0,
+		registrations = 0,
+		accessCalls = 0,
+		admissions = {} :: { number },
+		clears = {} :: { number },
+	}
+	local observed = {
+		requests = nil :: ProductionRequests.Requests?,
+		checkAccess = nil :: ShrineCollector.AccessCheck?,
+		cleared = {} :: { RemoteFunction },
+		accessPlayer = nil :: Player?,
+		accessBase = nil :: Types.BaseRecord?,
+		accessShrine = nil :: string?,
+	}
+	local remotes = {} :: { RemoteFunction }
+	for _, name in { "GetStatus", "Collect", "CollectShrine" } do
+		local remote = Instance.new("RemoteFunction")
+		remote.Name = name
+		remote.Parent = root
+		table.insert(remotes, remote)
+	end
+	jest.mock(collectorModule, function()
+		return {
+			new = function(
+				source: ShrineCollector.DataSource,
+				clock: (() -> number)?,
+				checkAccess: ShrineCollector.AccessCheck?
+			): ShrineCollector.ShrineCollector
+				observed.checkAccess = checkAccess
+				return ShrineCollector.new(source, clock, checkAccess)
+			end,
+		}
+	end)
+	jest.mock(requestsModule, function()
+		return {
+			new = function(
+				dependencies: ProductionRequests.Dependencies
+			): ProductionRequests.Requests
+				local requests = ProductionRequests.new(dependencies)
+				observed.requests = requests
+				return requests
+			end,
+		}
+	end)
+	jest.mock(limiterModule, function()
+		return {
+			new = function(burst: number, refill: number)
+				if burst == 8 then
+					expect(refill).toBe(3)
+				else
+					expect(burst).toBe(RequestConfiguration.requestBurst)
+					expect(refill).toBe(RequestConfiguration.requestRefillPerSecond)
+				end
+				local real = RateLimiter.new(burst, refill)
+				return {
+					Allow = function(_self: unknown, player: Player): boolean
+						table.insert(state.admissions, burst)
+						return real:Allow(player)
+					end,
+					Forget = function(_self: unknown, player: Player)
+						real:Forget(player)
+					end,
+					Clear = function()
+						table.insert(state.clears, burst)
+						real:Clear()
+					end,
+				}
+			end,
+		}
+	end)
+	jest.mock(remoteUtilModule, function()
+		return {
+			ClearServerHandler = function(remote: RemoteFunction)
+				table.insert(observed.cleared, remote)
+				RemoteUtil.ClearServerHandler(remote)
+			end,
+		}
+	end)
+	local service: ProductionService? = nil
+	jest.isolateModules(function()
+		local loadService = require :: (ModuleScript) -> ProductionService
+		service = loadService(ServerScriptService.Services.ProductionService)
+	end)
+	local api = assert(service, "[ShrineProduction.spec] Expected isolated service")
+	table.insert(stopServices, api.Stop)
+	local context = (
+		{
+			Services = {
+				DataService = {
+					GetLoadedData = function(): Types.PlayerDoc?
+						state.reads += 1
+						return nil
+					end,
+					Transact = function(): Types.TransactionResult
+						state.transactions += 1
+						return { ok = false, code = "UnexpectedTransaction", revision = 0 }
+					end,
+					Update = function(): Types.TransactionResult
+						state.transactions += 1
+						return { ok = false, code = "UnexpectedUpdate", revision = 0 }
+					end,
+					RegisterProfileSettlement = function()
+						state.registrations += 1
+					end,
+					Checkpoint = function(): Types.TransactionResult
+						return { ok = false, code = "DataUnavailable", revision = 0 }
+					end,
+				},
+				BaseService = {
+					HasStand = function(): boolean
+						return false
+					end,
+					CheckShrineAccess = function(
+						player: Player,
+						base: Types.BaseRecord,
+						shrine: string
+					): string?
+						state.accessCalls += 1
+						observed.accessPlayer, observed.accessBase, observed.accessShrine =
+							player, base, shrine
+						return "OutOfRange"
+					end,
+				},
+			},
+			Configurations = { Mythlings = Mythlings },
+			Remotes = {
+				Production = {
+					GetStatus = remotes[1],
+					Collect = remotes[2],
+					CollectShrine = remotes[3],
+				},
+			},
+		} :: unknown
+	) :: ServerTypes.Context
+	return {
+		api = api,
+		context = context,
+		state = state,
+		observed = observed,
+		remotes = remotes,
+		root = root,
+	}
+end
+
 afterEach(function()
 	for _, stop in stopServices do
 		pcall(stop)
@@ -139,6 +307,10 @@ afterEach(function()
 		root:Destroy()
 	end
 	table.clear(fixtureRoots)
+	jest.unmock(collectorModule)
+	jest.unmock(requestsModule)
+	jest.unmock(limiterModule)
+	jest.unmock(remoteUtilModule)
 end)
 
 describe("ShrineProduction.Settle", function()
@@ -301,6 +473,88 @@ describe("ShrineProduction.Settle", function()
 end)
 
 describe("ProductionService Shrine command gates", function()
+	it(
+		"rejects impostors before admission and clears both independent budgets and every handler",
+		function()
+			local f = serviceFixture()
+			local retained: ProductionRequests.Requests? = nil
+			local function unavailable()
+				for _, raw in
+					{ { UserId = 1001, Parent = game:GetService("Players") }, f.root, false }
+				do
+					local player = (raw :: unknown) :: Player
+					expect(
+						f.api.CollectShrine(player, ({} :: unknown) :: Types.CollectShrineRequest)
+					).toEqual({
+						ok = false,
+						code = "DataUnavailable",
+						revision = 0,
+					})
+					local handler = retained
+					if handler then
+						expect(handler.CollectShrine(player, {})).toEqual({
+							ok = false,
+							code = "DataUnavailable",
+							revision = 0,
+						})
+					end
+				end
+				expect(f.state.admissions).toEqual({})
+				expect(f.state.reads + f.state.transactions + f.state.accessCalls).toBe(0)
+			end
+			unavailable()
+			f.api.Init(f.context)
+			retained = assert(f.observed.requests, "[ShrineProduction.spec] Expected handlers")
+			unavailable()
+			f.api.Start()
+			f.api.Start()
+			unavailable()
+			f.api.Stop()
+			f.api.Stop()
+			unavailable()
+			expect(f.observed.cleared).toEqual(f.remotes)
+			expect(f.state.clears).toEqual({ 8, RequestConfiguration.requestBurst })
+			expect(f.state.registrations).toBe(1)
+		end
+	)
+
+	it(
+		"injects production authorization with the exact caller, saved Base, and Shrine identity",
+		function()
+			local f = serviceFixture()
+			f.api.Init(f.context)
+			local checkAccess =
+				assert(f.observed.checkAccess, "[ShrineProduction.spec] Expected access injection")
+			local player = (table.freeze({}) :: unknown) :: Player
+			local data = profile(1001)
+			expect(checkAccess(player, data, "first")).toBe("OutOfRange")
+			expect(f.observed.accessPlayer).toBe(player)
+			expect(f.observed.accessBase).toBe(data.base)
+			expect(f.observed.accessShrine).toBe("first")
+			expect(f.state.accessCalls).toBe(1)
+			expect(f.state.reads + f.state.transactions).toBe(0)
+		end
+	)
+
+	it(
+		"fails initialization before registering production when Shrine authorization is absent",
+		function()
+			local f = serviceFixture()
+			local context = (f.context :: unknown) :: { Services: { [string]: unknown } }
+			context.Services.BaseService = {
+				HasStand = function(): boolean
+					return false
+				end,
+			}
+			expect(function()
+				f.api.Init(f.context)
+			end).toThrow()
+			expect(f.state.registrations).toBe(0)
+			expect(f.observed.checkAccess).toBeNil()
+			expect(f.observed.requests).toBeNil()
+		end
+	)
+
 	it("rejects calls before startup, after stop, and for non-Player impostors", function()
 		local root = Instance.new("Folder")
 		root.Name = "ShrineProductionServiceFixture"
@@ -327,6 +581,8 @@ describe("ProductionService Shrine command gates", function()
 		getStatus.Parent = root
 		local collect = Instance.new("RemoteFunction")
 		collect.Parent = root
+		local collectShrine = Instance.new("RemoteFunction")
+		collectShrine.Parent = root
 		local function expectUnavailable(value: unknown)
 			local result = service.SettleShrines(value)
 			expect(result.ok).toBe(false)
@@ -372,10 +628,19 @@ describe("ProductionService Shrine command gates", function()
 					HasStand = function(): boolean
 						return false
 					end,
+					CheckShrineAccess = function(): string?
+						error("Impostor must not reach Shrine access")
+					end,
 				},
 			},
 			Configurations = { Mythlings = Mythlings },
-			Remotes = { Production = { GetStatus = getStatus, Collect = collect } },
+			Remotes = {
+				Production = {
+					GetStatus = getStatus,
+					Collect = collect,
+					CollectShrine = collectShrine,
+				},
+			},
 		})
 		table.insert(stopServices, function()
 			service.Stop()

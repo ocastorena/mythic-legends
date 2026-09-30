@@ -157,7 +157,10 @@ local function project(data: Types.PlayerDoc, id: string): (Types.ShrineView?, s
 		nil
 end
 
-function ShrineView.new(DataService: DataSource): ShrineView
+function ShrineView.new(
+	DataService: DataSource,
+	checkAccess: ((Player, Types.PlayerDoc, string) -> string?)?
+): ShrineView
 	assert(
 		type(DataService) == "table" and type(DataService.GetLoadedData) == "function",
 		"[BaseService.ShrineView] DataService.GetLoadedData required"
@@ -175,6 +178,10 @@ function ShrineView.new(DataService: DataSource): ShrineView
 		local id = parseRequest(rawRequest)
 		if not id then
 			return { ok = false, code = "InvalidRequest", revision = revision }
+		end
+		local accessProblem = if checkAccess then checkAccess(player, data, id) else nil
+		if accessProblem then
+			return { ok = false, code = accessProblem, revision = revision }
 		end
 		local view, problem = project(data, id)
 		if not view then

@@ -11,7 +11,24 @@ local Configuration = require(ReplicatedStorage.Shared.Configurations.BaseReques
 local BaseRequests = require(ServerScriptService.Services.BaseService.BaseRequests)
 
 local describe, expect, it = JestGlobals.describe, JestGlobals.expect, JestGlobals.it
-local ROUTES = { "GetBase", "BuildShrine", "ExpandBase" }
+local MUTATIONS = {
+	"BuildShrine",
+	"ExpandBase",
+	"AssignShrineWorker",
+	"RemoveShrineWorker",
+	"UpgradeShrine",
+	"DismantleShrine",
+}
+local ROUTES = {
+	"GetBase",
+	"GetShrine",
+	"BuildShrine",
+	"ExpandBase",
+	"AssignShrineWorker",
+	"RemoveShrineWorker",
+	"UpgradeShrine",
+	"DismantleShrine",
+}
 
 local function fixture()
 	local player = (table.freeze({ UserId = 1001 }) :: unknown) :: Player
@@ -22,12 +39,38 @@ local function fixture()
 		payload = nil :: unknown,
 		result = { ok = true, revision = 7, values = { goldSpent = 100 } } :: Types.TransactionResult,
 		view = { ok = false, code = "BaseUnavailable", revision = 6 } :: Types.BaseViewResult,
+		shrineView = { ok = false, code = "ShrineUnavailable", revision = 6 } :: Types.ShrineViewResult,
 	}
 	local function record(caller: Player, route: string)
 		expect(caller).toBe(player)
 		table.insert(state.calls, route)
 	end
 	local api = BaseRequests.new({
+		getShrine = function(caller, input)
+			record(caller, "GetShrine")
+			state.payload = input
+			return state.shrineView
+		end,
+		assignShrineWorker = function(caller, input)
+			record(caller, "AssignShrineWorker")
+			state.payload = input
+			return state.result
+		end,
+		removeShrineWorker = function(caller, input)
+			record(caller, "RemoveShrineWorker")
+			state.payload = input
+			return state.result
+		end,
+		upgradeShrine = function(caller, input)
+			record(caller, "UpgradeShrine")
+			state.payload = input
+			return state.result
+		end,
+		dismantleShrine = function(caller, input)
+			record(caller, "DismantleShrine")
+			state.payload = input
+			return state.result
+		end,
 		isAvailable = function(caller)
 			record(caller, "available")
 			return state.available
@@ -61,6 +104,11 @@ local function fixture()
 		end,
 		BuildShrine = api.BuildShrine,
 		ExpandBase = api.ExpandBase,
+		GetShrine = api.GetShrine,
+		AssignShrineWorker = api.AssignShrineWorker,
+		RemoveShrineWorker = api.RemoveShrineWorker,
+		UpgradeShrine = api.UpgradeShrine,
+		DismantleShrine = api.DismantleShrine,
 	}
 	return { player = player, state = state, api = api, routes = routes }
 end
@@ -82,7 +130,7 @@ describe("BaseRequests", function()
 		expect(f.state.payload).toBeNil()
 	end)
 
-	it("shares its configured budget across the view and both purchases", function()
+	it("shares its configured budget across all canonical Base and Shrine routes", function()
 		local f = fixture()
 		expect(Configuration.requestBurst).toBe(12)
 		expect(Configuration.requestRefillPerSecond).toBe(4)
@@ -105,7 +153,17 @@ describe("BaseRequests", function()
 	end)
 
 	it("forwards mutation payloads intact, including invalid and forbidden fields", function()
-		for _, route in { "BuildShrine", "ExpandBase" } do
+		for _, route in
+			{
+				"BuildShrine",
+				"ExpandBase",
+				"GetShrine",
+				"AssignShrineWorker",
+				"RemoveShrineWorker",
+				"UpgradeShrine",
+				"DismantleShrine",
+			}
+		do
 			local f = fixture()
 			local inputs: { unknown } = {
 				false,
@@ -131,7 +189,11 @@ describe("BaseRequests", function()
 			local f = fixture()
 			FreezeUtil.DeepFreeze(f.state.view)
 			expect(f.api.GetBase(f.player)).toBe(f.state.view)
-			for _, route in { "BuildShrine", "ExpandBase" } do
+			FreezeUtil.DeepFreeze(f.state.shrineView)
+			expect(f.api.GetShrine(f.player, { shrineInstanceId = "owned" })).toBe(
+				f.state.shrineView
+			)
+			for _, route in MUTATIONS do
 				table.clear(f.state.calls)
 				local receipt: Types.TransactionResult = {
 					ok = true,
@@ -162,7 +224,7 @@ describe("BaseRequests", function()
 		do
 			local f = fixture()
 			f.state.result = { ok = false, code = code, revision = 8 }
-			for _, route in { "BuildShrine", "ExpandBase" } do
+			for _, route in MUTATIONS do
 				table.clear(f.state.calls)
 				expect(f.routes[route](f.player, {})).toBe(f.state.result)
 				expect(f.state.calls).toEqual({ "available", "allow", route })

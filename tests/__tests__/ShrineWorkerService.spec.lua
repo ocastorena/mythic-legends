@@ -101,6 +101,20 @@ describe("BaseService Shrine command gates", function()
 		buildShrine.Parent = root
 		local expandBase = Instance.new("RemoteFunction")
 		expandBase.Parent = root
+		local shrineRemotes: { [string]: RemoteFunction } = {}
+		for _, name in
+			{
+				"GetShrine",
+				"AssignShrineWorker",
+				"RemoveShrineWorker",
+				"UpgradeShrine",
+				"DismantleShrine",
+			}
+		do
+			local remote = Instance.new("RemoteFunction")
+			remote.Name, remote.Parent = name, root
+			shrineRemotes[name] = remote
+		end
 		service.Init({
 			Instances = {
 				Arena = arena,
@@ -117,6 +131,11 @@ describe("BaseService Shrine command gates", function()
 					GetBase = getBase,
 					BuildShrine = buildShrine,
 					ExpandBase = expandBase,
+					GetShrine = shrineRemotes.GetShrine,
+					AssignShrineWorker = shrineRemotes.AssignShrineWorker,
+					RemoveShrineWorker = shrineRemotes.RemoveShrineWorker,
+					UpgradeShrine = shrineRemotes.UpgradeShrine,
+					DismantleShrine = shrineRemotes.DismantleShrine,
 				},
 			},
 			Services = {

@@ -22,6 +22,7 @@ local BaseRequests = require(script.BaseRequests)
 local CraftingAccess = require(script.CraftingAccess)
 local BaseView = require(script.BaseView)
 local ShrineView = require(script.ShrineView)
+local ShrineAccess = require(script.ShrineAccess)
 local ShrineConstruction = require(script.ShrineConstruction)
 local BaseExpansionPurchase = require(script.BaseExpansionPurchase)
 local ShrineWorkers = require(script.ShrineWorkers)
@@ -68,6 +69,11 @@ local requests: BaseRequests.Requests?
 local getBaseRemote: RemoteFunction?
 local buildShrineRemote: RemoteFunction?
 local expandBaseRemote: RemoteFunction?
+local getShrineRemote: RemoteFunction?
+local assignShrineRemote: RemoteFunction?
+local removeShrineRemote: RemoteFunction?
+local upgradeShrineRemote: RemoteFunction?
+local dismantleShrineRemote: RemoteFunction?
 
 local playerTroves: { [Player]: Trove.Trove } = {}
 
@@ -84,6 +90,11 @@ local function resolveAssets()
 	getBaseRemote = serviceContext.Remotes.Base.GetBase
 	buildShrineRemote = serviceContext.Remotes.Base.BuildShrine
 	expandBaseRemote = serviceContext.Remotes.Base.ExpandBase
+	getShrineRemote = serviceContext.Remotes.Base.GetShrine
+	assignShrineRemote = serviceContext.Remotes.Base.AssignShrineWorker
+	removeShrineRemote = serviceContext.Remotes.Base.RemoveShrineWorker
+	upgradeShrineRemote = serviceContext.Remotes.Base.UpgradeShrine
+	dismantleShrineRemote = serviceContext.Remotes.Base.DismantleShrine
 	DataService = serviceContext.Services.DataService
 	InventoryService = serviceContext.Services.InventoryService
 	ProductionService = serviceContext.Services.ProductionService
@@ -136,7 +147,6 @@ function BaseService.GetBase(player: Player): Types.BaseViewResult
 	return reader.Get(player)
 end
 
--- Server-only read until the separate Shrine endpoint and world-binding step is connected.
 function BaseService.GetShrine(
 	player: Player,
 	request: Types.GetShrineRequest
@@ -146,6 +156,32 @@ function BaseService.GetShrine(
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	return reader.Get(player, request)
+end
+
+function BaseService.CheckShrineAccess(
+	player: Player,
+	baseRecord: Types.BaseRecord,
+	shrineInstanceId: string
+): string?
+	if not available(player) then
+		return "DataUnavailable"
+	end
+	return ShrineAccess.Check(
+		player.UserId,
+		player.Character,
+		baseRecord,
+		slots,
+		basesFolder,
+		shrineInstanceId
+	)
+end
+
+local function checkShrineAccess(
+	player: Player,
+	data: Types.PlayerDoc,
+	shrineInstanceId: string
+): string?
+	return BaseService.CheckShrineAccess(player, data.base, shrineInstanceId)
 end
 
 function BaseService.CheckCraftingAccess(
@@ -228,7 +264,7 @@ local function getShrineWorkers(player: Player): ShrineWorkers.ShrineWorkers?
 	return shrineWorkers
 end
 
--- Headless commands: the loaded profile is authoritative; no world model or client remote is used.
+-- Canonical commands own transactions; fresh access checks run inside their callbacks.
 function BaseService.AssignShrineWorker(
 	player: Player,
 	request: Types.AssignShrineWorkerRequest
@@ -282,7 +318,15 @@ function BaseService.DismantleShrine(
 	then
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
-	return removal.Dismantle(player, request)
+	local result = removal.Dismantle(player, request)
+	if result.ok and not result.replayed then
+		local base = getPlayerBase(player)
+		local data = DataService.GetLoadedData(player)
+		if base and base.Parent == basesFolder and data then
+			BaseRuntime.RefreshCapacity(base, data.base)
+		end
+	end
+	return result
 end
 
 local function bindCharacterSpawn(
@@ -537,7 +581,7 @@ function BaseService.Init(context: ServerTypes.Context)
 	requestLimiter = limiter
 	shrineConstruction = ShrineConstruction.new(DataService, nil, checkAccess)
 	baseView = BaseView.new(DataService, checkAccess)
-	shrineView = ShrineView.new(DataService)
+	shrineView = ShrineView.new(DataService, checkShrineAccess)
 	baseExpansion = BaseExpansionPurchase.new(DataService, checkAccess)
 	requests = BaseRequests.new({
 		isAvailable = available,
@@ -554,10 +598,25 @@ function BaseService.Init(context: ServerTypes.Context)
 		expandBase = function(player: Player, input: unknown): Types.TransactionResult
 			return BaseService.ExpandBase(player, input :: Types.ExpandBaseRequest)
 		end,
+		getShrine = function(player: Player, input: unknown): Types.ShrineViewResult
+			return BaseService.GetShrine(player, input :: Types.GetShrineRequest)
+		end,
+		assignShrineWorker = function(player: Player, input: unknown): Types.TransactionResult
+			return BaseService.AssignShrineWorker(player, input :: Types.AssignShrineWorkerRequest)
+		end,
+		removeShrineWorker = function(player: Player, input: unknown): Types.TransactionResult
+			return BaseService.RemoveShrineWorker(player, input :: Types.RemoveShrineWorkerRequest)
+		end,
+		upgradeShrine = function(player: Player, input: unknown): Types.TransactionResult
+			return BaseService.UpgradeShrine(player, input :: Types.UpgradeShrineRequest)
+		end,
+		dismantleShrine = function(player: Player, input: unknown): Types.TransactionResult
+			return BaseService.DismantleShrine(player, input :: Types.DismantleShrineRequest)
+		end,
 	})
-	shrineWorkers = ShrineWorkers.new(DataService)
-	shrineUpgradePurchase = ShrineUpgradePurchase.new(DataService)
-	shrineRemoval = ShrineRemoval.new(DataService)
+	shrineWorkers = ShrineWorkers.new(DataService, nil, checkShrineAccess)
+	shrineUpgradePurchase = ShrineUpgradePurchase.new(DataService, nil, checkShrineAccess)
+	shrineRemoval = ShrineRemoval.new(DataService, nil, checkShrineAccess)
 end
 
 function BaseService.Start()
@@ -573,6 +632,20 @@ function BaseService.Start()
 	getRemote.OnServerInvoke = handler.GetBase
 	buildRemote.OnServerInvoke = handler.BuildShrine
 	expandRemote.OnServerInvoke = handler.ExpandBase
+	local shrineGet = assert(getShrineRemote, "[BaseService] GetShrine remote is not initialized")
+	local shrineAssign =
+		assert(assignShrineRemote, "[BaseService] AssignShrineWorker remote is not initialized")
+	local shrineRemove =
+		assert(removeShrineRemote, "[BaseService] RemoveShrineWorker remote is not initialized")
+	local shrineUpgrade =
+		assert(upgradeShrineRemote, "[BaseService] UpgradeShrine remote is not initialized")
+	local shrineDismantle =
+		assert(dismantleShrineRemote, "[BaseService] DismantleShrine remote is not initialized")
+	shrineGet.OnServerInvoke = handler.GetShrine
+	shrineAssign.OnServerInvoke = handler.AssignShrineWorker
+	shrineRemove.OnServerInvoke = handler.RemoveShrineWorker
+	shrineUpgrade.OnServerInvoke = handler.UpgradeShrine
+	shrineDismantle.OnServerInvoke = handler.DismantleShrine
 	PlayerUtil.OnPlayer(handlePlayerAdded, lifecycle.trove)
 	lifecycle.trove:Connect(Players.PlayerRemoving, handlePlayerRemoving)
 	placeMythlingRemote.OnServerInvoke = handlePlaceMythling
@@ -593,6 +666,21 @@ function BaseService.Stop()
 	end
 	if expandBaseRemote then
 		RemoteUtil.ClearServerHandler(expandBaseRemote)
+	end
+	if getShrineRemote then
+		RemoteUtil.ClearServerHandler(getShrineRemote)
+	end
+	if assignShrineRemote then
+		RemoteUtil.ClearServerHandler(assignShrineRemote)
+	end
+	if removeShrineRemote then
+		RemoteUtil.ClearServerHandler(removeShrineRemote)
+	end
+	if upgradeShrineRemote then
+		RemoteUtil.ClearServerHandler(upgradeShrineRemote)
+	end
+	if dismantleShrineRemote then
+		RemoteUtil.ClearServerHandler(dismantleShrineRemote)
 	end
 	for player in playerTroves do
 		handlePlayerRemoving(player)

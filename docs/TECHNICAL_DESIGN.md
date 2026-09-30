@@ -88,8 +88,9 @@ without exposing a service's private implementation or replicating it to clients
 and configuration types needed by both runtimes remain in `ReplicatedStorage.Shared.Types`.
 Feature-specific pure operations live beside the owning service: Base owns assignment, Shrine
 upgrade, and dismantling; Production owns Shrine collection; Inventory owns Mythling evolution and
-sale. Base exposes server-only assignment, upgrade, and dismantling commands, Production exposes
-settlement and collection, and Inventory exposes evolution and Mythling sales.
+sale. Base owns assignment, upgrade, and dismantling commands, Production owns settlement and
+collection, and Inventory owns evolution and Mythling sales. Canonical action endpoints delegate
+to these command owners; automatic settlement remains server-only.
 `Shared.ShrineAccounting` is the common transaction-draft adapter consumed by Base,
 Production, and Inventory. Tests may require pure children directly.
 Combat geometry helpers likewise remain private children of CombatService.
@@ -113,8 +114,9 @@ Network
               UpgradeCapacity, DeleteMythling (retired compatibility response)
   Shop        GetShop, BuyOffer
   Crafting    GetStation, StartJob, CancelJob
-  Production  GetStatus, Collect
-  Base        GetBase, BuildShrine, ExpandBase, PlaceMythling, RemoveMythling
+  Production  GetStatus, Collect, CollectShrine
+  Base        GetBase, BuildShrine, ExpandBase, GetShrine, AssignShrineWorker,
+              RemoveShrineWorker, UpgradeShrine, DismantleShrine, PlaceMythling, RemoveMythling
   Combat      StartAttack, ReportHit, SetShieldGuard, Reaction, Impact, GetLoadout, Equip,
               EquipEquipment, UnequipEquipment
   World       Spawned, ClaimState
@@ -139,9 +141,8 @@ Network
 - Persistent state is confirmed through the revisioned State channel. Domain remotes do not accept
   arbitrary state keys, Instance paths, or generic mutation commands.
 
-This endpoint inventory matches [default.project.json](../default.project.json). It does not claim
-that all launch features already have endpoints: canonical Shrine management actions
-still need their purpose-specific transport integration.
+This endpoint inventory matches [default.project.json](../default.project.json). Declared endpoints
+do not establish authored interaction bindings, GUI integration, or verified live-client dispatch.
 `Inventory.DeleteMythling` is a non-mutating compatibility response, never a sale API.
 Existing remote names stay unchanged unless an explicit migration updates declarations, resolver
 types, server handlers, and client callers together.
@@ -1227,10 +1228,11 @@ the atomic mutation wrapper for another feature.
 
 ### Shrine management read view
 
-Server-only `BaseService.GetShrine(player, { shrineInstanceId })` returns
+`BaseService.GetShrine(player, { shrineInstanceId })` returns
 `{ ok, code?, revision, view? }` for a genuine connected Player while running, using only an
 already-loaded profile. Private `ShrineView` validates the loaded transaction revision, closed
 one-field request, canonical accounting snapshot, currency, and Material capacity/reservations.
+Its injected access guard runs after revision/request validation and before accounting projection.
 Unavailable profiles return `DataUnavailable` with revision zero; invalid revisions return
 `InvalidTransaction` with revision -1. Other failures retain the loaded revision and omit the view.
 Unowned Shrine selections return `ShrineNotOwned`. No other owner, timestamp, or supplied ledger is
@@ -1271,21 +1273,22 @@ the mutation's path and pre-debit checks without calling it or changing its stal
 Only ordinary Gold/Material shortages remain offer reasons; malformed state/configuration rejects
 the whole view. Stored production and reservations cannot pay a purchase.
 
-The read adds no remote, world binding, authored placement, or GUI. Those remain the next integration
-boundary; connected-player interaction and durable retention require separate verification.
+The [Shrine endpoint](#shrine-request-endpoints-and-world-access) exposes this view with server-owned
+world access checks. Authored placement, GUI, connected-player interaction, and durable retention
+require separate work or verification.
 
 ### Atomic Shrine-assignment commands
 
 `BaseService.AssignShrineWorker(player, request)` and `RemoveShrineWorker(player, request)` expose
-server-only assignment through the typed Base API and `MainServer` service facade. Both require a
+assignment through the typed Base API and `MainServer` service facade. Both require a
 running service and connected player; they do not auto-load a profile. Assignment takes `requestId`,
 `expectedRevision`, `shrineInstanceId`, numeric `slotId`, and `workerId`. Removal substitutes
 `expectedWorkerId` for `workerId`. The request ID is `<expectedRevision>:<unique token>`; retry the
 original request unchanged. The server derives a length-delimited signature from the selected
 identities/slot, so reusing an ID for different intent rejects rather than replaying another action.
 
-Private `BaseService/ShrineWorkers.new(DataService, clock?)` implements `Assign` and `Remove` using
-`DataService.Transact`. Each callback reads server time once and calls
+Private `BaseService/ShrineWorkers.new(DataService, clock?, checkAccess?)` implements `Assign` and
+`Remove` using `DataService.Transact`. Each fresh callback checks access, reads server time once, and calls
 `Shared.ShrineAccounting.ChangeAssignmentsToDraft` with the appropriate private `ShrineAssignments`
 reducer. The default clock is `workspace:GetServerTimeNow()` and the metadata is the real launch
 catalogue; deterministic tests may inject the clock. Callers supply no ledger, timestamp, metadata,
@@ -1302,13 +1305,14 @@ owned instance, pending XP, all earned Shrine work, and the common batch schedul
 The retired `Inventory.DeleteMythling` endpoint now rejects all requests without reading ownership,
 unassigning, or deleting anything; retained prototype and canonical entries remain untouched. The
 private legacy removal helper also retains its canonical/pending-work protections. Assignment itself
-adds no acquisition path, save schema, remote, timer, `SaveNow` call, model, or menu.
+adds no acquisition path, save schema, timer, `SaveNow` call, model, or menu. Its
+[admitted endpoints](#shrine-request-endpoints-and-world-access) preserve the transaction boundary.
 Controlled transaction tests establish in-session atomicity, not durable saves; actual
 connected/disconnected-player dispatch and persistence still require a playtest.
 
 ### Atomic Shrine-collection command
 
-`ProductionService.CollectShrine(player, request)` exposes server-only collection through the typed
+`ProductionService.CollectShrine(player, request)` exposes collection through the typed
 `ProductionApi` and `MainServer` service facade. It requires a running service, connected player,
 and already-loaded profile. The strict request contains only `requestId`, `expectedRevision`,
 `shrineInstanceId`, and `expectedMaterialId`. The request ID is
@@ -1317,8 +1321,9 @@ length-delimited signature from the selected Shrine and expected Material identi
 operation as `Production.CollectShrine`. Clients cannot supply an amount, ledger, clock, metadata,
 capacity, or reservations.
 
-Private `ProductionService/ShrineCollector.new(DataService, clock?)` implements `Collect` using
-`DataService.GetLoadedData` and `Transact`. Inside the callback, read the clock once, then call
+Private `ProductionService/ShrineCollector.new(DataService, clock?, checkAccess?)` implements `Collect`
+using `DataService.GetLoadedData` and `Transact`. Inside the fresh callback, check access, read the
+clock once, then call
 `Shared.ShrineAccounting.ChangeStorageToDraft` with the private `ShrineCollection.Collect` reducer.
 The default clock is `workspace:GetServerTimeNow()` and metadata resolves to the real launch
 catalogue; tests may inject the clock. Build the reducer's Material view from that same draft's
@@ -1337,14 +1342,15 @@ DataService owns active-session checks, rollback, revision-bound receipts, norma
 and persistence. A matching retry replays the original result without resampling time, rerunning
 accrual, or granting Materials again.
 
-This adds no remote, menu, model, new acquisition, schema migration, automatic production lifecycle,
-profile auto-load, or explicit save request. The prototype stand-collection path remains unchanged.
+Its [admitted endpoint](#shrine-request-endpoints-and-world-access) adds no menu, model, new acquisition,
+schema migration, automatic production lifecycle, profile auto-load, or explicit save request.
+The prototype stand-collection path remains unchanged.
 Controlled transaction tests establish in-session atomicity and serialized continuation, not durable
 saves. Actual connected/disconnected-player dispatch and persistence still require a playtest.
 
 ### Atomic Shrine-upgrade command
 
-`BaseService.UpgradeShrine(player, request)` exposes server-only upgrades through the typed `BaseApi`
+`BaseService.UpgradeShrine(player, request)` exposes upgrades through the typed `BaseApi`
 and `MainServer` service facade. It requires a running service, connected player, and already-loaded
 profile. The strict `Types.UpgradeShrineRequest` contains only `requestId`, `expectedRevision`,
 `shrineInstanceId`, `expectedLevel`, `expectedMaterialId`, `expectedGoldCost`, and
@@ -1354,8 +1360,9 @@ length-delimited signature binding the selected Shrine, current level, and every
 field. The quote is a stale-selection check, not purchase authority. Callers cannot supply a target
 level, ledger, timestamp, metadata, capacity, or reservations.
 
-Private `BaseService/ShrineUpgradePurchase.new(DataService, clock?)` implements `Upgrade` using
-`DataService.GetLoadedData` and `Transact`. Read the clock exactly once inside the callback, then call
+Private `BaseService/ShrineUpgradePurchase.new(DataService, clock?, checkAccess?)` implements `Upgrade`
+using `DataService.GetLoadedData` and `Transact`. Check access and read the clock exactly once inside
+the fresh callback, then call
 `Shared.ShrineAccounting.ChangeShrineLevelToDraft` with the selected instance and private
 `ShrineUpgrades.Upgrade` reducer. The default clock is `workspace:GetServerTimeNow()`; tests may
 inject it. The accounting view uses canonical launch form/Shrine metadata; the purchase adapter
@@ -1378,8 +1385,9 @@ receipt and revision. DataService owns active-session checks, rollback, normal s
 and persistence. A matching retry replays the original result without resampling time, rerunning
 accrual, or charging again.
 
-This adds no remote, menu, model, acquisition path, schema migration, automatic lifecycle settlement,
-profile auto-load, or explicit `SaveNow` call. Existing prototype paths remain unchanged. Controlled
+Its [admitted endpoint](#shrine-request-endpoints-and-world-access) adds no menu, model, acquisition path,
+schema migration, automatic lifecycle settlement, profile auto-load, or explicit `SaveNow` call.
+Existing prototype paths remain unchanged. Controlled
 transaction tests cover purchase and receipt safety, retained state, and rollback, not durable saves.
 Actual connected/disconnected-player dispatch and persistence still require a playtest.
 
@@ -1469,7 +1477,7 @@ dispatch and persistence still require a playtest.
 
 ### Atomic Shrine-dismantling command
 
-`BaseService.DismantleShrine(player, request)` exposes server-only removal through the typed
+`BaseService.DismantleShrine(player, request)` exposes removal through the typed
 `BaseApi` and `MainServer` service facade. It requires a running service, connected player, and
 already-loaded profile. The strict request contains only `requestId`, `expectedRevision`,
 `shrineInstanceId`, and `expectedLevel`. The request ID is `<expectedRevision>:<unique token>`;
@@ -1477,9 +1485,9 @@ retry the original request unchanged. The server fixes the operation as `Base.Di
 and derives a length-delimited signature binding the selected instance and expected level.
 Callers cannot select a build slot or owner, supply accounting, metadata, or time, or request a refund.
 
-Private `BaseService/ShrineRemoval.new(DataService, clock?)` implements `Dismantle` using
-`DataService.GetLoadedData` and `Transact`. Read the clock exactly once inside the transaction
-callback, then call `Shared.ShrineAccounting.RemoveShrineToDraft` with the selected instance and
+Private `BaseService/ShrineRemoval.new(DataService, clock?, checkAccess?)` implements `Dismantle` using
+`DataService.GetLoadedData` and `Transact`. Check access and read the clock exactly once inside the
+fresh transaction callback, then call `Shared.ShrineAccounting.RemoveShrineToDraft` with the selected instance and
 private `ShrineDismantling.Dismantle` reducer. The default clock is `workspace:GetServerTimeNow()`;
 tests may inject it. Pass the same draft's Base ownership to the reducer and resolve accounting
 against canonical launch metadata. The bridge merges surviving canonical accounting records and
@@ -1502,8 +1510,9 @@ gameplay changes; DataService may still record the failure receipt and revision.
 active-session checks, rollback, normal state publication, and persistence. A matching retry replays
 the original result without resampling time or touching a replacement occupying the old slot.
 
-This adds no remote, menu, model deletion, migration, automatic production lifecycle, profile
-auto-load, or explicit save request. Future presentation removes a runtime model only after a
+Its [admitted endpoint](#shrine-request-endpoints-and-world-access) adds no menu, model deletion,
+migration, automatic production lifecycle, profile auto-load, or explicit save request.
+Future presentation removes a runtime model only after a
 successful transaction. Controlled transaction tests cover removal gates, receipt safety, retained
 state, and rollback, not durable saves. Actual connected/disconnected-player dispatch and persistence
 still require a playtest.
@@ -1753,7 +1762,9 @@ the genuine connected Player and running service before its shared token bucket,
 work. `Configurations.BaseRequests` initially allows twelve tokens and refills four per second.
 Unavailable and limited calls return `DataUnavailable` or `RateLimited` with revision zero.
 The existing prototype PlaceMythling/RemoveMythling routes retain their separate six/two bucket and
-behavior. Departures forget both buckets; Stop clears all five handlers and limiter state.
+behavior. The five canonical Base-owned Shrine routes below share this same twelve/four bucket;
+there are eight canonical routes total. Departures forget both buckets; Stop clears all ten
+Base handlers and limiter state.
 Retained callbacks reject after Stop.
 
 Production initialization injects one access guard into BaseView, ShrineConstruction, and
@@ -1769,7 +1780,7 @@ The current character must remain in Workspace with a living Humanoid and unique
 Its finite three-dimensional root-to-anchor distance must be within the inclusive configured radius.
 Missing/dead characters return `CharacterUnavailable`; outside or nonfinite positions return
 `OutOfRange`. Private same-feature `WorldAccessUtil` supplies this rule and unique ownership/path
-resolution to both BaseAccess and CraftingAccess. There is no client Instance, position, OwnerId
+resolution to BaseAccess, CraftingAccess, and ShrineAccess. There is no client Instance, position, OwnerId
 attribute, model-pivot fallback, or menu-open claim. These checks do not implement movement locking;
 that remains the separate GUI's responsibility.
 
@@ -1785,6 +1796,53 @@ Studio inspection confirmed the existing NameSign Part but no BasePromptAttachme
 anchor/prompt placement for asset/UI work, so no authored instance is added and missing bindings fail
 closed. Verify those bindings and real connected-player dispatch before claiming playable Base
 management; disposable transaction tests alone do not establish durable retention.
+
+### Shrine request endpoints and world access
+
+`Network.Base` declares `GetShrine`, `AssignShrineWorker`, `RemoveShrineWorker`, `UpgradeShrine`,
+and `DismantleShrine`. These five RemoteFunctions share the existing configured twelve-token,
+four-per-second canonical Base budget with GetBase/BuildShrine/ExpandBase. Private `BaseRequests`
+forwards unchanged payloads and results to the corresponding public command owners. Production
+separately owns `Network.Production.CollectShrine` through private `ProductionRequests`, with its
+own twelve/four budget in `Configurations.ProductionRequests`. Legacy Base six/two and Production
+eight/three budgets and payloads remain unchanged. Every new adapter admits a genuine connected
+Player and running service before its budget or protected work; failure returns `DataUnavailable`
+or `RateLimited` with revision zero. Stop clears the new handlers and limiter state; departures
+forget the player's buckets and retained callbacks reject after Stop.
+
+`BaseService.CheckShrineAccess` and private `ShrineAccess` resolve the selected owned Shrine from
+validated saved Base state. Only its server-saved `buildSlotId` selects the permanent world binding:
+the unique `ShrineSlots` Folder beneath the caller's own runtime Base, unique anchored `SlotN`
+BasePart inside it, and unique direct `ShrinePromptAttachment` Attachment. N is the saved build slot
+number, not a worker slot or client-selected position. `Configurations.ShrineInteractions` owns
+these names and the initial four-stud inclusive three-dimensional range. All six build slots use
+the same rule. These permanent parts are independent of temporary Shrine visuals and survive
+upgrade, dismantle, and rebuild. A rebuilt Shrine receives a new saved identity, so a stale request
+cannot select its replacement even when the world slot is reused.
+
+Malformed saved ownership returns `InvalidBaseState`; a missing selected ID returns `ShrineNotOwned`.
+Missing, duplicate, wrong-class, detached, or unanchored bindings return `ShrineUnavailable`.
+`WorldAccessUtil` applies the same live-character, finite root position, and range checks used by
+Base/Crafting: `CharacterUnavailable` or `OutOfRange`. No prototype Stands, Shrine model name/pivot,
+OwnerId attribute, supplied Instance/position, or menu-open flag substitutes for this binding.
+Asset/UI work owns its placement and prompts, and the GUI owns voluntary movement locking.
+
+Production initialization always injects a guard into `ShrineView`, `ShrineWorkers`,
+`ShrineUpgradePurchase`, `ShrineRemoval`, and `ShrineCollector`; private constructors may omit it
+only for headless use. ProductionService asserts the public Base guard dependency. Read checks run
+after loaded revision and closed request validation, before accounting projection. Each mutation
+checks access first inside its fresh transaction callback, after receipt/revision admission and
+shared draft preparation but before its feature clock, production settlement, or mutation.
+Access denial rolls back preparation with the action. Exact success and rejection receipts replay
+without current world checks, clock sampling, preparation, or repeated payment/output. This remains
+true after relocation, reset, Base removal, or Shrine replacement. Successful fresh dismantling
+refreshes Base capacity attributes from committed state; replay skips that refresh and profile reread.
+
+Automatic Ready/Checkpoint/Release production, server settlement, and started Crafting Jobs never
+require proximity. This adds no movement lock, GUI, authored models, new schema, or save guarantee.
+The inspected Studio Base template has no `ShrineSlots` binding, so fresh Shrine interactions fail
+closed until asset/UI work supplies it. Disposable tests cover routes, ordering, rollback/replay,
+saved-slot resolution, range, and cleanup, not positive connected-player dispatch or durable saves.
 
 ### Atomic Inventory-capacity upgrade command
 
@@ -3228,11 +3286,12 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Mythling form catalogue | [MythlingForms](../src/ReplicatedStorage/Shared/Configurations/MythlingForms.lua) defines 18 permanent neutral IDs, the six complete launch chains, and explicit Yield, sale, capture, rarity, and evolution metadata. [MythlingCatalogUtil](../src/ServerScriptService/Shared/MythlingCatalogUtil.lua) validates this separate business catalogue before server services start. Canonical capture grants, Shrine commands, evolution, and Mythling sales consume the relevant metadata directly. | Finalize creative names/concepts/assets and integrate the live canonical spawn pool and remaining features separately. The catalogue is not in the service context and does not replace the three live prototype forms or expose menus; ownership changes occur only through their transactions. |
 | Capture grants | Server-only `InventoryService.SaveWonMythling` retains its loaded Inventory-session gate and delegates to private [CaptureGrant](../src/ServerScriptService/Services/InventoryService/CaptureGrant.lua). It validates supported selection, generated identity/time, and capacity before granting the exact canonical form at level 1, XP 0, and pending XP 0 through `DataService.Update`. No Luck/Trait roll or static metadata is copied into the new record; configured prototype captures remain supported temporarily. | ClaimService supplies contest-level award uniqueness; the grant is not a retryable client endpoint. Canonical model bindings and live spawn selection remain separate work. Validate connected-player capture and durable saves; injected/serialized tests and asynchronous save requests do not establish them. No GUI, remote, or schema migration is added. |
 | Mythling production | Existing [ProductionService/Accrual](../src/ServerScriptService/Services/ProductionService/Accrual.lua) retains prototype [ProductionLedger](../src/ServerScriptService/Shared/ProductionLedger.lua) behavior. Canonical [ProfileProduction](../src/ServerScriptService/Services/ProductionService/ProfileProduction.lua) settles Ready/Checkpoint/Release through shared [ShrineAccounting](../src/ServerScriptService/Shared/ShrineAccounting.lua), with [ProfileCheckpoints](../src/ServerScriptService/Services/ProductionService/ProfileCheckpoints.lua) initially scheduling loaded-profile checkpoints every 30 seconds. Server-only `SettleShrines` and atomic assignment/collection/upgrade/dismantling/evolution/sale commands use the same accounting engine in their own transactions. | Integrate remaining features and player-facing views separately. Keep settlement and input changes in one draft; legacy stand paths and inactive Luck/Traits remain unchanged. The private clock and pending XP stay out of projection. Mock/serialized tests and asynchronous save requests do not establish live durable persistence; validate join/leave/shutdown and reconnect behavior in play. |
-| Shrine management view | Server-only `BaseService.GetShrine` uses [ShrineView](../src/ServerScriptService/Services/BaseService/ShrineView.lua) and the shared read-only accounting snapshot to return detached worker slots/candidates, committed storage/progress and nominal production estimates, collection room, upgrade quotes, and dismantle eligibility. Upgrade path/payment checks are shared with the atomic purchase; the read never settles or saves. | Add canonical Shrine transport and world bindings without GUI work. Previews are not guaranteed mutation results: real actions settle and revalidate. No raw clock/work/XP ledger, inactive Luck/Traits, prototype conversion, authored placement, or menus are added. |
-| Shrine assignment | Server-only `BaseService.AssignShrineWorker`/`RemoveShrineWorker` delegate to private [ShrineWorkers](../src/ServerScriptService/Services/BaseService/ShrineWorkers.lua). It uses [ShrineAssignments](../src/ServerScriptService/Services/BaseService/ShrineAssignments.lua) and the shared adapter to settle and mutate canonical state in one revision-bound `DataService.Transact`, with default launch metadata and one server timestamp. Explicit unassignment, empty matching slots, stable slot identities, expected-worker checks, and duplicate-safe receipts are enforced. | No new remote, acquisition, schema migration, model, or presentation. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Every admitted legacy `DeleteMythling` request returns nonmutating `UnsupportedAction`, without unassignment or deletion. |
-| Shrine collection | Server-only `ProductionService.CollectShrine` delegates to private [ShrineCollector](../src/ServerScriptService/Services/ProductionService/ShrineCollector.lua). It uses [ShrineCollection](../src/ServerScriptService/Services/ProductionService/ShrineCollection.lua) and the shared storage bridge to settle work/XP and commit the stored debit with the Inventory grant in one revision-bound `DataService.Transact`. Materials, upgrades, and refund reservations come from the same draft; partial transfers retain excess and unfinished work, and receipts prevent replayed grants. | No new remote, schema, automatic lifecycle, or presentation. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Prototype collection and crafting reservations remain unchanged. |
-| Shrine upgrades | Server-only `BaseService.UpgradeShrine` delegates to private [ShrineUpgradePurchase](../src/ServerScriptService/Services/BaseService/ShrineUpgradePurchase.lua). It composes [ShrineUpgrades](../src/ServerScriptService/Services/BaseService/ShrineUpgrades.lua) and the shared sequential-level bridge inside one revision-bound `DataService.Transact`, settling at the old capacity and committing canonical accounting, collected Material/Gold payment, and exactly the selected next level together. Real launch metadata owns prices, capacity, slots, and output IDs; quote-bound receipts prevent replayed charges. | No new remote, schema, automatic lifecycle, or presentation. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Assignments, stored output, earned work/XP, other currency fields, and crafting reservations remain intact. |
-| Shrine dismantling | Server-only `BaseService.DismantleShrine` delegates to private [ShrineRemoval](../src/ServerScriptService/Services/BaseService/ShrineRemoval.lua). It composes [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua) and the shared removal bridge inside one revision-bound `DataService.Transact`, rejecting assigned workers or settled whole output before removing only the selected canonical record. Unfinished Shrine work is discarded without erasing owned workers or their pending XP; identity/level-bound receipts protect a replacement in the freed slot. | No new remote, schema, automatic lifecycle, or presentation/model deletion. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Purchased slots, surviving accounting, Station identity, currency, Materials, and crafting reservations remain intact; no refund is granted. |
+| Shrine management view | `BaseService.GetShrine` and its admitted Base endpoint use [ShrineView](../src/ServerScriptService/Services/BaseService/ShrineView.lua) and the shared read-only accounting snapshot to return detached worker slots/candidates, committed storage/progress and nominal production estimates, collection room, upgrade quotes, and dismantle eligibility. World access follows revision/request validation and precedes projection; the read never settles or saves. | Supply permanent slot anchors and prompt/GUI integration separately; verify connected-player interaction and durable retention. Previews are not guaranteed mutation results: real actions settle and revalidate. No raw clock/work/XP ledger, inactive Luck/Traits, prototype conversion, authored placement, or menus are added. |
+| Shrine assignment | `BaseService.AssignShrineWorker`/`RemoveShrineWorker` and their admitted Base endpoints delegate to private [ShrineWorkers](../src/ServerScriptService/Services/BaseService/ShrineWorkers.lua). It uses [ShrineAssignments](../src/ServerScriptService/Services/BaseService/ShrineAssignments.lua) and the shared adapter to check fresh world access, settle, and mutate canonical state in one revision-bound transaction. Explicit unassignment, empty matching slots, stable slot identities, expected-worker checks, and duplicate-safe receipts are enforced. | Complete authored slot bindings and player-facing integration separately; playtest connected-player dispatch and durable saves. No acquisition, schema migration, model, or presentation is added. Every admitted legacy `DeleteMythling` request returns nonmutating `UnsupportedAction`, without unassignment or deletion. |
+| Shrine collection | `ProductionService.CollectShrine` and its admitted Production endpoint delegate to private [ShrineCollector](../src/ServerScriptService/Services/ProductionService/ShrineCollector.lua), with a required production Base-access guard and separate configured twelve/four admission budget. [ShrineCollection](../src/ServerScriptService/Services/ProductionService/ShrineCollection.lua) and the shared storage bridge settle work/XP and commit the stored debit with the Inventory grant in one revision-bound transaction. Partial transfers retain excess and unfinished work; receipts prevent replayed grants. | Complete authored slot bindings and player-facing integration separately; playtest connected-player dispatch and durable saves. No schema or presentation is added. Prototype collection, crafting reservations, and automatic production remain unchanged; automatic settlement never requires proximity. |
+| Shrine upgrades | `BaseService.UpgradeShrine` and its admitted Base endpoint delegate to private [ShrineUpgradePurchase](../src/ServerScriptService/Services/BaseService/ShrineUpgradePurchase.lua). It composes fresh access checks, [ShrineUpgrades](../src/ServerScriptService/Services/BaseService/ShrineUpgrades.lua), and the shared sequential-level bridge inside one revision-bound transaction, settling at the old capacity and committing collected Material/Gold payment and exactly the next level together. Real launch metadata owns prices, capacity, slots, and output IDs; quote-bound receipts prevent replayed charges. | Complete authored slot bindings and player-facing integration separately; playtest connected-player dispatch and durable saves. No schema, automatic lifecycle, or presentation is added. Assignments, stored output, earned work/XP, other currency fields, and crafting reservations remain intact. |
+| Shrine dismantling | `BaseService.DismantleShrine` and its admitted Base endpoint delegate to private [ShrineRemoval](../src/ServerScriptService/Services/BaseService/ShrineRemoval.lua). It composes fresh access checks, [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua), and the shared removal bridge inside one revision-bound transaction, rejecting workers or settled whole output before removing the selected record. Unfinished work is discarded without erasing owned workers or pending XP; identity/level-bound receipts protect replacements. Fresh success refreshes Base capacity attributes; replay skips the refresh and profile reread. | Complete authored slot bindings and player-facing integration separately; playtest connected-player dispatch and durable saves. No schema, automatic lifecycle, or presentation/model deletion is added. Purchased slots, surviving accounting, Station identity, currency, Materials, and crafting reservations remain intact; no refund is granted. |
+| Shrine world access | [ShrineAccess](../src/ServerScriptService/Services/BaseService/ShrineAccess.lua) resolves the saved Shrine `buildSlotId` to its own server-owned Base's unique `ShrineSlots/SlotN/ShrinePromptAttachment` binding, requiring an anchored slot part and living character within four studs. All six slots are supported, without prototype/model/client fallbacks. Fresh mutation guards run after receipt/revision admission and shared preparation, before feature clocks/accounting; committed retries skip world checks, preparation, and clocks/accounting. See [Shrine endpoints and world access](#shrine-request-endpoints-and-world-access). | The inspected Studio template lacks `ShrineSlots`; fresh interactions fail closed until asset/UI work supplies the permanent anchors. Prompt/menu movement locking and visual placement remain separate work. Disposable tests establish access/replay/rollback behavior, not positive connected-player dispatch or durable persistence. |
 | Mythling evolution | `InventoryService.EvolveMythling` and its admitted Inventory endpoint delegate to private [MythlingEvolutionCommand](../src/ServerScriptService/Services/InventoryService/MythlingEvolutionCommand.lua). It composes [MythlingEvolution](../src/ServerScriptService/Services/InventoryService/MythlingEvolution.lua) with the shared form-change bridge and canonical launch links inside one revision-bound `DataService.Transact`. Old-form settlement, eligibility, selected `typeId`, and identity/form/target-bound receipts commit together. Assigned and consecutive eligible evolutions retain work, progression, inactive legacy fields, and batch timing. | Add player-facing integration separately and playtest connected-player dispatch and durable saves. No menu, acquisition grant, schema migration, or automatic lifecycle is added. Prototype capture/stand paths remain unchanged; pending XP stays private. |
 | Mythling sales | `InventoryService.SellMythling` and its admitted Inventory endpoint delegate to private [MythlingSaleCommand](../src/ServerScriptService/Services/InventoryService/MythlingSaleCommand.lua). It composes [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) and the shared worker-removal bridge with canonical sale definitions inside one revision-bound `DataService.Transact`. Unassignment and stale form/price checks protect the selected deletion and Gold grant; final-copy sales remain allowed. All earned Shrine work and surviving workers' XP are retained, while the sold instance's pending XP retires. | Add player-facing integration separately and playtest connected-player dispatch and durable saves. The legacy `DeleteMythling` endpoint returns nonmutating `UnsupportedAction` after admission, without unassignment or ownership access; it is not a sale API. Materials and crafting reservations remain unchanged. No menu, acquisition grant, or schema migration is added. |
 | Equipment sales | `InventoryService.SellEquipment` and its admitted Inventory endpoint delegate to private [EquipmentSaleCommand](../src/ServerScriptService/Services/InventoryService/EquipmentSaleCommand.lua). One revision-bound transaction checks ownership, exact definition/finish/price, starter protection, and both loadout slots before removing the selected item and crediting configured Gold while preserving refund headroom. | Add player-facing confirmation and verify connected-player dispatch and durable retention separately. Equipped or protected starter items remain unsellable; no automatic unequip, GUI, asset binding, or schema migration is added. |
@@ -3245,7 +3304,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
 | Shop | [ShopService](../src/ServerScriptService/Services/ShopService/init.lua) returns read-only offers/eligibility/upgrade quotes and revision-bound atomic purchases through its public API and the declared `Shop.GetShop`/`BuyOffer` endpoints. [ShopRequests](../src/ServerScriptService/Services/ShopService/ShopRequests.lua) admits callers before protected work and keeps refreshed quotes separate from recorded transaction results. A shared hourly schedule rotates the matching Featured pair; saved personal usage is independent of catalogue revisions and purchased upgrades. | Add menu integration and verify connected-player dispatch, live refresh boundaries, and durable retention separately. No GUI, asset activation, automatic equip, XP, or refresh timer is added. Future tuning must be deployed at a shared period boundary. |
-| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes typed Shop view/purchase endpoints, Crafting GetStation/StartJob/CancelJob, Base GetBase/BuildShrine/ExpandBase, six canonical Inventory actions, and retryable Combat EquipEquipment/UnequipEquipment resolved by [RemoteUtil](../src/ServerScriptService/Infrastructure/RemoteUtil.lua). Adapters admit callers before protected work and forward unchanged requests to public command owners; the retained delete endpoint never mutates. Canonical responses preserve bounded transaction results without exposing private receipts, profiles, or extra loadout snapshots. | Add canonical Shrine read/assignment/collection/upgrade/dismantling transports independently of GUI work. Existing server commands and disposable endpoint tests do not by themselves establish connected-player dispatch or durable-save guarantees. |
+| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes typed Shop and Crafting endpoints, eight canonical Base routes including Shrine read/assignment/removal/upgrade/dismantling, separate Production.CollectShrine, six Inventory actions, and retryable Combat EquipEquipment/UnequipEquipment resolved by [RemoteUtil](../src/ServerScriptService/Infrastructure/RemoteUtil.lua). All eight Base routes share twelve/four admission; canonical Production collection has its own twelve/four budget, with legacy budgets unchanged. Adapters admit genuine connected callers before protected work and forward unchanged requests/results to command owners; the retained delete endpoint never mutates. | Supply required authored access bindings and integrate GUI callers separately. Existing server commands and disposable endpoint tests do not by themselves establish positive connected-player dispatch or durable-save guarantees. Preserve bounded results without exposing private receipts, profiles, or extra loadout snapshots. |
 | Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored `Workspace.World.Arena.Markers.Bounds`, Base Islands, and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |
 
 `HUDGui`, `StaminaGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,

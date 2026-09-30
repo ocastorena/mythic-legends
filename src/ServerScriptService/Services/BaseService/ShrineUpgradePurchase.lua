@@ -136,7 +136,8 @@ end
 
 function ShrineUpgradePurchase.new(
 	DataService: DataSource,
-	clock: (() -> number)?
+	clock: (() -> number)?,
+	checkAccess: ((Player, Types.PlayerDoc, string) -> string?)?
 ): ShrineUpgradePurchase
 	assert(
 		type(DataService) == "table"
@@ -174,6 +175,12 @@ function ShrineUpgradePurchase.new(
 			operation = "Base.UpgradeShrine",
 			signature = signature,
 		}, function(draft: Types.PlayerDoc): Types.TransactionOutcome
+			local accessProblem = if checkAccess
+				then checkAccess(player, draft, request.shrineInstanceId)
+				else nil
+			if accessProblem then
+				return { ok = false, code = accessProblem }
+			end
 			local timestamp = now()
 			local upgraded: ShrineUpgrades.Result? = nil
 			local ok, problem = ShrineAccounting.ChangeShrineLevelToDraft(

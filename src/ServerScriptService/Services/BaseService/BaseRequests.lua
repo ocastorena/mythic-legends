@@ -12,11 +12,21 @@ export type Dependencies = {
 	getBase: (Player) -> Types.BaseViewResult,
 	buildShrine: (Player, unknown) -> Types.TransactionResult,
 	expandBase: (Player, unknown) -> Types.TransactionResult,
+	getShrine: (Player, unknown) -> Types.ShrineViewResult,
+	assignShrineWorker: (Player, unknown) -> Types.TransactionResult,
+	removeShrineWorker: (Player, unknown) -> Types.TransactionResult,
+	upgradeShrine: (Player, unknown) -> Types.TransactionResult,
+	dismantleShrine: (Player, unknown) -> Types.TransactionResult,
 }
 export type Requests = {
 	GetBase: (Player) -> Types.BaseViewResult,
 	BuildShrine: (Player, unknown) -> Types.TransactionResult,
 	ExpandBase: (Player, unknown) -> Types.TransactionResult,
+	GetShrine: (Player, unknown) -> Types.ShrineViewResult,
+	AssignShrineWorker: (Player, unknown) -> Types.TransactionResult,
+	RemoveShrineWorker: (Player, unknown) -> Types.TransactionResult,
+	UpgradeShrine: (Player, unknown) -> Types.TransactionResult,
+	DismantleShrine: (Player, unknown) -> Types.TransactionResult,
 }
 
 function BaseRequests.new(dependencies: Dependencies): Requests
@@ -38,21 +48,31 @@ function BaseRequests.new(dependencies: Dependencies): Requests
 		return dependencies.getBase(player)
 	end
 
-	function requests.BuildShrine(player: Player, input: unknown): Types.TransactionResult
+	function requests.GetShrine(player: Player, input: unknown): Types.ShrineViewResult
 		local rejection = admit(player)
 		if rejection then
 			return { ok = false, code = rejection, revision = 0 }
 		end
-		return dependencies.buildShrine(player, input)
+		return dependencies.getShrine(player, input)
 	end
 
-	function requests.ExpandBase(player: Player, input: unknown): Types.TransactionResult
-		local rejection = admit(player)
-		if rejection then
-			return { ok = false, code = rejection, revision = 0 }
+	local function command(
+		action: (Player, unknown) -> Types.TransactionResult
+	): (Player, unknown) -> Types.TransactionResult
+		return function(player: Player, input: unknown): Types.TransactionResult
+			local rejection = admit(player)
+			if rejection then
+				return { ok = false, code = rejection, revision = 0 }
+			end
+			return action(player, input)
 		end
-		return dependencies.expandBase(player, input)
 	end
+	requests.BuildShrine = command(dependencies.buildShrine)
+	requests.ExpandBase = command(dependencies.expandBase)
+	requests.AssignShrineWorker = command(dependencies.assignShrineWorker)
+	requests.RemoveShrineWorker = command(dependencies.removeShrineWorker)
+	requests.UpgradeShrine = command(dependencies.upgradeShrine)
+	requests.DismantleShrine = command(dependencies.dismantleShrine)
 
 	return requests
 end

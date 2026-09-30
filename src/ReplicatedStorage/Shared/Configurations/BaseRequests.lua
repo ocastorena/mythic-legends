@@ -1,6 +1,6 @@
 --!strict
 -- ReplicatedStorage/Shared/Configurations/BaseRequests
--- Shared admission for the canonical Base view and purchases; legacy stand routes stay separate.
+-- Shared admission for canonical Base/Shrine views and actions; legacy stand routes stay separate.
 
 local FreezeUtil = require(script.Parent.Parent.FreezeUtil)
 

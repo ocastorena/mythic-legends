@@ -308,8 +308,9 @@ boundary are below; no GUI or world placement is added.
 ### Base request and proximity review
 
 `Network.Base.GetBase`, `BuildShrine`, and `ExpandBase` forward the existing service requests and
-results. They share a configured twelve-token burst/four-per-second budget, separate from the
-unchanged legacy stand routes. Admission precedes loaded-profile and world access. Fresh actions
+results. Together with the five Shrine routes below, all eight canonical Base routes share a
+configured twelve-token burst/four-per-second budget, separate from the unchanged legacy stand
+routes. Admission precedes loaded-profile and world access. Fresh Base-management actions
 require the caller's current living character within four studs of their own server-owned Base's
 explicit `NameSign/BasePromptAttachment` binding. No client position, OwnerId attribute, model
 pivot, or menu-open flag grants access. The separate GUI work owns movement locking.
@@ -536,13 +537,13 @@ requests return an error without changing the input, and backdated changes are r
 all six elements with synthetic content; there are no new catalogue entries, menus, or model changes.
 
 The ledger uses `workerIdsBySlot` with string slot keys instead of its former dense array. That
-earlier test-ledger shape was never persisted, so no player-data migration is needed. The server-only
+earlier test-ledger shape was never persisted, so no player-data migration is needed. The atomic
 commands below now derive this view from canonical owned state and commit through the existing
 transaction and duplicate-request protection. Prototype stand assignment remains separate.
 
 ### Shrine management read view review
 
-Server-only `BaseService.GetShrine(player, { shrineInstanceId })` returns the loaded transaction
+`BaseService.GetShrine(player, { shrineInstanceId })` returns the loaded transaction
 revision and a detached view of that owned Shrine: numeric unlocked worker slots, matching unassigned
 canonical candidates, confirmed worker XP/Yield, whole stored output, storage capacity, collection
 room, and next-level upgrade costs/capacity. Maximum Shrine level has no further purchase offer.
@@ -556,14 +557,45 @@ and revalidate atomically: pending work can change dismantle eligibility, and a 
 collection space after the preview. Private ledgers, inactive Luck/Traits, and receipts stay private.
 
 Run the verification commands above for all elements/levels, offer/action parity at the same cursor,
-capacity pressure, malformed state, detached/frozen reads, and no unintended settlement. This step
-adds no remote, authored Shrine placement, or menu. Those interactions and durable saves still need
-separate verification. See the [read-view contract](docs/TECHNICAL_DESIGN.md#shrine-management-read-view).
+capacity pressure, malformed state, detached/frozen reads, and no unintended settlement. The endpoint
+below adds no authored Shrine placement or menu; connected-player interactions and durable saves
+still need separate verification. See the [read-view contract](docs/TECHNICAL_DESIGN.md#shrine-management-read-view).
+
+### Shrine request and proximity review
+
+`Network.Base.GetShrine`, `AssignShrineWorker`, `RemoveShrineWorker`, `UpgradeShrine`, and
+`DismantleShrine` share the existing canonical Base twelve-token/four-per-second budget.
+`Network.Production.CollectShrine` has its own configured twelve-token/four-per-second budget;
+legacy Base and Production request budgets are unchanged. All routes require a running service
+and genuine connected Player before rate admission, loaded-profile access, or world checks, and
+forward the original request and domain result without an adapter-level world precheck.
+
+The saved Shrine's `buildSlotId` selects a permanent server-owned Base anchor:
+`ShrineSlots` Folder → anchored `SlotN` BasePart → direct `ShrinePromptAttachment` Attachment.
+Each named child must be unique. All six slots and elemental Shrine types are supported independently
+of replaceable Shrine visuals. The caller's living character must be within the configured four
+studs. Missing or ambiguous anchors fail closed; there is no prototype, model-pivot, client-position, or menu-state
+fallback.
+
+Production explicitly requires BaseService's Shrine access dependency. Fresh mutation access runs
+inside the transaction after receipt/revision admission and shared preparation, before its clock
+or accounting work. Read access follows revision and closed-request validation, before projection.
+Unchanged committed retries skip world checks, preparation, and clocks. Fresh successful dismantling
+refreshes existing Base capacity attributes; replay does not. Automatic production and lifecycle
+settlement remain independent of proximity. See the
+[endpoint contract](docs/TECHNICAL_DESIGN.md#shrine-request-endpoints-and-world-access).
+
+Run the verification commands above for admission, cleanup, exact slot/distance resolution,
+transaction replay and rollback, and retained automatic settlement. The inspected Studio template
+currently lacks `ShrineSlots`; this step authors no anchors, Shrine assets, prompts, or GUI. Positive
+connected-player interaction and durable-save verification remain separate checks. Menu movement
+locking belongs to the separate GUI work.
 
 ### Atomic Shrine-assignment command review
 
 `BaseService.AssignShrineWorker(player, request)` and `RemoveShrineWorker(player, request)` are
-server-only commands for the running service and a connected player's already-loaded profile.
+atomic commands behind the admitted Shrine endpoints, for a connected player's already-loaded
+profile.
 Assignment requests contain `requestId` (`<expectedRevision>:<unique token>`), `expectedRevision`,
 `shrineInstanceId`, numeric `slotId`, and `workerId`. Removal uses `expectedWorkerId` instead of
 `workerId`. Retry the original request unchanged. Success returns `shrineInstanceId`, `slotId`,
@@ -578,7 +610,7 @@ without touching assignments or earned work; its private removal helper retains 
 
 Run the static suite and runtime tests above. Transaction fixtures cover duplicate/stale requests,
 profile isolation, rollback, assignments across all six elements, and retained work. Actual connected/
-disconnected-player dispatch and durable saves still need a playtest. These commands add no remote,
+disconnected-player dispatch and durable saves still need a playtest. The endpoints above add no
 menu, model, automatic production loop, acquisition grant, profile auto-load, or schema migration.
 The [command contract](docs/TECHNICAL_DESIGN.md#atomic-shrine-assignment-commands) owns implementation details.
 
@@ -596,7 +628,7 @@ full-storage pauses, repeated timestamps, stale selections, and detached seriali
 synthetic content. Empty storage returns `NothingToCollect`, including when Inventory is full;
 stored output with no room returns `InventoryFull`. Rejections leave both inputs unchanged.
 
-The result contains the settled accounting ledger and updated Material map; the server-only command
+The result contains the settled accounting ledger and updated Material map; the atomic command
 below now commits both in one profile transaction with revision/receipt protection. The shared
 capacity helper lives under `ServerScriptService/Shared/InventoryCapacity`; existing prototype
 callers retain their behavior. The pure operation adds no remote, save-schema change, or menu, and
@@ -604,8 +636,8 @@ its isolated tests do not establish durable-save behavior.
 
 ### Atomic Shrine-collection command review
 
-`ProductionService.CollectShrine(player, request)` is a server-only command for the running service
-and a connected player's already-loaded profile. Requests contain `requestId`
+`ProductionService.CollectShrine(player, request)` is the atomic command behind the admitted
+Production endpoint for a connected player's already-loaded profile. Requests contain `requestId`
 (`<expectedRevision>:<unique token>`), `expectedRevision`, `shrineInstanceId`, and
 `expectedMaterialId`. Retry the original request unchanged. Success returns `shrineInstanceId`,
 `materialId`, `collected`, `remaining`, and `settledAt` in transaction `values`.
@@ -621,8 +653,8 @@ resamples time or grants Materials twice. Jobs and reservations remain unchanged
 
 Run the static suite and runtime tests above. Transaction fixtures cover receipt safety, stale
 selections, profile isolation, rollback, reservations, partial transfers, and retained work. Actual
-connected/disconnected-player dispatch and durable saves still need a playtest. There is no new
-remote, menu, model, automatic production loop, acquisition grant, profile auto-load, save request,
+connected/disconnected-player dispatch and durable saves still need a playtest. The endpoint adds no
+menu, model, automatic production loop, acquisition grant, profile auto-load, save request,
 or schema migration; prototype stand collection is unchanged. See the
 [command contract](docs/TECHNICAL_DESIGN.md#atomic-shrine-collection-command).
 
@@ -632,7 +664,7 @@ or schema migration; prototype stand collection is unchanged. See the
 operation. It purchases only the next Shrine level using collected matching Materials and Gold:
 level 1→2 costs 1,000 Gold + 400 Materials; level 2→3 costs 15,000 Gold + 4,000 Materials. The
 shared Shrine configuration owns all six elements' 1/2/3 worker slots, 300/1,200/3,600 storage, and
-target-level costs. Pure tests inject synthetic content; the server-only command below uses the
+target-level costs. Pure tests inject synthetic content; the atomic command below uses the
 existing canonical launch definitions without changing the unfinished names or prototype assets.
 
 Accepted upgrades settle the whole profile under the old storage limit before paying and increasing
@@ -643,15 +675,15 @@ transitions, all six elements, stale quotes/levels, insufficient funds, reservat
 full-storage pauses, and serialized mid-batch continuation.
 
 The result contains the accounting ledger, replacement Material map, and remaining Gold. The
-server-only command below now commits them together with its revision/receipt record, preserving
+atomic command below now commits them together with its revision/receipt record, preserving
 all other profile fields. Rejections leave every input unchanged. The pure reducer itself supplies
 no authentication, remote, save migration, timer, auto-assignment, or UI.
 
 ### Atomic Shrine-upgrade command review
 
-`BaseService.UpgradeShrine(player, request)` is a server-only command for the running service and a
-connected player's already-loaded profile. `Types.UpgradeShrineRequest` contains `requestId`
-(`<expectedRevision>:<unique token>`), `expectedRevision`, `shrineInstanceId`, `expectedLevel`,
+`BaseService.UpgradeShrine(player, request)` is the atomic command behind the admitted Shrine
+endpoint for a connected player's already-loaded profile. `Types.UpgradeShrineRequest` contains
+`requestId` (`<expectedRevision>:<unique token>`), `expectedRevision`, `shrineInstanceId`, `expectedLevel`,
 `expectedMaterialId`, `expectedGoldCost`, and `expectedMaterialQuantity`. Retry the original request
 unchanged. Success returns `shrineInstanceId`, `previousLevel`, `level`, `materialId`, `goldSpent`,
 `materialsSpent`, and `settledAt` in transaction `values`.
@@ -667,7 +699,7 @@ Receipt replay never resamples time or charges twice.
 
 Run the static suite and runtime tests above. Transaction fixtures cover next-level purchases,
 stale quotes, receipt safety, rollback, reservation protection, and retained work. Actual connected/
-disconnected-player dispatch and durable saves still need a playtest. There is no new remote, menu,
+disconnected-player dispatch and durable saves still need a playtest. The endpoint adds no menu,
 model, automatic production lifecycle, profile auto-load, save request, or schema migration;
 prototype stand paths remain unchanged. See the
 [command contract](docs/TECHNICAL_DESIGN.md#atomic-shrine-upgrade-command).
@@ -688,15 +720,15 @@ Material refund, stored building, automatic unassignment, or automatic collectio
 
 Tests cover all six elements and levels, purchased-slot retention, stale/replaced instances, mismatched
 views, batch boundaries, rollback, pending-XP continuation, and serialized detached state. The
-server-only command below now commits the removal and surviving accounting with the profile's
+atomic command below now commits the removal and surviving accounting with the profile's
 revision/receipt record. It preserves canonical accounting rather than replacing surviving records
 with the reducer's ownership-only map. Rejections leave every input unchanged. The pure operation
 itself supplies no authentication, save-schema migration, model deletion, or menu.
 
 ### Atomic Shrine-dismantling command review
 
-`BaseService.DismantleShrine(player, request)` is a server-only command for the running service and
-a connected player's already-loaded profile. Requests contain only `requestId`
+`BaseService.DismantleShrine(player, request)` is the atomic command behind the admitted Shrine
+endpoint for a connected player's already-loaded profile. Requests contain only `requestId`
 (`<expectedRevision>:<unique token>`), `expectedRevision`, `shrineInstanceId`, and `expectedLevel`.
 Retry the original request unchanged. Success returns `shrineInstanceId`, `shrineId`, `buildSlotId`,
 `level`, and `settledAt` in transaction `values`.
@@ -712,8 +744,8 @@ Failed removal rolls back gameplay changes, including staged accounting, though 
 record a rejection receipt and revision. Identity/level-bound receipts prevent replayed removal
 from affecting a replacement in the freed slot; replay does not resample time. Transaction fixtures
 cover empty/occupied/storage gates, stale selections, receipts, rollback, and retained state.
-Actual connected/disconnected-player dispatch and durable saves still need a playtest. There is no
-new remote, menu, model deletion, automatic lifecycle, profile auto-load, explicit save request, or
+Actual connected/disconnected-player dispatch and durable saves still need a playtest. The endpoint
+adds no menu, model deletion, automatic lifecycle, profile auto-load, explicit save request, or
 schema migration. See the
 [command contract](docs/TECHNICAL_DESIGN.md#atomic-shrine-dismantling-command).
 
