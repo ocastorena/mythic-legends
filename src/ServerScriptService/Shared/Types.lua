@@ -62,6 +62,7 @@ export type InventoryApi = {
 	AddMaterial: (Player, string, number) -> boolean,
 }
 export type BaseApi = {
+	GetBase: (Player) -> SharedTypes.BaseViewResult,
 	CheckCraftingAccess: (Player, SharedTypes.BaseRecord, string?) -> string?,
 	ExpandBase: (Player, SharedTypes.ExpandBaseRequest) -> SharedTypes.TransactionResult,
 	BuildShrine: (Player, SharedTypes.BuildShrineRequest) -> SharedTypes.TransactionResult,

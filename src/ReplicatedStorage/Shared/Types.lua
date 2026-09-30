@@ -624,6 +624,42 @@ export type BaseStatus = {
 	craftingStation: CraftingStationRecord,
 }
 
+export type BaseShrineView = {
+	id: string,
+	shrineId: string,
+	buildSlotId: number,
+	level: number,
+}
+export type ShrineBuildOffer = {
+	shrineId: string,
+	goldCost: number,
+	canBuild: boolean,
+	buildCode: string?,
+}
+export type BaseExpansionOffer = {
+	expectedUpgradeCount: number,
+	goldCost: number,
+	materialQuantity: number,
+	nextUnlockedSlots: number,
+	materials: { { materialId: string, quantity: number, ownedQuantity: number } },
+	canPurchase: boolean,
+	purchaseCode: string?,
+}
+export type BaseView = {
+	status: BaseStatus,
+	buildSlotUpgradeCount: number,
+	shrines: { BaseShrineView },
+	buildOffers: { ShrineBuildOffer },
+	expansion: BaseExpansionOffer?,
+	expansionCode: string?,
+}
+export type BaseViewResult = {
+	ok: boolean,
+	code: string?,
+	revision: number,
+	view: BaseView?,
+}
+
 -- The player document held by DataService through ProfileStore.
 export type PlayerDoc = {
 	version: number,

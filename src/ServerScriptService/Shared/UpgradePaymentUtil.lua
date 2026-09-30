@@ -84,9 +84,8 @@ function UpgradePaymentUtil.ValidateMaterialMix(value: unknown): boolean
 	return count == 6
 end
 
--- Return a rejection code without editing the draft, or nil after applying the complete payment.
--- The owning command validates identity/tier/quote and commits payment + purchase in one transaction.
-function UpgradePaymentUtil.PayToDraft(
+-- Read-only pre-debit checks shared by purchase previews and the transaction payment.
+function UpgradePaymentUtil.CheckPayment(
 	draft: Types.PlayerDoc,
 	cost: Cost,
 	materialIds: { string }
@@ -123,6 +122,19 @@ function UpgradePaymentUtil.PayToDraft(
 		if not owned or owned.total < cost.materialQuantity then
 			return "InsufficientMaterials"
 		end
+	end
+	return nil
+end
+
+-- The owning command validates identity/tier/quote and commits payment + purchase in one transaction.
+function UpgradePaymentUtil.PayToDraft(
+	draft: Types.PlayerDoc,
+	cost: Cost,
+	materialIds: { string }
+): string?
+	local problem = UpgradePaymentUtil.CheckPayment(draft, cost, materialIds)
+	if problem then
+		return problem
 	end
 	for _, materialId in materialIds do
 		local owned = draft.materials[materialId]

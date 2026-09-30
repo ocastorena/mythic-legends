@@ -1642,6 +1642,46 @@ dismantling, reset, reconnect, and later price changes
 without retroactive payment. Runtime transaction success and serialized tests do not establish
 durable-save acknowledgement.
 
+### Base management read view
+
+Server-only `BaseService.GetBase(player)` returns `{ ok, code?, revision, view? }` for a genuine
+connected Player while the service is running. It reads only that caller's already-loaded profile;
+unavailable callers/profiles return `DataUnavailable` with revision zero. Private `BaseView` validates
+the transaction revision, current schema, Base/Station/slot ownership shape, Gold, owned Material
+quantities, purchased Material capacity, and active refund reservations before returning any view.
+An invalid revision returns `InvalidTransaction` with revision -1; other failures retain the
+loaded transaction revision and omit the whole view. This revision is not the State packet sequence.
+
+The detached, allowlisted view contains:
+
+- `status`: existing derived `BaseStatus`, including used/unlocked/maximum Shrine slots and the
+  permanent Station identity, which never occupies a build slot;
+- `buildSlotUpgradeCount` and `shrines` sorted by build-slot number (then ID), each containing only
+  `id`, `shrineId`, `buildSlotId`, and `level`;
+- `buildOffers` sorted by definition ID, with one row per configured launch Shrine containing
+  `shrineId`, `goldCost`, `canBuild`, and optional `buildCode` (`BaseFull` or `InsufficientGold`);
+- the next `expansion`, containing `expectedUpgradeCount`, `goldCost`, `materialQuantity`,
+  `nextUnlockedSlots`, `canPurchase`, optional `purchaseCode`, and the six sorted `materials` rows
+  with `materialId`, required `quantity`, and actual `ownedQuantity`;
+- at maximum unlocked capacity, no expansion offer/price and `expansionCode = "MaxBaseSlots"`.
+
+`ShrineConstruction.ReadOffer` shares its metadata and pre-ID slot/currency eligibility with Build.
+`BaseExpansionPurchase.ReadOffer` shares schema/configuration/Base validation with Expand and uses
+`UpgradePaymentUtil.CheckPayment`, the same nonmutating pre-debit check called by `PayToDraft`.
+Expansion affordability/capacity failures remain visible as offer reasons; malformed state or
+configuration fails the whole view. Duplicate-element and empty Base layouts do not restrict the
+fixed Material recipe. Only owned Inventory inputs count, not Shrine output or refund reservations.
+The recipe itself must fit pre-purchase capacity alongside unchanged reservations; unrelated retained
+over-capacity holdings do not introduce a new purchase prohibition.
+
+Reads never call a purchase, allocate a Shrine identity, settle production/crafting, modify a
+reservation, sample time, load a profile, or save. Eligibility describes committed state, not a
+simulation of mutation preparation: a due job may still reserve space in the view until its normal
+settlement releases it. Every real action revalidates its quote and state after transactional
+preparation. Private receipts, progress/XP ledgers, prototype stands, other inventory, and arbitrary
+saved extras are omitted; returned rows never alias saved/configuration tables. This adds no Base
+remote, proximity authorization, authored placement, or GUI; those remain separate integration work.
+
 ### Atomic Inventory-capacity upgrade command
 
 `InventoryService.UpgradeCapacity(player, request)` is the canonical command for a connected player's
@@ -3075,7 +3115,7 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | --- | --- | --- |
 | Player document | [PlayerDataTemplate](../src/ServerStorage/Databases/PlayerDataTemplate.lua) uses schema 7 with initial Gold, Inventory upgrades, transactions, crafting reservations, and Base ownership; recurring Equipment/loadout defaults are empty. [ProfileSchema](../src/ServerScriptService/Services/DataService/ProfileSchema.lua) stages one-time protected starter grants only for clearly untouched initialization state, preserves established/ambiguous data and chosen empty slots, and retains the existing v4–v6 layout/accounting upgrades. New Crafting Jobs add versioned receipts without reconstructing legacy payment history. | Add remaining atomic feature mutations and replace prototype form consumers separately. Schema preparation awards no work and does not prove durable persistence. The deliberate fresh namespace is not permission to reset subsequent progress, regrant missing items, or invent job payments. |
 | Base foundation | [BaseState](../src/ServerScriptService/Shared/BaseState.lua) derives two initial Shrine-only slots and four configurable one-slot expansions from purchased state. Load initializes one free, unique Station identity; [BaseRuntime](../src/ServerScriptService/Services/BaseService/BaseRuntime.lua) binds it to the existing authored `PB_CraftingStation_Root` model. `base.status`, allowlisted `base.shrines`, and world attributes expose presentation state, not purchase authority; headless crafting validates that saved Station identity. | Add Station interaction separately. Keep `base.stands` and its existing placement/collection paths functional until the replacement can preserve their earned work. Authored Shrine markers/models remain separate work; the Shrine asset is provisional. |
-| Base expansion | Server-only `BaseService.ExpandBase` delegates to private [BaseExpansionPurchase](../src/ServerScriptService/Services/BaseService/BaseExpansionPurchase.lua). One revision-bound `DataService.Transact` charges configured Gold plus equal whole quantities of all six normal Materials and advances the saved purchase count exactly once. The next empty logical slot is derived from configuration; existing layout, Shrine accounting, purchased upgrades, Station identity, and crafting reservations remain unchanged. | Add player-facing integration and verify connected-player dispatch and durable retention separately. No GUI, remote, model placement, schema migration, Station charge, or production multiplier is added; the command requires no particular Shrine element layout and never spends uncollected output or reservations. |
+| Base expansion and build offers | Server-only `BaseService.GetBase` uses private [BaseView](../src/ServerScriptService/Services/BaseService/BaseView.lua) to return detached capacity, owned Shrine summaries, six build offers, and the next expansion quote or explicit maximum state. The owning construction/expansion modules share read-only eligibility with their revision-bound purchases; [UpgradePaymentUtil](../src/ServerScriptService/Shared/UpgradePaymentUtil.lua) shares fixed-mix pre-debit checks. ExpandBase advances purchased capacity once while preserving existing layout, accounting, Station identity, and reservations. | Add Base proximity/transport and player-facing integration; verify connected-player dispatch and durable retention separately. Reads never simulate settlement or spend inputs. No GUI, world placement, schema migration, Station charge, or production multiplier is added; duplicates remain valid and only collected Materials can pay. |
 | Shrine construction | [ShrineConstruction](../src/ServerScriptService/Services/BaseService/ShrineConstruction.lua), exposed through server-only `BaseService.BuildShrine`, atomically charges 100 configured Gold for any of six elemental level-1 Shrines and allocates the lowest free logical slot. Saved records contain identity, definition, slot, level, and empty `stored`/`progress`/`newWork`/`workerIdsBySlot` fields. Construction leaves the common clock unchanged; projection exposes only identity, definition, slot, and level. | This headless command has no RemoteFunction or menu binding and spawns no model. Complete player-facing integration separately; assignment, collection, upgrade, dismantling, and the production lifecycle share its canonical records. |
 | Profile transactions and durability | [DataService](../src/ServerScriptService/Services/DataService/init.lua) supplies detached, non-yielding `Transact`/`Update` commits and bounded revision-bound receipts. [MutationPreparations](../src/ServerScriptService/Services/DataService/MutationPreparations.lua) resolves registered draft work before an admitted mutation with one shared timestamp and rollback boundary. [ProfileSettlements](../src/ServerScriptService/Services/DataService/ProfileSettlements.lua) runs Ready/Checkpoint/Release hooks before publication or finalization. `SaveNow` checkpoints before requesting ProfileStore's asynchronous save. | Move remaining prototype Base writers when replacing their features; their `MarkDirty` writes run neither preparation nor rollback. Loadout changes now use transactions. Runtime success, an in-memory checkpoint, or `SaveNow == true` still does not prove durable persistence. Playtest real session/shutdown/save ordering. |
 | Material catalogue | [Materials](../src/ReplicatedStorage/Shared/Configurations/Materials.lua) contains six launch-enabled element-based IDs, configured 10/2-Gold buy/sell prices, and the shared 1,000-unit stack limit. [Shrines](../src/ReplicatedStorage/Shared/Configurations/Shrines.lua) maps each output to its matching Material. [MaterialCatalogUtil](../src/ServerScriptService/Shared/MaterialCatalogUtil.lua) validates the catalogue before server services start. Prototype Material metadata remains with `launchEnabled = false`; prototype runtime paths are unchanged. | Final display names/icons remain open. Canonical production, collection, paid upgrades, Material-sale/discard, and crafting commands use these references; integrate Shop separately. Metadata alone adds none of those actions. |

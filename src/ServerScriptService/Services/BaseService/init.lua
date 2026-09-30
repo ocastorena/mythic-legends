@@ -18,6 +18,7 @@ local log = LogUtil.For("BaseService")
 local StandPlacement = require(script.StandPlacement)
 local BaseRuntime = require(script.BaseRuntime)
 local CraftingAccess = require(script.CraftingAccess)
+local BaseView = require(script.BaseView)
 local ShrineConstruction = require(script.ShrineConstruction)
 local BaseExpansionPurchase = require(script.BaseExpansionPurchase)
 local ShrineWorkers = require(script.ShrineWorkers)
@@ -48,6 +49,7 @@ local removeMythlingRemote: RemoteFunction
 local MythlingsMeta: { [string]: Types.MythlingDef }
 local DataService: ServerTypes.DataApi
 local shrineConstruction: ShrineConstruction.ShrineConstruction?
+local baseView: BaseView.BaseView?
 local baseExpansion: BaseExpansionPurchase.BaseExpansionPurchase?
 local shrineWorkers: ShrineWorkers.ShrineWorkers?
 local shrineUpgradePurchase: ShrineUpgradePurchase.ShrineUpgradePurchase?
@@ -98,6 +100,21 @@ function BaseService.GetSpawnPoint(player: Player): BasePart?
 	return if spawnPart and spawnPart:IsA("BasePart") then spawnPart else nil
 end
 
+local function available(player: Player): boolean
+	return lifecycle:IsRunning()
+		and typeof(player) == "Instance"
+		and player:IsA("Player")
+		and player.Parent == Players
+end
+
+function BaseService.GetBase(player: Player): Types.BaseViewResult
+	local reader = baseView
+	if not reader or not available(player) then
+		return { ok = false, code = "DataUnavailable", revision = 0 }
+	end
+	return reader.Get(player)
+end
+
 function BaseService.CheckCraftingAccess(
 	player: Player,
 	baseRecord: Types.BaseRecord,
@@ -127,7 +144,7 @@ function BaseService.BuildShrine(
 	request: Types.BuildShrineRequest
 ): Types.TransactionResult
 	local construction = shrineConstruction
-	if not lifecycle:IsRunning() or not construction or player.Parent ~= Players then
+	if not construction or not available(player) then
 		return { ok = false, code = "DataUnavailable", revision = 0 }
 	end
 	local result = construction.Build(player, request)
@@ -469,6 +486,7 @@ function BaseService.Init(context: ServerTypes.Context)
 	serviceContext = context
 	resolveAssets()
 	shrineConstruction = ShrineConstruction.new(DataService)
+	baseView = BaseView.new(DataService)
 	baseExpansion = BaseExpansionPurchase.new(DataService)
 	shrineWorkers = ShrineWorkers.new(DataService)
 	shrineUpgradePurchase = ShrineUpgradePurchase.new(DataService)
@@ -500,6 +518,7 @@ function BaseService.Stop()
 	end
 	placementLimiter:Clear()
 	shrineConstruction = nil
+	baseView = nil
 	baseExpansion = nil
 	shrineWorkers = nil
 	shrineUpgradePurchase = nil

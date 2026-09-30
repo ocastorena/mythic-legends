@@ -89,6 +89,66 @@ local function reject(code: string, revision: number): Types.TransactionResult
 	return { ok = false, code = code, revision = revision }
 end
 
+local function getDefinition(shrineId: string): Types.ShrineDef?
+	local definition = Shrines[shrineId]
+	if not definition then
+		return nil
+	end
+	local cost = definition.buildGoldCost
+	local initialLevel = definition.initialLevel
+	if
+		not whole(cost)
+		or cost <= 0
+		or not whole(initialLevel)
+		or initialLevel < 1
+		or not whole(definition.maxLevel)
+		or initialLevel > definition.maxLevel
+	then
+		return nil
+	end
+	return definition
+end
+
+local function buildEligibility(data: Types.PlayerDoc, cost: number): (number?, number?, string?)
+	local buildSlotId, slotCode = BaseState.GetLowestFreeShrineSlot(data.base)
+	if not buildSlotId then
+		return nil, nil, slotCode or "InvalidBaseState"
+	end
+	local currency: unknown = data.currency
+	if type(currency) ~= "table" then
+		return nil, nil, "InvalidCurrency"
+	end
+	local gold = (currency :: { [string]: unknown }).gold
+	if not whole(gold) then
+		return nil, nil, "InvalidCurrency"
+	end
+	if (gold :: number) < cost then
+		return nil, nil, "InsufficientGold"
+	end
+	return buildSlotId, gold :: number, nil
+end
+
+function ShrineConstruction.ReadOffer(
+	data: Types.PlayerDoc,
+	shrineId: string
+): (Types.ShrineBuildOffer?, string?)
+	local definition = getDefinition(shrineId)
+	if not definition then
+		return nil, "InvalidShrine"
+	end
+	local _, _, problem = buildEligibility(data, definition.buildGoldCost)
+	if problem and problem ~= "BaseFull" and problem ~= "InsufficientGold" then
+		return nil, problem
+	end
+	return {
+		shrineId = shrineId,
+		goldCost = definition.buildGoldCost,
+		canBuild = problem == nil,
+		buildCode = problem,
+	},
+		nil
+end
+
 function ShrineConstruction.new(
 	DataService: DataSource,
 	makeId: (() -> string)?
@@ -125,41 +185,19 @@ function ShrineConstruction.new(
 			operation = OPERATION,
 			signature = signature,
 		}, function(draft: Types.PlayerDoc): Types.TransactionOutcome
-			local definition = Shrines[request.shrineId]
+			local definition = getDefinition(request.shrineId)
 			if not definition then
 				return { ok = false, code = "InvalidShrine" }
 			end
 			local cost = definition.buildGoldCost
 			local initialLevel = definition.initialLevel
-			if
-				not whole(cost)
-				or cost <= 0
-				or not whole(initialLevel)
-				or initialLevel < 1
-				or not whole(definition.maxLevel)
-				or initialLevel > definition.maxLevel
-			then
-				return { ok = false, code = "InvalidShrine" }
-			end
 			if request.expectedGoldCost ~= cost then
 				return { ok = false, code = "PriceChanged" }
 			end
 
-			local buildSlotId, slotCode = BaseState.GetLowestFreeShrineSlot(draft.base)
-			if not buildSlotId then
-				return { ok = false, code = slotCode or "InvalidBaseState" }
-			end
-
-			local currency: unknown = draft.currency
-			if type(currency) ~= "table" then
-				return { ok = false, code = "InvalidCurrency" }
-			end
-			local gold = (currency :: { [string]: unknown }).gold
-			if not whole(gold) then
-				return { ok = false, code = "InvalidCurrency" }
-			end
-			if (gold :: number) < cost then
-				return { ok = false, code = "InsufficientGold" }
+			local buildSlotId, gold, eligibilityError = buildEligibility(draft, cost)
+			if not buildSlotId or gold == nil then
+				return { ok = false, code = eligibilityError or "InvalidBaseState" }
 			end
 
 			local shrines = draft.base.shrines
@@ -189,7 +227,7 @@ function ShrineConstruction.new(
 			if not BaseState.GetStatus(draft.base) then
 				return { ok = false, code = "InvalidBaseState" }
 			end
-			(currency :: { [string]: number }).gold = (gold :: number) - cost
+			draft.currency.gold = gold - cost
 			return {
 				ok = true,
 				values = {

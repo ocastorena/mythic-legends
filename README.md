@@ -286,6 +286,25 @@ stand assignment/collection intact. There is intentionally no new Station prompt
 tests cover schema additions, identity reuse after serialization, derived capacity, safe runtime
 allocation failure, and Base reconstruction; they do not establish live save durability.
 
+### Base management read view review
+
+Server-only `BaseService.GetBase(player)` returns the caller's loaded transaction revision and a
+detached Base view: used/unlocked/maximum capacity, permanent Station identity, sorted owned Shrine
+summaries, all six build quotes, and the next expansion's Gold/Material costs and owned inputs.
+At six unlocked slots it returns `MaxBaseSlots` without another price. Empty and duplicate-element
+Base layouts remain valid; capacity and affordability reasons are specific to each offer.
+
+Read-only eligibility shares the purchase commands' pre-ID/pre-debit checks, including recipe fit
+alongside crafting refund reservations. It never simulates a purchase or settlement, allocates an
+ID, modifies state, or asks for a save. A due job can still block the committed-state preview until
+normal settlement releases its reservation; mutations always revalidate after preparation.
+
+Run the verification commands above for all six build choices, every sequential expansion and cap,
+same-snapshot quote/action parity, reservation pressure, retained over-capacity holdings, strict
+state validation, projection isolation, and service admission. See the
+[read-view contract](docs/TECHNICAL_DESIGN.md#base-management-read-view). This step adds no GUI,
+remotes, world placement, or connected-player/durable-save verification.
+
 ### Atomic Base-expansion review
 
 `BaseService.ExpandBase(player, request)` purchases the next permanent Shrine-only build slot through

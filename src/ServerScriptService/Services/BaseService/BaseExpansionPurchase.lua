@@ -131,6 +131,80 @@ local function hasValidConfiguration(): boolean
 	return whole(Bases.initialShrineSlots + #Bases.buildSlotGrants)
 end
 
+local function readStatus(data: Types.PlayerDoc): (Types.BaseStatus?, string?)
+	if data.version ~= PlayerData.schemaVersion then
+		return nil, "UnsupportedVersion"
+	end
+	if not hasValidConfiguration() then
+		return nil, "InvalidExpansionConfiguration"
+	end
+	if not isPlain(data.base) then
+		return nil, "InvalidBaseState"
+	end
+	local status = BaseState.GetStatus(data.base)
+	if not status then
+		return nil, "InvalidBaseState"
+	end
+	return status, nil
+end
+
+function BaseExpansionPurchase.ReadOffer(
+	data: Types.PlayerDoc
+): (Types.BaseExpansionOffer?, string?)
+	local status, statusError = readStatus(data)
+	if not status then
+		return nil, statusError or "InvalidBaseState"
+	end
+	if status.unlockedShrineSlots >= status.maxShrineSlots then
+		return nil, "MaxBaseSlots"
+	end
+	local previousCount = data.base.buildSlotUpgrades
+	if previousCount == nil then
+		return nil, "InvalidBaseState"
+	end
+	local cost = Bases.buildSlotUpgradeCosts[previousCount + 1]
+	if not cost then
+		return nil, "InvalidExpansionConfiguration"
+	end
+	local paymentError = UpgradePaymentUtil.CheckPayment(data, cost, Bases.expansionMaterialIds)
+	if
+		paymentError
+		and paymentError ~= "MaterialCapacityTooSmall"
+		and paymentError ~= "InsufficientGold"
+		and paymentError ~= "InsufficientMaterials"
+	then
+		return nil, paymentError
+	end
+	local materials: { { materialId: string, quantity: number, ownedQuantity: number } } = {}
+	for _, materialId in Bases.expansionMaterialIds do
+		local owned = data.materials[materialId]
+		table.insert(materials, {
+			materialId = materialId,
+			quantity = cost.materialQuantity,
+			ownedQuantity = if owned then owned.total else 0,
+		})
+	end
+	table.sort(
+		materials,
+		function(
+			left: { materialId: string, quantity: number, ownedQuantity: number },
+			right: { materialId: string, quantity: number, ownedQuantity: number }
+		)
+			return left.materialId < right.materialId
+		end
+	)
+	return {
+		expectedUpgradeCount = previousCount,
+		goldCost = cost.gold,
+		materialQuantity = cost.materialQuantity,
+		nextUnlockedSlots = status.unlockedShrineSlots + 1,
+		materials = materials,
+		canPurchase = paymentError == nil,
+		purchaseCode = paymentError,
+	},
+		nil
+end
+
 function BaseExpansionPurchase.new(DataService: DataSource): BaseExpansionPurchase
 	assert(
 		type(DataService) == "table"
@@ -161,20 +235,11 @@ function BaseExpansionPurchase.new(DataService: DataSource): BaseExpansionPurcha
 			operation = "Base.Expand",
 			signature = `count={count};gold={gold};quantity={quantity}`,
 		}, function(draft: Types.PlayerDoc): Types.TransactionOutcome
-			if draft.version ~= PlayerData.schemaVersion then
-				return { ok = false, code = "UnsupportedVersion" }
-			end
-			if not hasValidConfiguration() then
-				return { ok = false, code = "InvalidExpansionConfiguration" }
+			local status, statusError = readStatus(draft)
+			if not status then
+				return { ok = false, code = statusError or "InvalidBaseState" }
 			end
 			local base = draft.base
-			if not isPlain(base) then
-				return { ok = false, code = "InvalidBaseState" }
-			end
-			local status = BaseState.GetStatus(base)
-			if not status then
-				return { ok = false, code = "InvalidBaseState" }
-			end
 			local previousCount = base.buildSlotUpgrades
 			if previousCount ~= request.expectedUpgradeCount then
 				return { ok = false, code = "UpgradeCountChanged" }
