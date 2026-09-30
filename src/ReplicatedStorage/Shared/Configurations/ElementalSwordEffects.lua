@@ -1,6 +1,6 @@
 --!strict
 -- ReplicatedStorage/Shared/Configurations/ElementalSwordEffects
--- Approved automatic sword effects. These definitions alone do not activate combat effects.
+-- Approved automatic sword effects, consumed only after accepted unblocked server hits.
 
 local FreezeUtil = require(script.Parent.Parent.FreezeUtil)
 local Types = require(script.Parent.Parent.Types)

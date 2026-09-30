@@ -24,6 +24,10 @@ local EquipmentPresentation = require(script.EquipmentPresentation)
 local ArenaBounds = require(script.ArenaBounds)
 local CombatMath = require(script.CombatMath)
 local CombatState = require(script.CombatState)
+local ElementalHits = require(script.ElementalHits)
+local EarthLanding = require(script.EarthLanding)
+local MovementRestrictions = require(script.MovementRestrictions)
+local CombatRuntimeConfiguration = require(ReplicatedStorage.Shared.Configurations.CombatRuntime)
 local LoadoutRequests = require(script.LoadoutRequests)
 local LoadoutCommands = require(script.LoadoutCommands)
 local LoadoutUtil = require(script.LoadoutUtil)
@@ -46,22 +50,12 @@ local arena: BasePart
 
 local CombatService = {}
 
-local STATE_STEP_SECONDS = 0.1
 local MAX_SEQUENCE = 2_147_483_647
 local MAX_REACH = 20
 local MAX_COOLDOWN = 5
 local DEFAULT_ARENA_HEIGHT_ALLOWANCE = 20
 local SHIELD_BUBBLE_NAME = "ShieldBubble"
 local SHIELD_BUBBLE_SIZE = 9
-
-type MovementState = {
-	character: Model,
-	humanoid: Humanoid,
-	walkSpeed: number,
-	jumpPower: number,
-	jumpHeight: number,
-	autoRotate: boolean,
-}
 
 type AuthorizedSwing = {
 	sequence: number,
@@ -78,7 +72,8 @@ type CombatRuntime = {
 	lastSwingSequence: number,
 	lastHitSequence: number,
 	authorizedSwing: AuthorizedSwing?,
-	movement: MovementState?,
+	character: Model?,
+	movement: MovementRestrictions.MovementRestrictions?,
 }
 
 type PlayerLifecycle = {
@@ -110,6 +105,7 @@ local function getAliveR15Character(player: Player): (Model?, Humanoid?, BasePar
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if
 		not character
+		or character.Parent == nil
 		or not humanoid
 		or humanoid.Health <= 0
 		or humanoid.RigType ~= Enum.HumanoidRigType.R15
@@ -150,6 +146,7 @@ local function getRuntime(player: Player): CombatRuntime
 		lastSwingSequence = 0,
 		lastHitSequence = 0,
 		authorizedSwing = nil,
+		character = player.Character,
 		movement = nil,
 	}
 	runtimes[player] = created
@@ -162,12 +159,7 @@ local function restoreMovement(runtime: CombatRuntime)
 		return
 	end
 	runtime.movement = nil
-	if movement.humanoid.Parent == movement.character and movement.humanoid.Health > 0 then
-		movement.humanoid.WalkSpeed = movement.walkSpeed
-		movement.humanoid.JumpPower = movement.jumpPower
-		movement.humanoid.JumpHeight = movement.jumpHeight
-		movement.humanoid.AutoRotate = movement.autoRotate
-	end
+	movement.Clear()
 end
 
 local function clearShieldBubble(character: Model?)
@@ -263,26 +255,36 @@ end
 local function publishRuntime(player: Player, runtime: CombatRuntime, now: number)
 	local state = runtime.accounting
 	local character, humanoid, root = getAliveR15Character(player)
-	if state.phase ~= "Lowered" and character and humanoid then
-		if not runtime.movement then
-			runtime.movement = {
-				character = character,
-				humanoid = humanoid,
-				walkSpeed = humanoid.WalkSpeed,
-				jumpPower = humanoid.JumpPower,
-				jumpHeight = humanoid.JumpHeight,
-				autoRotate = humanoid.AutoRotate,
-			}
-		end
-		humanoid.WalkSpeed = 0
-		humanoid.JumpPower = 0
-		humanoid.JumpHeight = 0
-		humanoid.AutoRotate = false
+	if character and humanoid and runtime.character == character then
+		local movement = runtime.movement or MovementRestrictions.new(character, humanoid)
+		runtime.movement = movement
+		movement.Apply(CombatState.GetMovement(state, now))
 	else
 		restoreMovement(runtime)
 	end
 	local currentCharacter = player.Character
-	if currentCharacter then
+	if currentCharacter and currentCharacter == runtime.character then
+		local effect = CombatState.GetEffect(state, now)
+		local serverNow = workspace:GetServerTimeNow()
+		currentCharacter:SetAttribute("CombatEffectId", if effect then effect.effectId else "")
+		currentCharacter:SetAttribute("CombatEffectKind", if effect then effect.kind else "")
+		currentCharacter:SetAttribute("CombatEffectPhase", if effect then effect.phase else "")
+		currentCharacter:SetAttribute("CombatEffectToken", if effect then effect.token else 0)
+		currentCharacter:SetAttribute(
+			"CombatEffectStartedAt",
+			if effect then serverNow + effect.startedAt - now else 0
+		)
+		currentCharacter:SetAttribute(
+			"CombatEffectExpiresAt",
+			if effect then serverNow + effect.expiresAt - now else 0
+		)
+		currentCharacter:SetAttribute(
+			"EarthProtectedUntil",
+			if state.earthProtectedUntil > now
+				then serverNow + state.earthProtectedUntil - now
+				else 0
+		)
+		currentCharacter:SetAttribute("HasStaminaBurn", effect ~= nil and effect.kind == "Burn")
 		currentCharacter:SetAttribute("GuardSequence", state.guardSequence)
 		currentCharacter:SetAttribute("GuardPhase", state.phase)
 		currentCharacter:SetAttribute("SwingLocked", now < state.swingEndsAt)
@@ -320,6 +322,30 @@ local function refreshRuntime(player: Player, now: number): CombatRuntime
 	end
 	publishRuntime(player, runtime, now)
 	return runtime
+end
+
+local function observeEarth(player: Player, runtime: CombatRuntime, now: number)
+	local effect = runtime.accounting.negativeEffect
+	if not effect or effect.kind ~= "Root" or effect.phase ~= "Pending" then
+		return
+	end
+	local character, humanoid, root = getAliveR15Character(player)
+	if not character or character ~= runtime.character or not humanoid or not root then
+		return
+	end
+	local observation =
+		EarthLanding.Sample(character, humanoid, root, CombatRuntimeConfiguration.earthLanding)
+	if
+		CombatState.ObserveEarth(
+			runtime.accounting,
+			now,
+			effect.token,
+			observation.airborne,
+			observation.supported
+		)
+	then
+		publishRuntime(player, runtime, now)
+	end
 end
 
 local function forceLowerGuard(player: Player)
@@ -641,7 +667,16 @@ local function handleHitReport(player: Player, input: unknown)
 		controlSeconds = 0
 		slideDurationSeconds = getNumber(shieldProfile.slideDurationSeconds, 0.32, 0.08, 0.75)
 	else
-		launchVelocity = direction * getNumber(profile.planarKnockback, 56, 0, 100)
+		local horizontalMultiplier = ElementalHits.ApplyAcceptedHit(
+			runtime.accounting,
+			targetRuntime.accounting,
+			now,
+			selection.item.effectId,
+			false
+		)
+		launchVelocity = direction
+				* getNumber(profile.planarKnockback, 56, 0, 100)
+				* horizontalMultiplier
 			+ Vector3.yAxis * getNumber(profile.verticalKnockback, 58, 0, 100)
 		local tumbleAxis = Vector3.new(0, 1, 0):Cross(direction)
 		if tumbleAxis.Magnitude > 0.001 then
@@ -657,6 +692,7 @@ local function handleHitReport(player: Player, input: unknown)
 	-- The final paid block still slides and grants immunity even though its cost has
 	-- already removed protection. Publishing immediately prevents any extra free block.
 	publishRuntime(target, targetRuntime, now)
+	publishRuntime(player, runtime, now)
 	sendImpact(
 		player,
 		target,
@@ -682,6 +718,37 @@ local function cleanCharacterLifecycle(player: Player)
 	end
 end
 
+local function clearEffectAttributes(character: Model)
+	for _, name in { "CombatEffectId", "CombatEffectKind", "CombatEffectPhase" } do
+		character:SetAttribute(name, "")
+	end
+	for _, name in
+		{
+			"CombatEffectToken",
+			"CombatEffectStartedAt",
+			"CombatEffectExpiresAt",
+			"EarthProtectedUntil",
+		}
+	do
+		character:SetAttribute(name, 0)
+	end
+	character:SetAttribute("HasStaminaBurn", false)
+end
+
+local function clearAffectedCharacter(player: Player, character: Model)
+	local runtime = runtimes[player]
+	if runtime and runtime.character == character then
+		local now = os.clock()
+		CombatState.ClearEffects(runtime.accounting, now)
+		CombatState.ReleaseGuard(runtime.accounting, now, nil, true)
+		runtime.authorizedSwing = nil
+		restoreMovement(runtime)
+	end
+	clearEffectAttributes(character)
+	character:SetAttribute("ShieldGuarding", false)
+	clearShieldBubble(character)
+end
+
 local function onCharacterAdded(player: Player, character: Model)
 	local playerLifetime = playerLifecycles[player]
 	if not lifecycle:IsRunning() or not playerLifetime or player.Character ~= character then
@@ -698,6 +765,9 @@ local function onCharacterAdded(player: Player, character: Model)
 	end
 	local priorRuntime = runtimes[player]
 	if priorRuntime then
+		if priorRuntime.character then
+			clearAffectedCharacter(player, priorRuntime.character)
+		end
 		restoreMovement(priorRuntime)
 	end
 	runtimes[player] = nil
@@ -709,7 +779,9 @@ local function onCharacterAdded(player: Player, character: Model)
 	character:SetAttribute("GuardRequestSequence", 0)
 	character:SetAttribute("GuardRejectedSequence", 0)
 	character:SetAttribute("SwingLocked", false)
+	clearEffectAttributes(character)
 	playerLifetime.characterTrove:Add(function()
+		clearAffectedCharacter(player, character)
 		clearShieldBubble(character)
 		presentation.Clear(character)
 		character:SetAttribute("CombatReady", false)
@@ -732,14 +804,12 @@ local function onCharacterAdded(player: Player, character: Model)
 		if not isCurrent() then
 			return
 		end
-		forceLowerGuard(player)
-		getRuntime(player).authorizedSwing = nil
+		clearAffectedCharacter(player, character)
 		presentation.Clear(character)
 	end)
 	playerLifetime.characterTrove:Connect(character.AncestryChanged, function(_, parent)
 		if not parent and isCurrent() then
-			forceLowerGuard(player)
-			getRuntime(player).authorizedSwing = nil
+			clearAffectedCharacter(player, character)
 		end
 	end)
 end
@@ -806,6 +876,9 @@ local function onPlayerAdded(player: Player)
 	trove:Connect(player.CharacterAdded, function(character)
 		onCharacterAdded(player, character)
 	end)
+	trove:Connect(player.CharacterRemoving, function(character)
+		clearAffectedCharacter(player, character)
+	end)
 	if player.Character then
 		local character = player.Character
 		trove:Add(task.defer(function()
@@ -849,6 +922,18 @@ local function onPlayerRemoving(player: Player)
 end
 
 function CombatService.Init(serviceContext: ServerTypes.Context)
+	local observation = CombatRuntimeConfiguration.earthLanding
+	assert(
+		CombatRuntimeConfiguration.stateStepSeconds > 0
+			and CombatRuntimeConfiguration.stateStepSeconds < math.huge
+			and observation.supportAllowanceStuds >= 0
+			and observation.supportAllowanceStuds < math.huge
+			and observation.minimumGroundNormalY > 0
+			and observation.minimumGroundNormalY <= 1
+			and observation.takeoffVelocityStudsPerSecond >= 0
+			and observation.takeoffVelocityStudsPerSecond < math.huge,
+		"[CombatService] Invalid runtime observation tuning"
+	)
 	Equipment = serviceContext.Configurations.Equipment
 	DataService = serviceContext.Services.DataService
 	loadoutCommands = LoadoutCommands.new(DataService)
@@ -906,12 +991,17 @@ function CombatService.Start()
 
 	local stateAccumulator = 0
 	trove:Connect(RunService.Heartbeat, function(deltaTime: number)
+		local now = os.clock()
+		-- Landing observation runs every server frame, independently of throttled publication.
+		-- Its token and character identity remain fixed across subsequent hits/equipment/Arena changes.
+		for player, runtime in runtimes do
+			observeEarth(player, runtime, now)
+		end
 		stateAccumulator += deltaTime
-		if stateAccumulator < STATE_STEP_SECONDS then
+		if stateAccumulator < CombatRuntimeConfiguration.stateStepSeconds then
 			return
 		end
-		stateAccumulator %= STATE_STEP_SECONDS
-		local now = os.clock()
+		stateAccumulator %= CombatRuntimeConfiguration.stateStepSeconds
 		for _, player in Players:GetPlayers() do
 			updateArenaCombatState(player)
 			refreshRuntime(player, now)

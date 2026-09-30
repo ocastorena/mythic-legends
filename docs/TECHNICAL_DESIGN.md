@@ -361,8 +361,8 @@ attributes and the hand Motor6D endpoints must match the saved selection before 
 unknown or incompatible retained selections fail closed without rewriting them. The server reads
 canonical definitions, but the unchanged client still uses wooden-only compatibility profiles.
 Crafted model bindings are empty and cannot mount or authorize combat; there is no wooden fallback,
-GUI change, new remote, or active elemental-effect implementation. These transaction/runtime checks
-do not establish durable saves or complete crafted combat readiness.
+GUI change, or new remote. The accepted-hit path implements the elemental accounting described below,
+but these transaction/runtime checks do not establish durable saves or complete crafted combat readiness.
 
 #### Two-handed loadouts — future update contract
 
@@ -491,6 +491,55 @@ effect's parameters and server deadlines into runtime state; Equipment changes c
 - Publish confirmed active/pending status and relevant deadlines for presentation. Outside the
   Arena, retain readable effect feedback and Stamina while Fire remains; attack/guard stay disabled.
   Clients may render visuals and countdowns, but cannot authorize effects or determine expiry.
+
+#### Elemental-effect runtime implementation
+
+`CombatState` owns the one chronological Stamina/effect timeline. Its `negativeEffect` is an immutable
+scalar snapshot with effect ID, kind, pending/active phase, unique monotonic token, accepted-hit start,
+current deadline, and the relevant configured parameters. Expiry is resolved at the original deadline
+even during a delayed update. `earthProtectedUntil` is separate from the one-effect slot. Effect-only
+cleanup retains paid action deadlines and Stamina; a new actual character initializes its own state.
+
+`Advance` integrates the net lowered-recovery-minus-Fire rate over each interval and splits at guard
+transitions, effect expiry, and analytical guard-minimum crossings. A burn ending exactly at the guard
+minimum does not force lowering; any subsequent positive burning interval does. The engine never
+credits guarded time afterward or caps regeneration separately before subtracting the burn.
+`ApplyNegative` rejects replacement/extension while any timed effect is pending or active and observes
+Earth-only protection. `Refund` settles first and caps the accepted Dark credit at maximum.
+
+Private `ElementalHits.ApplyAcceptedHit` is called only after eligibility, immunity, exact loadout,
+contact-window, and distance checks consume the accepted sequence and paid-block resolution determines
+that the hit is unblocked. It uses the authorized named sword's effect metadata, never a client effect
+ID. Its returned multiplier changes only the existing horizontal launch; upward launch, tumble,
+Shield slide, block cost, and immunity use their unchanged owners. The original sequence cannot grant
+another effect or refund. Plain sword hits still receive an existing outgoing Light modifier.
+
+`EarthLanding.Sample` observes the affected current character each Heartbeat while Earth is pending.
+It uses self-excluded, collidable-only server raycasts in the root's collision group. The upright
+probe covers HipHeight plus the root's vertical half-extent and configured allowance; tipping removes
+unearned upright reach, with a short LowerTorso support fallback. A qualifying upward velocity or lack
+of support supplies an airborne observation; ascending contact is not a landing. `ObserveEarth`
+requires a strictly post-hit airborne sample and a later supported sample with the same effect token.
+The fixed timeout wins at its exact deadline. Neither later hits nor Arena/equipment transitions
+replace this token, delay the timeout, or refresh a root/recovery window. Configurable observation
+parameters and publication cadence live in `Configurations/CombatRuntime`.
+
+`MovementRestrictions` owns only the Humanoid properties it overrides. `CombatState.GetMovement`
+composes guard, Water, and active Earth before applying a rule. Walking, jumping, and rotation baselines
+are captured independently and restored only when their restriction ends; releasing guard while
+Water remains never restores full speed over the slow. No PlatformStand, anchoring, velocity, or
+collision override is added by effects. All affected-character death/removal/disconnect paths clear
+effects and owned overrides; ClaimService independently clears that character's capture progress.
+Original-attacker departure does not traverse another character's state.
+
+Confirmed character attributes are `CombatEffectId`, `CombatEffectKind`, `CombatEffectPhase`,
+`CombatEffectToken`, `CombatEffectStartedAt`, `CombatEffectExpiresAt`, `EarthProtectedUntil`, and
+`HasStaminaBurn`. Empty effects use empty strings/zero/false. Published deadlines are converted to
+server time for consumers without feeding those values back into monotonic `os.clock` accounting.
+Publication continues outside the Arena. GUI/visual consumers and client variant lookup are separate
+work; no new remote, model substitution, or crafted-asset readiness claim is made here. Deterministic
+tests cover accounting, accepted-effect reduction, movement ownership, and support observations;
+connected-player/tumbling behavior still needs multiplayer verification with approved assets.
 
 ### Target client and presentation
 
@@ -2370,9 +2419,9 @@ require a valid finish; plain definitions reject unexpected finishes. The owning
 definition plus finish (for example `elemental_sword_fire`). Each references the included Station,
 Gold/Material costs, exact result IDs, quantity, and duration. `ElementalSwordEffects` owns the six
 approved effect roles, descriptions, and tuning. The headless crafting lifecycle consumes recipes
-and snapshots agreed promises; Shop grants retain the same definition/finish identity. Active effect
-accounting, client combat integration, and approved asset bindings remain separate. The catalogue
-never rewrites owned records or infers missing
+and snapshots agreed promises; Shop grants retain the same definition/finish identity. CombatService
+consumes effect metadata only after accepting an unblocked hit. Client combat integration and approved
+asset bindings remain separate. The catalogue never rewrites owned records or infers missing
 historical receipts from today's recipes.
 
 `ServerScriptService.Shared.EquipmentCatalogUtil.ValidateLaunch` checks launch coverage, compatible
@@ -2843,10 +2892,11 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Shrine dismantling | Server-only `BaseService.DismantleShrine` delegates to private [ShrineRemoval](../src/ServerScriptService/Services/BaseService/ShrineRemoval.lua). It composes [ShrineDismantling](../src/ServerScriptService/Services/BaseService/ShrineDismantling.lua) and the shared removal bridge inside one revision-bound `DataService.Transact`, rejecting assigned workers or settled whole output before removing only the selected canonical record. Unfinished Shrine work is discarded without erasing owned workers or their pending XP; identity/level-bound receipts protect a replacement in the freed slot. | No new remote, schema, automatic lifecycle, or presentation/model deletion. Add player-facing integration separately and playtest actual connected-player dispatch and durable saves. Purchased slots, surviving accounting, Station identity, currency, Materials, and crafting reservations remain intact; no refund is granted. |
 | Mythling evolution | Server-only `InventoryService.EvolveMythling` delegates to private [MythlingEvolutionCommand](../src/ServerScriptService/Services/InventoryService/MythlingEvolutionCommand.lua). It composes [MythlingEvolution](../src/ServerScriptService/Services/InventoryService/MythlingEvolution.lua) with the shared form-change bridge and canonical launch links inside one revision-bound `DataService.Transact`. Old-form settlement, eligibility, selected `typeId`, and identity/form/target-bound receipts commit together. Assigned and consecutive eligible evolutions retain work, progression, inactive legacy fields, and batch timing. | No new remote, menu, acquisition grant, schema migration, or automatic lifecycle. Add player-facing integration separately and playtest connected-player dispatch and durable saves. Prototype capture/stand paths remain unchanged; pending XP stays private. |
 | Mythling sales | Server-only `InventoryService.SellMythling` delegates to private [MythlingSaleCommand](../src/ServerScriptService/Services/InventoryService/MythlingSaleCommand.lua). It composes [MythlingSales](../src/ServerScriptService/Services/InventoryService/MythlingSales.lua) and the shared worker-removal bridge with canonical sale definitions inside one revision-bound `DataService.Transact`. Unassignment and stale form/price checks protect the selected deletion and Gold grant; final-copy sales remain allowed. All earned Shrine work and surviving workers' XP are retained, while the sold instance's pending XP retires. | No new remote, menu, acquisition grant, schema migration, or automatic lifecycle. Add player-facing integration separately and playtest connected-player dispatch and durable saves. Legacy deletion remains blocked for canonical forms or retained entries with Shrine assignments/pending credit; it is not a sale API. Materials and crafting reservations remain unchanged. |
-| Equipment catalogue | [Equipment](../src/ReplicatedStorage/Shared/Configurations/Equipment.lua) defines the wooden pair and twelve named elemental items through shared bases and explicit finishes. [EquipmentCatalog](../src/ReplicatedStorage/Shared/EquipmentCatalog.lua) resolves fixed item metadata by IDs; recipes/effects have separate static owners and startup validation. Headless crafting, Shop grants, and server loadout/combat resolution use canonical definitions; unchanged clients retain the wooden-only compatibility map. | Implement client variant-aware combat and elemental-effect accounting. Bind approved assets separately; empty crafted model names cannot authorize combat and never select a wooden fallback. No GUI or saved-stat copy is added. |
-| Atomic loadout | [LoadoutCommands](../src/ServerScriptService/Services/CombatService/LoadoutCommands.lua) implements server-only revision-bound EquipEquipment/UnequipEquipment. The legacy Equip endpoint adapts to the same transaction path; Get is read-only. [LoadoutUtil](../src/ServerScriptService/Services/CombatService/LoadoutUtil.lua) binds saved, mounted, guard, and swing identities to instance/definition/finish. Fresh changed commits reconcile the current live character while retaining combat accounting; replay/no-op results skip runtime effects. | Add player-facing canonical command integration separately and verify live transition/reset behavior and durable selections. No new remote, GUI, active elemental effects, or playable crafted assets are supplied; unbound models fail closed. |
+| Equipment catalogue | [Equipment](../src/ReplicatedStorage/Shared/Configurations/Equipment.lua) defines the wooden pair and twelve named elemental items through shared bases and explicit finishes. [EquipmentCatalog](../src/ReplicatedStorage/Shared/EquipmentCatalog.lua) resolves fixed item metadata by IDs; recipes/effects have separate static owners and startup validation. Headless crafting, Shop grants, server loadout resolution, and accepted-hit elemental effects use canonical definitions; unchanged clients retain the wooden-only compatibility map. | Implement client variant-aware combat and bind approved assets separately; empty crafted model names cannot authorize combat and never select a wooden fallback. Live multiplayer behavior remains unverified. No GUI or saved-stat copy is added. |
+| Atomic loadout | [LoadoutCommands](../src/ServerScriptService/Services/CombatService/LoadoutCommands.lua) implements server-only revision-bound EquipEquipment/UnequipEquipment. The legacy Equip endpoint adapts to the same transaction path; Get is read-only. [LoadoutUtil](../src/ServerScriptService/Services/CombatService/LoadoutUtil.lua) binds saved, mounted, guard, and swing identities to instance/definition/finish. Fresh changed commits reconcile the current live character while retaining Stamina, action deadlines, and active/pending elemental effects; replay/no-op results skip runtime reconciliation. | Add player-facing canonical command integration separately and verify live transition/reset behavior and durable selections. No new remote, GUI, or playable crafted assets are supplied; unbound models fail closed. |
 | Crafting Jobs | Server-only [CraftingService](../src/ServerScriptService/Services/CraftingService/init.lua) supplies revision-bound StartJob/CancelJob through [CraftingCommands](../src/ServerScriptService/Services/CraftingService/CraftingCommands.lua). [CraftingJobs](../src/ServerScriptService/Services/CraftingService/CraftingJobs.lua) snapshots payments/output/deadlines, reserves capacity, and grants output or exact refund once. The same pure resolver runs before transactional mutations, at Ready/Checkpoint/Release, and on due-job timer requests. | Add Station/player-facing integration separately. Legacy reservation-only jobs remain opaque and block starts when active; no refund history is invented. No GUI, remote, model, auto-equip, or crafted-combat runtime is added. Verify connected-player dispatch and durable retention independently of session-atomic tests. |
-| Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. Marker sequences and transition timeouts bound cleanup; loadout changes retain these accounting deadlines and never refill Stamina. | Tune authored animations and transition timing in multiplayer/touch playtests. Bind crafted assets, integrate client combat profiles, and implement elemental-effect accounting; server metadata resolution alone does not complete the combat target. |
+| Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. [CombatState](../src/ServerScriptService/Services/CombatService/CombatState.lua) accounts for Fire drain alongside recovery and guard transitions. Marker sequences and transition timeouts bound cleanup; loadout changes retain these accounting deadlines and never refill Stamina. | Tune authored animations and transition timing in multiplayer/touch playtests. Approved crafted asset bindings, client variant lookup, and live effect/guard interaction validation remain outstanding. |
+| Elemental combat | [ElementalHits](../src/ServerScriptService/Services/CombatService/ElementalHits.lua) integrates the six configured effects after accepted-hit and block decisions. CombatState owns snapshotted deadlines, first-effect-wins occupancy, Earth landing/recovery state, and immediate Air/Light/Dark arithmetic. [EarthLanding](../src/ServerScriptService/Services/CombatService/EarthLanding.lua) supplies bounded server support observations; [MovementRestrictions](../src/ServerScriptService/Services/CombatService/MovementRestrictions.lua) composes current voluntary movement rules without changing forced motion or collisions. | Verify server-observed takeoff/landing, effect persistence, movement composition, and force/Stamina behavior in live multiplayer. Client effect presentation, variant-aware combat, and approved crafted bindings remain separate; this implementation adds no GUI or asset activation. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |

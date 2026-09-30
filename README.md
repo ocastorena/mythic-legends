@@ -209,7 +209,8 @@ also pin the approved initial values and unchanged wooden gameplay. Server loado
 uses the canonical definitions; the unchanged client still uses the wooden-only `profiles` map.
 
 Crafted model bindings and thumbnails are explicitly empty while assets remain undecided. There is
-no wooden-model fallback, GUI change, saved-stat copy, or active elemental effect yet.
+no wooden-model fallback, GUI change, or saved-stat copy. Server elemental-effect logic is implemented
+below, but crafted combat still needs approved assets and client variant integration.
 Headless crafting, Shop delivery, and atomic loadout commands consume this catalogue, but unbound crafted items
 cannot pass the server's mounted-Equipment action checks. See the
 [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-equipment-catalogue).
@@ -233,7 +234,7 @@ old swing authorization, removes guard protection, and rebuilds attachments with
 Stamina, cooldowns, swing locks, or an existing lowering deadline. Replays and unchanged selections
 skip those runtime effects. Server actions require the exact owned instance, definition, finish,
 and matching hand-mounted model. Client/GUI integration is unchanged; crafted assets remain unbound,
-with no wooden fallback or active elemental effects.
+with no wooden fallback. Existing effects survive loadout changes under the accounting rules below.
 
 Run the verification commands above for one-time defaults, retained/ambiguous saves, empty-slot
 reconnects, stale/replayed commands, compatibility, mount identity, and rollback. Playtest normal
@@ -837,6 +838,30 @@ Run the verification commands above for refresh boundaries, stale quotes, retry/
 exact delivery, old capacity, crafting reservations, numeric limits, and rollback. No GUI, remote,
 asset binding, or active elemental effect is added. Connected-player dispatch and durable saves
 remain separate checks. See the [Shop implementation contract](docs/TECHNICAL_DESIGN.md#headless-shop-implementation).
+
+### Elemental combat accounting review
+
+Accepted, unblocked server hits now resolve the sword's configured effect from its authorized
+definition/finish. Fire, Water, pending/active Earth, and Light share one first-wins slot. Air scales
+only the same hit's horizontal launch, followed by any outgoing Light reduction; Dark refunds three
+Stamina only after the full swing cost and accepted hit. Paid blocks, including guard-breaking final
+blocks, grant neither a new effect nor a Dark refund.
+
+Fire and ordinary recovery share one chronological accounting path, including guard-minimum loss,
+guard transitions, effect expiry, and zero/maximum limits. Earth requires a strictly post-hit airborne
+observation followed by a later server-observed supported landing before its fixed timeout. Its
+completed root grants the configured Earth-only recovery window. Water/Earth change voluntary
+movement without anchoring, collision changes, or cancellation of forced knockback.
+
+Effects survive Arena/equipment changes and original-attacker departure, but affected-character
+death/removal clears them. Character attributes expose confirmed effect identity, phase, token,
+server-time deadlines, Earth protection, and `HasStaminaBurn` for the separate presentation work.
+All authority remains in monotonic server accounting; no client landing signal sets a deadline.
+
+Run the verification commands above for partitioned accounting, overlaps, exact deadlines, composed
+movement, support sampling, and accepted-hit effects. Multiplayer physics/tumbling, crafted model
+bindings, variant-aware client input, GUI, and effect visuals are not proven by these isolated tests.
+See the [runtime contract](docs/TECHNICAL_DESIGN.md#elemental-effect-runtime-implementation).
 
 ### Admin commands
 
