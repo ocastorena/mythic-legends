@@ -33,6 +33,7 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 	local state = folder(root, "State")
 	local inventory = folder(root, "Inventory")
 	local shop = folder(root, "Shop")
+	local crafting = folder(root, "Crafting")
 	local production = folder(root, "Production")
 	local base = folder(root, "Base")
 	local combat = folder(root, "Combat")
@@ -50,6 +51,11 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 			UpgradeCapacity = request(inventory, "UpgradeCapacity"),
 		},
 		Shop = { GetShop = request(shop, "GetShop"), BuyOffer = request(shop, "BuyOffer") },
+		Crafting = {
+			GetStation = request(crafting, "GetStation"),
+			StartJob = request(crafting, "StartJob"),
+			CancelJob = request(crafting, "CancelJob"),
+		},
 		Production = {
 			GetStatus = request(production, "GetStatus"),
 			Collect = request(production, "Collect"),

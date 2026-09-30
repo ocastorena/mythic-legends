@@ -73,6 +73,12 @@
           "GetShop": { "$className": "RemoteFunction" },
           "BuyOffer": { "$className": "RemoteFunction" }
         },
+        "Crafting": {
+          "$className": "Folder",
+          "GetStation": { "$className": "RemoteFunction" },
+          "StartJob": { "$className": "RemoteFunction" },
+          "CancelJob": { "$className": "RemoteFunction" }
+        },
         "Production": {
           "$className": "Folder",
           "GetStatus": { "$className": "RemoteFunction" },

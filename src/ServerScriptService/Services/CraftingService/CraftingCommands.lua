@@ -19,6 +19,7 @@ export type CraftingCommands = {
 	Start: (Player, Types.StartCraftingRequest) -> Types.TransactionResult,
 	Cancel: (Player, Types.CancelCraftingRequest) -> Types.TransactionResult,
 }
+export type AccessCheck = (Player, Types.PlayerDoc, string?) -> string?
 
 local CraftingCommands = {}
 local START_FIELDS = {
@@ -144,7 +145,8 @@ end
 function CraftingCommands.new(
 	DataService: DataSource,
 	jobs: CraftingJobs.CraftingJobs,
-	clock: (() -> number)?
+	clock: (() -> number)?,
+	checkAccess: AccessCheck?
 ): CraftingCommands
 	assert(
 		type(DataService) == "table"
@@ -178,6 +180,12 @@ function CraftingCommands.new(
 		end
 		if not closed(rawRequest, VIEW_FIELDS) or not isId(rawRequest.stationInstanceId) then
 			return { ok = false, code = "InvalidRequest", revision = revision }
+		end
+		local accessProblem = if checkAccess
+			then checkAccess(player, loaded, rawRequest.stationInstanceId)
+			else nil
+		if accessProblem then
+			return { ok = false, code = accessProblem, revision = revision }
 		end
 		local sampled, now = pcall(sampleTime)
 		if not sampled or type(now) ~= "number" or now ~= now or now < 0 or now >= 2 ^ 53 then
@@ -219,6 +227,13 @@ function CraftingCommands.new(
 			operation = "Crafting.Start",
 			signature = signature,
 		}, function(draft: Types.PlayerDoc, now: number): Types.TransactionOutcome
+			-- World checks belong after receipt/revision admission, never before committed retries.
+			local accessProblem = if checkAccess
+				then checkAccess(player, draft, request.stationInstanceId)
+				else nil
+			if accessProblem then
+				return { ok = false, code = accessProblem }
+			end
 			return jobs.StartToDraft(draft, now, request)
 		end)
 	end
@@ -241,6 +256,11 @@ function CraftingCommands.new(
 			operation = "Crafting.Cancel",
 			signature = `job={idPart(request.jobId)}`,
 		}, function(draft: Types.PlayerDoc, now: number): Types.TransactionOutcome
+			-- Cancel uses the saved permanent Station; job/receipt validation remains with its owner.
+			local accessProblem = if checkAccess then checkAccess(player, draft, nil) else nil
+			if accessProblem then
+				return { ok = false, code = accessProblem }
+			end
 			return jobs.CancelToDraft(draft, now, request.jobId)
 		end)
 	end

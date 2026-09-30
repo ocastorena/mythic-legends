@@ -17,6 +17,7 @@ local log = LogUtil.For("BaseService")
 -- Module dependencies
 local StandPlacement = require(script.StandPlacement)
 local BaseRuntime = require(script.BaseRuntime)
+local CraftingAccess = require(script.CraftingAccess)
 local ShrineConstruction = require(script.ShrineConstruction)
 local BaseExpansionPurchase = require(script.BaseExpansionPurchase)
 local ShrineWorkers = require(script.ShrineWorkers)
@@ -95,6 +96,29 @@ function BaseService.GetSpawnPoint(player: Player): BasePart?
 	end
 	local spawnPart = base:FindFirstChild("Spawn")
 	return if spawnPart and spawnPart:IsA("BasePart") then spawnPart else nil
+end
+
+function BaseService.CheckCraftingAccess(
+	player: Player,
+	baseRecord: Types.BaseRecord,
+	stationInstanceId: string?
+): string?
+	if
+		not lifecycle:IsRunning()
+		or typeof(player) ~= "Instance"
+		or not player:IsA("Player")
+		or player.Parent ~= Players
+	then
+		return "DataUnavailable"
+	end
+	return CraftingAccess.Check(
+		player.UserId,
+		player.Character,
+		baseRecord,
+		slots,
+		basesFolder,
+		stationInstanceId
+	)
 end
 
 -- Server-only command until the separate menu/network integration is ready.

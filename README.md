@@ -796,7 +796,7 @@ remain separate.
 
 ### Headless crafting and mutation preparation review
 
-`CraftingService.StartJob(player, request)` and `CancelJob(player, request)` are server-only,
+`CraftingService.StartJob(player, request)` and `CancelJob(player, request)` are
 revision-bound commands for connected players with loaded profiles. Start validates the permanent
 Station and exact recipe quote, charges Gold/owned Materials, and reserves Equipment output plus
 Material refund space. One active job is allowed. The twelve launch recipes initially cost 50 Gold
@@ -823,13 +823,14 @@ Run the verification commands above for receipt replay/conflicts, exact-deadline
 reserved space, safe Gold refunds, recipe edits, serialized continuation, malformed state, ID
 collisions, session loss, and callback failures. Inspect connected-player dispatch, shutdown, and
 durable retention separately; a successful transaction or asynchronous save request is not a
-durable acknowledgement. No GUI, remote, Station prompt, model binding, or crafted combat is added.
+durable acknowledgement. The job layer adds no GUI, Station prompt, model binding, or crafted combat;
+the admitted transport and proximity boundary are described below.
 See the [implementation contract](docs/TECHNICAL_DESIGN.md#headless-crafting-implementation) for
 request/result fields and compatibility boundaries.
 
 ### Crafting Station read view review
 
-Server-only `CraftingService.GetStation(player, { stationInstanceId })` returns a read-only
+`CraftingService.GetStation(player, { stationInstanceId })` returns a read-only
 `CraftingStationViewResult` for the caller's loaded profile. Its revision is the transaction
 revision, not the State packet sequence. The view contains sorted recipe quotes and eligibility,
 the permanent Station identity, and an allowlisted active-job summary with server-derived timing
@@ -845,8 +846,28 @@ promises remain independent of later recipe edits. See the
 
 Run the verification commands above for read/Start eligibility parity, all twelve recipes,
 deadline boundaries, malformed state, unavailable profiles, projection isolation, and unchanged
-state/ID counts. This server API does not add remotes, proximity authorization, or menus;
-connected-player transport and live Station interactions remain separate work.
+state/ID counts. The projection adds no menus; the transport and proximity boundary are below.
+
+### Crafting request and proximity review
+
+`Network.Crafting.GetStation`, `StartJob`, and `CancelJob` forward the corresponding public service
+requests/results. They share configured admission (initially twelve tokens, four per second), with
+availability checked before profile access. The Base service validates the current character and
+the caller's own permanent Station against server-owned Base slots and a configured authored
+Attachment within four studs. No client position, model path, OwnerId attribute, or menu-open flag
+grants access. The separate menu implementation owns Inventory-style movement locking.
+
+Fresh mutation access checks occur inside the transaction, after receipt/revision admission.
+Committed retries still return their original result after reset, displacement, or model removal.
+Automatic due delivery and offline/lifecycle settlement never require proximity. See the
+[transport contract](docs/TECHNICAL_DESIGN.md#crafting-request-endpoints-and-world-access) for
+error codes and the exact anchor path.
+
+Run the verification commands above for shared route admission, cleanup, real transaction replay
+and rollback, own-Base resolution, exact distance boundaries, removed/dead characters, and missing
+or ambiguous anchors. Studio inspection found no Crafting prompt anchor in the authored template;
+access remains unavailable until that explicit anchor is supplied. This step adds no menus or
+authored prompt and does not claim a live connected-player or durable-save test.
 
 ### Inventory request review
 

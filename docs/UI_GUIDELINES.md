@@ -248,6 +248,9 @@ remain undecided; these controls are not MVP requirements.
 
 ## Accessibility and feedback
 
+- Base, Shrine, and Crafting Station menus use the same movement-lock behavior as Inventory:
+  opening a menu locks voluntary movement until it closes. This does not pause production or
+  started crafting. The server still validates world access; a menu-open flag is not authority.
 - Keep panels and interactive controls inside mobile safe areas, with reachable touch targets,
   flexible layouts, legible text, and device-safe clipping.
 - Communicate important capture, ownership, capacity, and action states through text, shape, icons,

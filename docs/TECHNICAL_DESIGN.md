@@ -112,6 +112,7 @@ Network
   Inventory   EvolveMythling, SellMythling, SellEquipment, SellMaterial, DiscardMaterial,
               UpgradeCapacity, DeleteMythling (retired compatibility response)
   Shop        GetShop, BuyOffer
+  Crafting    GetStation, StartJob, CancelJob
   Production  GetStatus, Collect
   Base        PlaceMythling, RemoveMythling
   Combat      StartAttack, ReportHit, SetShieldGuard, Reaction, Impact, GetLoadout, Equip,
@@ -139,7 +140,7 @@ Network
   arbitrary state keys, Instance paths, or generic mutation commands.
 
 This endpoint inventory matches [default.project.json](../default.project.json). It does not claim
-that all launch features already have endpoints: crafting, canonical Shrine actions, and Base
+that all launch features already have endpoints: canonical Shrine actions and Base
 expansion still need their purpose-specific transport integration.
 `Inventory.DeleteMythling` is a non-mutating compatibility response, never a sale API.
 Existing remote names stay unchanged unless an explicit migration updates declarations, resolver
@@ -1913,7 +1914,7 @@ Their migrations must extend these guarantees while preserving existing prototyp
 
 ### Headless crafting implementation
 
-Server-only `CraftingService.StartJob` and `CancelJob` require a running service, connected Player,
+`CraftingService.StartJob` and `CancelJob` require a running service, connected Player,
 and already-loaded profile. Private `CraftingCommands` validates closed envelopes and dispatches
 `Crafting.Start`/`Crafting.Cancel` through `DataService.Transact`; it samples no independent clock.
 Both requests contain the usual `requestId` and `expectedRevision`. Start additionally contains
@@ -1974,14 +1975,15 @@ jobs retain their reservations and block a new start, cancellation returns `Unsu
 and automatic resolution skips them.
 Malformed versioned receipts fail closed. Opaque legacy history is not pruned as canonical history.
 
-This slice adds no GUI, remote, Station prompt, asset binding, auto-equip, or crafted-combat runtime.
+The pure job layer adds no GUI, Station prompt, asset binding, auto-equip, or crafted-combat runtime.
+Its admitted transport and world-access boundary are described below.
 Saved receipts remain private. Existing prototype Base `MarkDirty` writes still bypass
 transaction preparation; replace those writers separately rather than claiming global rollback.
 Verify actual session/shutdown and durable retention independently of mocked/serialized tests.
 
 ### Crafting Station read view
 
-Server-only `CraftingService.GetStation(player, request)` shares the running-service and genuine
+`CraftingService.GetStation(player, request)` shares the running-service and genuine
 connected-Player gate with crafting mutations. `request` is the closed
 `{ stationInstanceId }` selection, with one nonempty ID of at most 128 bytes. Private
 `CraftingCommands.GetStation` reads only an already-loaded profile, validates its transaction
@@ -2019,8 +2021,51 @@ Current recipe metadata supplies new quotes only. Existing jobs retain their rec
 payment, and deadline even when their former recipe is edited or removed. Shared/static tables and
 saved tables never escape by reference; raw receipts, versions, promised output instance IDs,
 reservations, private transaction history, stage fields, and unrecognized saved extras are omitted.
-This view adds no remote, proximity policy, prompt, or GUI. Apply the eventual world-interaction
-authorization in its owning boundary without changing receipt replay semantics for mutations.
+The projection itself adds no prompt or GUI. Its transport and world-access checks follow below.
+
+### Crafting request endpoints and world access
+
+`Network.Crafting.GetStation`, `StartJob`, and `CancelJob` are Rojo-declared RemoteFunctions using
+the corresponding public CraftingService envelopes and results without extra snapshots. Private
+`CraftingRequests` admits a genuine connected Player and running service, then one shared token
+bucket, before profile, clock, or world work. `Configurations.CraftingRequests` initially allows
+a burst of twelve and refills four tokens per second. Denials return a small `DataUnavailable` or
+`RateLimited` result with revision zero. Inputs are forwarded unchanged; command parsing remains
+the closed-envelope boundary. Stop clears all three handlers and buckets, and PlayerRemoving
+forgets the departing player's bucket. Retained callbacks reject after Stop.
+
+Production initialization requires `BaseService.CheckCraftingAccess`; private headless command
+tests may omit this injected dependency. BaseService owns the world lookup and accepts the current
+transaction draft's saved Base, not a client Instance, position, owner attribute, or menu flag.
+Its private `CraftingAccess` resolves the caller's unique server-owned slot, a live Base under the
+configured Bases folder in Workspace, and the saved permanent Station's configured model. It
+requires the exact unique-child `interactionAnchorPath`, ending in an Attachment parented to a
+BasePart. The initial authored contract is
+`PB_CraftingStation_Root/PB_CraftingStation/PB_CraftingStation_Mesh/CraftingPromptAttachment`.
+No light attachment, model pivot, bounding box, or another player's Station is a fallback.
+Missing, ambiguous, or detached bindings return `StationUnavailable`; a changed selected Station
+returns `StationChanged`. Presentation OwnerId/Station attributes do not grant authority.
+
+The current character must be in Workspace with a living Humanoid and its own HumanoidRootPart.
+Its finite three-dimensional distance to the configured anchor must be at most
+`interactionDistanceStuds` (initially four). Unavailable characters return `CharacterUnavailable`
+and outside/nonfinite positions return `OutOfRange`. These checks do not trust the client movement
+lock, create a menu session token, or mutate character movement. The separate GUI work owns the
+[approved menu movement lock](UI_GUIDELINES.md#accessibility-and-feedback).
+
+GetStation checks access after profile/revision/payload validation and before its clock/projection.
+Start and Cancel check access only inside the fresh transaction callback after receipt/revision
+admission. Start uses the selected Station ID; Cancel resolves the saved permanent Station without
+adding a payload field or changing existing signatures. Exact committed retries return their
+original result even after displacement, reset, or Station/job removal. Fresh denied actions roll
+back shared preparation with the command; automatic completion, Ready/Checkpoint/Release, and
+the independent due scheduler never require proximity or an open menu.
+
+This implements backend endpoints, not menu controls or an authored prompt. The inspected Station
+template lacked the configured anchor; the user reserved placement for the separate asset/UI work.
+Placement and connected-player interaction must be verified
+before claiming playable crafting. Missing anchor data fails closed without preventing automatic
+completion of an already-started job.
 
 ## Shop transactions
 
@@ -3048,14 +3093,14 @@ remove each item when the implementation is aligned; these notes do not authoriz
 | Equipment sales | `InventoryService.SellEquipment` and its admitted Inventory endpoint delegate to private [EquipmentSaleCommand](../src/ServerScriptService/Services/InventoryService/EquipmentSaleCommand.lua). One revision-bound transaction checks ownership, exact definition/finish/price, starter protection, and both loadout slots before removing the selected item and crediting configured Gold while preserving refund headroom. | Add player-facing confirmation and verify connected-player dispatch and durable retention separately. Equipped or protected starter items remain unsellable; no automatic unequip, GUI, asset binding, or schema migration is added. |
 | Equipment catalogue | [Equipment](../src/ReplicatedStorage/Shared/Configurations/Equipment.lua) defines the wooden pair and twelve named elemental items through shared bases and explicit finishes. [EquipmentCatalog](../src/ReplicatedStorage/Shared/EquipmentCatalog.lua) resolves fixed item metadata by IDs; recipes/effects have separate static owners and startup validation. Headless crafting, Shop grants, server combat, and client attack/guard input use canonical definitions. Private [EquipmentSelection](../src/StarterPlayer/StarterPlayerScripts/Controllers/CombatController/EquipmentSelection.lua) binds predicted actions to exact replicated identities and mounted objects; preview/VFX consumers retain the compatibility map. | Bind approved assets separately; empty crafted model names cannot authorize combat and never select a wooden fallback. Live multiplayer and animation/replication behavior remain unverified. No GUI or saved-stat copy is added. |
 | Atomic loadout | [LoadoutCommands](../src/ServerScriptService/Services/CombatService/LoadoutCommands.lua) implements revision-bound EquipEquipment/UnequipEquipment through the public CombatService API and matching canonical remotes. [LoadoutRequests](../src/ServerScriptService/Services/CombatService/LoadoutRequests.lua) shares admission across these routes, read-only GetLoadout, and legacy Equip; all three mutation routes share the configured cooldown. The legacy endpoint retains its snapshot response and server-generated request identity. [LoadoutUtil](../src/ServerScriptService/Services/CombatService/LoadoutUtil.lua) binds saved, mounted, guard, and swing identities to instance/definition/finish. Fresh changed commits retain Stamina, action deadlines, and elemental effects; replay/no-op results skip runtime reconciliation. | Add client command integration separately and verify connected-player dispatch, live transition/reset behavior, and durable selections. No GUI or playable crafted assets are supplied; unbound models fail closed. |
-| Crafting Jobs | Server-only [CraftingService](../src/ServerScriptService/Services/CraftingService/init.lua) supplies revision-bound StartJob/CancelJob and read-only GetStation through [CraftingCommands](../src/ServerScriptService/Services/CraftingService/CraftingCommands.lua). [CraftingJobs](../src/ServerScriptService/Services/CraftingService/CraftingJobs.lua) snapshots payments/output/deadlines, reserves capacity, and grants output or exact refund once. ReadStation shares pre-allocation eligibility checks without settlement or ID generation and projects detached quotes/job summaries, not private receipts. The same pure resolver runs before transactional mutations, at Ready/Checkpoint/Release, and on due-job timer requests. | Add Station proximity/transport/player-facing integration separately. Legacy reservation-only jobs remain opaque and block starts when active; no refund history is invented. No GUI, remote, model, or auto-equip is added. Verify connected-player dispatch and durable retention independently of session-atomic tests. |
+| Crafting Jobs | [CraftingService](../src/ServerScriptService/Services/CraftingService/init.lua) supplies admitted GetStation/StartJob/CancelJob remotes through [CraftingRequests](../src/ServerScriptService/Services/CraftingService/CraftingRequests.lua). Commands retain revision-bound receipt replay; BaseService checks fresh actions against the caller's live Base and configured Station anchor. [CraftingJobs](../src/ServerScriptService/Services/CraftingService/CraftingJobs.lua) owns detached views, recorded promises, capacity reservations, and exactly-once resolution. Automatic settlement never requires proximity. | Place the explicit authored Station anchor and add its prompt/menu integration separately. Legacy reservation-only jobs remain opaque and block starts when active; no refund history is invented. No GUI, model fallback, or auto-equip is added. Verify connected-player interactions and durable retention independently of session-atomic tests. |
 | Stamina and Shield | [CombatService](../src/ServerScriptService/Services/CombatService/init.lua) uses server-owned guard phases and swing deadlines, lowered-only recovery, full-cost blocks, minimum guard Stamina, and immediate protection loss. [CombatState](../src/ServerScriptService/Services/CombatService/CombatState.lua) accounts for Fire drain alongside recovery and guard transitions. Marker sequences and transition timeouts bound cleanup; loadout changes retain these accounting deadlines and never refill Stamina. Client input resolves canonical variants and preserves release/lowering cleanup after a selection changes. | Tune authored animations and transition timing in multiplayer/touch playtests. Approved crafted asset bindings and live effect/guard interaction validation remain outstanding. |
 | Elemental combat | [ElementalHits](../src/ServerScriptService/Services/CombatService/ElementalHits.lua) integrates the six configured effects after accepted-hit and block decisions. CombatState owns snapshotted deadlines, first-effect-wins occupancy, Earth landing/recovery state, and immediate Air/Light/Dark arithmetic. [EarthLanding](../src/ServerScriptService/Services/CombatService/EarthLanding.lua) supplies bounded server support observations; [MovementRestrictions](../src/ServerScriptService/Services/CombatService/MovementRestrictions.lua) composes current voluntary movement rules without changing forced motion or collisions. | Verify server-observed takeoff/landing, effect persistence, movement composition, and force/Stamina behavior in live multiplayer. Client effect presentation and approved crafted bindings remain separate; this implementation adds no GUI or asset activation. |
 | Arena spawning | [MythlingSpawnService](../src/ServerScriptService/Services/MythlingSpawnService/init.lua) separates capturable registration from model cleanup, prefills 12 before opening capture, and retries each replacement with a retained form selection and a three-second deadline. ClaimService owns expiry and overtime. Live inputs remain the three prototype forms and their existing weights. | Author/map assets for the neutral launch IDs, replace the live prototype pool, and verify 75%/20%/5% rarity selection with equal element chances. Configure the published experience for eight players; the inspected development place still allows 60. Validate full-server refill and boundary clearance before release. |
 | Capture meters | [ClaimService](../src/ServerScriptService/Services/ClaimService/init.lua) retains independent meters with equal-rate decay, finite-height membership, visit tie priority, capacity checks, reset cleanup, and ordered completion/expiry. Full inventories retain occupancy without progress. | Validate multiplayer displacement and tie cases on the authored map alongside the launch roster. Connect the server-only capacity purchase to its player-facing flow and complete the remaining progression loop separately. |
 | Menus and deferred features | [UI screens](../src/StarterPlayer/StarterPlayerScripts/UI/Screens) include `Stand` and `Hotbar`; the prototype inventory/data layer includes Consumables. | Launch UI follows [UI guidelines](UI_GUIDELINES.md): Shrine terminology, three Inventory categories, no Consumables/Hotbar placeholders, and jobs shown at their station. Preserve saved prototype data while deferring those surfaces. |
 | Shop | [ShopService](../src/ServerScriptService/Services/ShopService/init.lua) returns read-only offers/eligibility/upgrade quotes and revision-bound atomic purchases through its public API and the declared `Shop.GetShop`/`BuyOffer` endpoints. [ShopRequests](../src/ServerScriptService/Services/ShopService/ShopRequests.lua) admits callers before protected work and keeps refreshed quotes separate from recorded transaction results. A shared hourly schedule rotates the matching Featured pair; saved personal usage is independent of catalogue revisions and purchased upgrades. | Add menu integration and verify connected-player dispatch, live refresh boundaries, and durable retention separately. No GUI, asset activation, automatic equip, XP, or refresh timer is added. Future tuning must be deployed at a shared period boundary. |
-| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes typed Shop view/purchase endpoints, six canonical Inventory actions, and retryable Combat EquipEquipment/UnequipEquipment resolved by [RemoteUtil](../src/ServerScriptService/Infrastructure/RemoteUtil.lua). Inventory and loadout adapters admit callers before protected work and forward unchanged requests to their existing public command owners; the retained delete endpoint never mutates. Canonical responses preserve bounded transaction results without exposing private receipts, profiles, or extra loadout snapshots. | Add crafting, Base construction/expansion, and Shrine assignment/collection/upgrade/dismantling transports independently of GUI work. Existing server commands and disposable endpoint tests do not by themselves establish connected-player dispatch or durable-save guarantees. |
+| Feature endpoints and transactions | [default.project.json](../default.project.json) exposes typed Shop view/purchase endpoints, Crafting GetStation/StartJob/CancelJob, six canonical Inventory actions, and retryable Combat EquipEquipment/UnequipEquipment resolved by [RemoteUtil](../src/ServerScriptService/Infrastructure/RemoteUtil.lua). Adapters admit callers before protected work and forward unchanged requests to public command owners; the retained delete endpoint never mutates. Canonical responses preserve bounded transaction results without exposing private receipts, profiles, or extra loadout snapshots. | Add Base construction/expansion and Shrine assignment/collection/upgrade/dismantling transports independently of GUI work. Existing server commands and disposable endpoint tests do not by themselves establish connected-player dispatch or durable-save guarantees. |
 | Authored gameplay assets | [MainServer](../src/ServerScriptService/MainServer.server.lua) requires authored `Workspace.World.Arena.Markers.Bounds`, Base Islands, and model templates that are not supplied by a clean source build. | Use the existing authored development place for gameplay checks. A successful Rojo build verifies source mappings, not asset completeness or playable readiness; see [README](../README.md#getting-started). |
 
 `HUDGui`, `StaminaGui`, `InventoryGui`, `ShopGui`, `StandGui`, `HotbarGui`, `CombatActionGui`,

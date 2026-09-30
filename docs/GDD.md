@@ -277,7 +277,9 @@ available through its existing free action.
   Starting Equipment capacity includes the two protected items and room to craft another item.
   Launch uses the existing Equipment inventory; the storage box is deferred to a later update.
 - Gold and Inventory/Shop buttons are always visible. Base, Shrine, and Crafting Station menus use
-  nearby Proximity Prompts. The Arena adds Attack/Shield controls and Stamina; the Shield control
+  nearby Proximity Prompts. While these management menus are open, voluntary movement is locked,
+  as with Inventory, until the menu closes. Production and started crafting continue normally.
+  The Arena adds Attack/Shield controls and Stamina; the Shield control
   indicates insufficient Stamina. Active or pending elemental effects remain readable outside the
   Arena, and Stamina stays visible while an existing Fire effect continues there. Combat controls
   remain unavailable outside the Arena. No Hotbar is displayed at launch.

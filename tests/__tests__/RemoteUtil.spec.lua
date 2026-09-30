@@ -20,6 +20,11 @@ local DECLARATIONS: { [string]: { [string]: string } } = {
 		UpgradeCapacity = "RemoteFunction",
 	},
 	Shop = { GetShop = "RemoteFunction", BuyOffer = "RemoteFunction" },
+	Crafting = {
+		GetStation = "RemoteFunction",
+		StartJob = "RemoteFunction",
+		CancelJob = "RemoteFunction",
+	},
 	Production = { GetStatus = "RemoteFunction", Collect = "RemoteFunction" },
 	Base = { PlaceMythling = "RemoteFunction", RemoveMythling = "RemoteFunction" },
 	Combat = {
@@ -88,6 +93,9 @@ describe("RemoteUtil", function()
 			{
 				"GetShop",
 				"BuyOffer",
+				"GetStation",
+				"StartJob",
+				"CancelJob",
 				"DeleteMythling",
 				"EvolveMythling",
 				"SellMythling",
@@ -102,6 +110,11 @@ describe("RemoteUtil", function()
 			local root, network = fixture(name, "RemoteEvent")
 			local domain = if name == "GetShop" or name == "BuyOffer"
 				then "Shop"
+				elseif
+					name == "GetStation"
+					or name == "StartJob"
+					or name == "CancelJob"
+				then "Crafting"
 				elseif name == "EquipEquipment" or name == "UnequipEquipment" then "Combat"
 				else "Inventory"
 			local folder = assert(network:FindFirstChild(domain))
