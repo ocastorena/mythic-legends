@@ -10,7 +10,15 @@ local roots: { Folder } = {}
 local DECLARATIONS: { [string]: { [string]: string } } = {
 	Admin = { Feedback = "RemoteEvent" },
 	State = { Update = "RemoteEvent", Request = "RemoteFunction" },
-	Inventory = { DeleteMythling = "RemoteFunction" },
+	Inventory = {
+		DeleteMythling = "RemoteFunction",
+		EvolveMythling = "RemoteFunction",
+		SellMythling = "RemoteFunction",
+		SellEquipment = "RemoteFunction",
+		SellMaterial = "RemoteFunction",
+		DiscardMaterial = "RemoteFunction",
+		UpgradeCapacity = "RemoteFunction",
+	},
 	Shop = { GetShop = "RemoteFunction", BuyOffer = "RemoteFunction" },
 	Production = { GetStatus = "RemoteFunction", Collect = "RemoteFunction" },
 	Base = { PlaceMythling = "RemoteFunction", RemoveMythling = "RemoteFunction" },
@@ -55,7 +63,7 @@ end)
 
 describe("RemoteUtil", function()
 	it(
-		"resolves the declared Shop endpoints and preserves all existing domain identities",
+		"resolves the declared feature endpoints and preserves all existing domain identities",
 		function()
 			local root, network = fixture()
 			local before = #network:GetDescendants()
@@ -73,16 +81,29 @@ describe("RemoteUtil", function()
 		end
 	)
 
-	it("rejects a wrongly typed Shop endpoint without replacing or creating instances", function()
-		for _, name in { "GetShop", "BuyOffer" } do
+	it("rejects wrongly typed feature endpoints without replacing or creating instances", function()
+		for _, name in
+			{
+				"GetShop",
+				"BuyOffer",
+				"DeleteMythling",
+				"EvolveMythling",
+				"SellMythling",
+				"SellEquipment",
+				"SellMaterial",
+				"DiscardMaterial",
+				"UpgradeCapacity",
+			}
+		do
 			local root, network = fixture(name, "RemoteEvent")
-			local shop = assert(network:FindFirstChild("Shop"))
-			local original = shop:FindFirstChild(name)
+			local domain = if name == "GetShop" or name == "BuyOffer" then "Shop" else "Inventory"
+			local folder = assert(network:FindFirstChild(domain))
+			local original = folder:FindFirstChild(name)
 			local before = #network:GetDescendants()
 			expect(function()
 				RemoteUtil.Resolve((root :: unknown) :: ReplicatedStorage)
 			end).toThrow()
-			expect(shop:FindFirstChild(name)).toBe(original)
+			expect(folder:FindFirstChild(name)).toBe(original)
 			expect(#network:GetDescendants()).toBe(before)
 		end
 	end)

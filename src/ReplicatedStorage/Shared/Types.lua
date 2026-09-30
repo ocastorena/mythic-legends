@@ -684,7 +684,15 @@ export type ClaimUpdate = {
 export type Network = {
 	Admin: { Feedback: RemoteEvent },
 	State: { Update: RemoteEvent, Request: RemoteFunction },
-	Inventory: { DeleteMythling: RemoteFunction },
+	Inventory: {
+		DeleteMythling: RemoteFunction,
+		EvolveMythling: RemoteFunction,
+		SellMythling: RemoteFunction,
+		SellEquipment: RemoteFunction,
+		SellMaterial: RemoteFunction,
+		DiscardMaterial: RemoteFunction,
+		UpgradeCapacity: RemoteFunction,
+	},
 	Shop: { GetShop: RemoteFunction, BuyOffer: RemoteFunction },
 	Production: { GetStatus: RemoteFunction, Collect: RemoteFunction },
 	Base: { PlaceMythling: RemoteFunction, RemoveMythling: RemoteFunction },

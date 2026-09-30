@@ -78,7 +78,7 @@ function InventoryService.Stop()
 	table.clear(sessionsByUserId)
 end
 
--- Headless canonical command; GUI/network integration is owned separately.
+-- Canonical command; InventoryRemotes owns admission, while GUI integration remains separate.
 function InventoryService.EvolveMythling(
 	player: Player,
 	request: Types.EvolveMythlingRequest

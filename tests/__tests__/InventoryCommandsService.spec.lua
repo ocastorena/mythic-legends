@@ -94,11 +94,27 @@ describe("InventoryService canonical command gates", function()
 			expect(transactions).toBe(0)
 		end
 		expectUnavailable(fakePlayer)
-		local delete = Instance.new("RemoteFunction")
-		delete.Parent = root
+		local remotes: { [string]: RemoteFunction } = {}
+		for _, name in
+			{
+				"DeleteMythling",
+				"EvolveMythling",
+				"SellMythling",
+				"SellEquipment",
+				"SellMaterial",
+				"DiscardMaterial",
+				"UpgradeCapacity",
+			}
+		do
+			local remote = Instance.new("RemoteFunction")
+			remote.Name = name
+			remote.Parent = root
+			remotes[name] = remote
+		end
 		service.Init({
-			Remotes = { Inventory = { DeleteMythling = delete } },
+			Remotes = { Inventory = remotes },
 			Services = {
+				InventoryService = service,
 				BaseService = {},
 				DataService = {
 					Load = function(): boolean

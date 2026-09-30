@@ -502,8 +502,8 @@ Each command settles prior work and changes the slot map in one `DataService.Tra
 using one server timestamp and the real form/Shrine metadata. It never calls standalone settlement
 before a second transaction. Moving workers still requires explicit unassignment; removal retains
 ownership and earned/pending XP. The shared adapter stages only accounting, progression, and slot
-maps while preserving unrelated state. Legacy deletion rejects canonical launch forms and retained
-entries with Shrine assignments or pending credit, preventing dangling links or erased earned work.
+maps while preserving unrelated state. The retired legacy-delete endpoint rejects all requests
+without touching assignments or earned work; its private removal helper retains its protections.
 
 Run the static suite and runtime tests above. Transaction fixtures cover duplicate/stale requests,
 profile isolation, rollback, assignments across all six elements, and retained work. Actual connected/
@@ -814,6 +814,23 @@ durable retention separately; a successful transaction or asynchronous save requ
 durable acknowledgement. No GUI, remote, Station prompt, model binding, or crafted combat is added.
 See the [implementation contract](docs/TECHNICAL_DESIGN.md#headless-crafting-implementation) for
 request/result fields and compatibility boundaries.
+
+### Inventory request review
+
+`Network.Inventory` exposes rate-limited `EvolveMythling`, `SellMythling`, `SellEquipment`,
+`SellMaterial`, `DiscardMaterial`, and `UpgradeCapacity` RemoteFunctions. Each forwards its matching
+closed request to the existing atomic service command and returns its `TransactionResult`. Use the
+projected `transactionRevision`, not the State packet sequence, and retry an unchanged envelope.
+Admission precedes profile access; stopped or disconnected callers do no protected work.
+
+The legacy `DeleteMythling` remote remains resolvable but now returns `UnsupportedAction` without
+deleting, unassigning, settling work, or granting Gold. This removes its former unassign-before-delete
+side effect. Saved Mythlings and prototype work are not removed; GUI callers are unchanged here.
+
+Run the verification commands above for all six dispatch paths, strict payload rejection, duplicate
+receipts, shared rate admission, non-mutating legacy rejection, and lifecycle cleanup. Real-client
+transport and durable saves remain separate checks. See the
+[Inventory endpoint contract](docs/TECHNICAL_DESIGN.md#inventory-request-endpoints).
 
 ### Headless Shop review
 

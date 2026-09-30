@@ -40,7 +40,15 @@ function RemoteUtil.Resolve(replicatedStorage: ReplicatedStorage): Network
 	return {
 		Admin = { Feedback = event(admin, "Feedback") },
 		State = { Update = event(state, "Update"), Request = request(state, "Request") },
-		Inventory = { DeleteMythling = request(inventory, "DeleteMythling") },
+		Inventory = {
+			DeleteMythling = request(inventory, "DeleteMythling"),
+			EvolveMythling = request(inventory, "EvolveMythling"),
+			SellMythling = request(inventory, "SellMythling"),
+			SellEquipment = request(inventory, "SellEquipment"),
+			SellMaterial = request(inventory, "SellMaterial"),
+			DiscardMaterial = request(inventory, "DiscardMaterial"),
+			UpgradeCapacity = request(inventory, "UpgradeCapacity"),
+		},
 		Shop = { GetShop = request(shop, "GetShop"), BuyOffer = request(shop, "BuyOffer") },
 		Production = {
 			GetStatus = request(production, "GetStatus"),

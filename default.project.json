@@ -60,7 +60,13 @@
         },
         "Inventory": {
           "$className": "Folder",
-          "DeleteMythling": { "$className": "RemoteFunction" }
+          "DeleteMythling": { "$className": "RemoteFunction" },
+          "EvolveMythling": { "$className": "RemoteFunction" },
+          "SellMythling": { "$className": "RemoteFunction" },
+          "SellEquipment": { "$className": "RemoteFunction" },
+          "SellMaterial": { "$className": "RemoteFunction" },
+          "DiscardMaterial": { "$className": "RemoteFunction" },
+          "UpgradeCapacity": { "$className": "RemoteFunction" }
         },
         "Shop": {
           "$className": "Folder",

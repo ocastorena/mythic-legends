@@ -54,10 +54,25 @@ describe("InventoryService SellEquipment facade", function()
 				service = loadService(ServerScriptService.Services.InventoryService)
 			end)
 			local api = assert(service, "[InventoryEquipmentSale.spec] Expected isolated service")
-			local remote = Instance.new("RemoteFunction")
 			local nonPlayer = Instance.new("Folder")
+			local remotes: { [string]: RemoteFunction } = {}
+			for _, name in
+				{
+					"DeleteMythling",
+					"EvolveMythling",
+					"SellMythling",
+					"SellEquipment",
+					"SellMaterial",
+					"DiscardMaterial",
+					"UpgradeCapacity",
+				}
+			do
+				local remote = Instance.new("RemoteFunction")
+				remote.Name = name
+				remote.Parent = nonPlayer
+				remotes[name] = remote
+			end
 			table.insert(cleanup, function()
-				remote:Destroy()
 				nonPlayer:Destroy()
 			end)
 			local initialized = false
@@ -101,8 +116,8 @@ describe("InventoryService SellEquipment facade", function()
 			}
 			expectUnavailable()
 			api.Init(({
-				Services = { DataService = source, BaseService = {} },
-				Remotes = { Inventory = { DeleteMythling = remote } },
+				Services = { DataService = source, BaseService = {}, InventoryService = api },
+				Remotes = { Inventory = remotes },
 			} :: unknown) :: ServerTypes.Context)
 			initialized = true
 			expectUnavailable()
