@@ -288,6 +288,54 @@ describe("ShrineAccounting.SettleToDraft", function()
 		end)
 	end
 
+	it("settles canonical Salennu while retaining a same-form prototype's stand work", function()
+		local data = fixture()
+		data.mythlings.legacy = {
+			typeId = "mythling_0001",
+			variantId = "regular",
+			claimedAt = 5,
+			legacyPrototype = true,
+			standId = 1,
+			level = 8,
+			xp = 72,
+			pendingXp = 0,
+		}
+		data.base.stands["1"] = {
+			production = {
+				lastAccruedAt = 100,
+				materials = { crystal = { stored = 9, progress = 0.3 } },
+			},
+		}
+		local legacy, stands = copy(data.mythlings.legacy), copy(data.base.stands)
+		local view, problem = ShrineAccounting.ReadSnapshot(data)
+		expect(problem).toBeNil()
+		local result = assert(view, "[ShrineAccounting.spec] Expected prepared view")
+		expect(result.state.workers.legacy).toBeNil()
+		expect(result.state.workers.worker.formId).toBe("mythling_0001")
+		settle(data, 1)
+		expect(data.mythlings.legacy).toEqual(legacy)
+		expect(data.base.stands).toEqual(stands)
+		expect(data.mythlings.worker.xp).toBe(1)
+	end)
+
+	it("rejects a flagged prototype assigned to a Shrine rather than dropping its work", function()
+		local data = fixture()
+		data.mythlings.worker.legacyPrototype = true
+		expectRejected(data, 1)
+	end)
+
+	it("rejects nonzero Shrine XP on a flagged prototype rather than dropping credit", function()
+		local data = fixture()
+		data.mythlings.legacy = {
+			typeId = "mythling_0001",
+			variantId = "regular",
+			claimedAt = 5,
+			legacyPrototype = true,
+			pendingXp = 0.25,
+		}
+		expectRejected(data, 1)
+	end)
+
 	it("rejects known-form stand assignments even when no Shrine references that worker", function()
 		local data = fixture()
 		data.mythlings.worker.standId = 1

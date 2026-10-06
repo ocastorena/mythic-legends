@@ -291,6 +291,15 @@ function ProfileSchema.Prepare(
 	end
 	local starterGrant = StarterEquipment.Stage(data)
 
+	-- Stage the Salennu identity upgrade independently of schema version. Existing owned
+	-- instance IDs, assignment links, progression, and production ledgers stay intact.
+	local salennuEntries: { Types.MythlingEntry } = {}
+	for _, entry in data.mythlings do
+		if type(entry) == "table" and entry.typeId == "dragon" then
+			table.insert(salennuEntries, entry)
+		end
+	end
+
 	-- Retain table identities and every existing field, including legacy ledgers and job links.
 	for id, stagedShrine in stagedShrines do
 		local original = originalShrines[id]
@@ -312,6 +321,10 @@ function ProfileSchema.Prepare(
 		end
 		data.combatLoadout.primaryWeaponInstanceId = starterGrant.primaryWeaponInstanceId
 		data.combatLoadout.shieldInstanceId = starterGrant.shieldInstanceId
+	end
+	for _, entry in salennuEntries do
+		entry.typeId = "mythling_0001"
+		entry.legacyPrototype = true
 	end
 	data.version = Configuration.schemaVersion
 	return true, nil

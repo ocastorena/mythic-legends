@@ -186,9 +186,9 @@ describe("MythlingSpawnService policy integration", function()
 				expect(pool).toBe(f.state.builds[2].pool)
 			end
 			for _, entry in f.service.GetActiveMythlings() do
-				expect(entry.typeId).toBe("dragon")
-				expect(entry.rarity).toBe(Mythlings.dragon.rarity)
-				expect(entry.fillRate).toBe(Mythlings.dragon.fillRate)
+				expect(entry.typeId).toBe("mythling_0001")
+				expect(entry.rarity).toBe(Mythlings.mythling_0001.rarity)
+				expect(entry.fillRate).toBe(Mythlings.mythling_0001.fillRate)
 				expect(entry.lifetimeSeconds).toBe(240)
 			end
 			f.service.Start()
@@ -273,7 +273,7 @@ describe("MythlingSpawnService policy integration", function()
 					tuning.formExpireSeconds.mythling_0003 = 60
 				end,
 				function(tuning)
-					tuning.formExpireSeconds.dragon = 20
+					tuning.formExpireSeconds.mythling_0001 = 20
 				end,
 			}
 			for _, change in cases do

@@ -133,7 +133,7 @@ describe("Material catalogue", function()
 						displayName = "Crystal",
 						guiColor = "9B6BFF",
 						thumbnail = "rbxassetid://97907732163601",
-						formId = "dragon",
+						formId = "mythling_0001",
 					},
 					shadow_dust = {
 						displayName = "Shadow Dust",

@@ -172,19 +172,43 @@ describe("CaptureGrant", function()
 			for formId, definition in PrototypeMythlings do
 				for variantId in definition.variants do
 					local f = fixture()
-					expect(f.api.Grant(f.player, { typeId = formId, variantId = variantId }).ok).toBe(
-						true
-					)
+					local legacyPrototype = if MythlingForms[formId] then true else nil
+					expect(f.api.Grant(f.player, {
+						typeId = formId,
+						variantId = variantId,
+						legacyPrototype = legacyPrototype,
+					}).ok).toBe(true)
 					expect(f.data.mythlings.new_1).toEqual({
 						typeId = formId,
 						variantId = variantId,
 						claimedAt = 50.25,
+						legacyPrototype = legacyPrototype,
 						level = 1,
 						xp = 0,
 						pendingXp = 0,
 					})
 				end
 			end
+		end
+	)
+
+	it(
+		"keeps canonical and live prototype grants distinct under Salennu's shared form ID",
+		function()
+			local f = fixture()
+			expect(grant(f.api, f.player).ok).toBe(true)
+			expect(f.api.Grant(f.player, {
+				typeId = "mythling_0001",
+				variantId = "regular",
+				legacyPrototype = true,
+			}).ok).toBe(true)
+			expect(f.data.mythlings.new_1.typeId).toBe("mythling_0001")
+			expect(f.data.mythlings.new_1.legacyPrototype).toBeNil()
+			expect(f.data.mythlings.new_2.typeId).toBe("mythling_0001")
+			expect(f.data.mythlings.new_2.legacyPrototype).toBe(true)
+			expect(f.data.mythlings.new_2.level).toBe(1)
+			expect(f.data.mythlings.new_2.xp).toBe(0)
+			expect(f.data.mythlings.new_2.pendingXp).toBe(0)
 		end
 	)
 
@@ -221,7 +245,7 @@ describe("CaptureGrant", function()
 				{
 					{ typeId = "unknown_form", variantId = "regular", code = "InvalidMythling" },
 					{ typeId = "mythling_0001", variantId = "shiny", code = "InvalidVariant" },
-					{ typeId = "dragon", variantId = "shiny", code = "InvalidVariant" },
+					{ typeId = "dragon", variantId = "regular", code = "InvalidMythling" },
 				}
 			do
 				local f = fixture()
@@ -272,6 +296,14 @@ describe("CaptureGrant", function()
 					request[field] = value
 					table.insert(invalid, request)
 				end
+			end
+			for _, value in { "true", 1, {} } do
+				local request: any = {
+					typeId = "mythling_0001",
+					variantId = "regular",
+					legacyPrototype = value,
+				}
+				table.insert(invalid, request)
 			end
 			for _, request in invalid do
 				local f = fixture()

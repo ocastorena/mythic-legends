@@ -387,6 +387,81 @@ describe("MVP ProfileSchema", function()
 		end
 	)
 
+	it("migrates saved Salennu identities while retaining earnings and canonical copies", function()
+		for _, version in { 4, 5, 6, Configuration.schemaVersion } do
+			local raw = snapshot(initializedData(version))
+			raw.mythlings.saved_salennu = {
+				typeId = "dragon",
+				variantId = "regular",
+				claimedAt = 55,
+				standId = 1,
+				level = 8,
+				xp = 72,
+				pendingXp = 0,
+				luck = 77,
+				traitIds = { "lucky", "insomniac" },
+				futureEarnedState = { retained = 3 },
+			}
+			raw.mythlings.canonical_salennu = {
+				typeId = "mythling_0001",
+				variantId = "regular",
+				claimedAt = 40,
+				level = 9,
+				xp = 42,
+				pendingXp = 0.25,
+			}
+			raw.base.stands["1"] = {
+				production = {
+					lastAccruedAt = 200,
+					materials = { crystal = { stored = 12, progress = 0.75, newWork = 0.25 } },
+				},
+			}
+			local data = (raw :: unknown) :: Types.PlayerDoc
+			local expected = snapshot(data)
+			expected.version = Configuration.schemaVersion
+			expected.mythlings.saved_salennu.typeId = "mythling_0001"
+			expected.mythlings.saved_salennu.legacyPrototype = true
+			if expected.productionClock == nil then
+				expected.productionClock = {
+					lastAccruedAt = 1_000,
+					nextBatchAt = 1_000 + Production.batchIntervalSeconds,
+				}
+			end
+			local owned, saved, canonical, stands =
+				data.mythlings,
+				data.mythlings.saved_salennu,
+				data.mythlings.canonical_salennu,
+				data.base.stands
+			expect((ProfileSchema.Prepare(data, neverGenerate, 1_000))).toBe(true)
+			expect(snapshot(data)).toEqual(expected)
+			expect(data.mythlings).toBe(owned)
+			expect(data.mythlings.saved_salennu).toBe(saved)
+			expect(data.mythlings.canonical_salennu).toBe(canonical)
+			expect(data.base.stands).toBe(stands)
+			expect((ProfileSchema.Prepare(data, neverGenerate, 1_100))).toBe(true)
+			expect(snapshot(data)).toEqual(expected)
+		end
+	end)
+
+	it("leaves saved Salennu identity untouched when preparation rejects the profile", function()
+		local data = initializedData(Configuration.schemaVersion)
+		data.mythlings.saved_salennu = {
+			typeId = "dragon",
+			variantId = "regular",
+			claimedAt = 55,
+			standId = 1,
+			level = 8,
+			xp = 72,
+		}
+		data.productionClock = { lastAccruedAt = 1_000, nextBatchAt = 1_000 }
+		local before, saved = snapshot(data), data.mythlings.saved_salennu
+		local ok, problem = ProfileSchema.Prepare(data, neverGenerate, 1_100)
+		expect(ok).toBe(false)
+		expect(problem).toBe("InvalidProductionClock")
+		expect(snapshot(data)).toEqual(before)
+		expect(data.mythlings.saved_salennu).toBe(saved)
+	end)
+
 	it("upgrades an empty v5 Base without replacing any retained tables", function()
 		local data = initializedData(5)
 		local base = data.base

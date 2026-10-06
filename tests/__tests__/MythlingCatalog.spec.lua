@@ -130,33 +130,39 @@ describe("Launch Mythling form catalogue", function()
 		end
 	)
 
-	it(
-		"retains separate prototype identities, configured presentation, and original outputs",
-		function()
-			expect(MythlingForms).never.toBe(Mythlings)
-			local legacy: { [string]: { name: string, materialId: string, model: string } } = {
-				axolotl = { name = "Stream Axolotl", materialId = "essence", model = "Axolotl" },
-				dragon = { name = "Salennu", materialId = "crystal", model = "Salennu" },
-				satyr = { name = "Shadow Satyr", materialId = "shadow_dust", model = "Satyr" },
-			}
-			local count = 0
-			for prototypeId, definition in Mythlings do
-				count += 1
-				local expected = legacy[prototypeId]
-				expect(expected).never.toBeNil()
-				expect(definition.displayName).toBe(expected.name)
-				local production =
-					assert(definition.production, "[MythlingCatalog.spec] Expected legacy output")
-				expect(production.materialId).toBe(expected.materialId)
-				expect(definition.variants.regular.model).toBe(expected.model)
+	it("retains prototype outputs with one deliberate Salennu identity overlap", function()
+		expect(MythlingForms).never.toBe(Mythlings)
+		local legacy: { [string]: { name: string, materialId: string, model: string } } = {
+			axolotl = { name = "Stream Axolotl", materialId = "essence", model = "Axolotl" },
+			mythling_0001 = { name = "Salennu", materialId = "crystal", model = "Salennu" },
+			satyr = { name = "Shadow Satyr", materialId = "shadow_dust", model = "Satyr" },
+		}
+		local count = 0
+		for prototypeId, definition in Mythlings do
+			count += 1
+			local expected = legacy[prototypeId]
+			expect(expected).never.toBeNil()
+			expect(definition.displayName).toBe(expected.name)
+			local production =
+				assert(definition.production, "[MythlingCatalog.spec] Expected legacy output")
+			expect(production.materialId).toBe(expected.materialId)
+			expect(definition.variants.regular.model).toBe(expected.model)
+			if prototypeId == "mythling_0001" then
+				expect(MythlingForms[prototypeId].element).toBe("Fire")
+			else
 				expect(MythlingForms[prototypeId]).toBeNil()
 			end
-			expect(count).toBe(3)
-			for formId in MythlingForms do
+		end
+		expect(count).toBe(3)
+		for formId in MythlingForms do
+			if formId == "mythling_0001" then
+				expect(Mythlings[formId]).toBe(Mythlings.mythling_0001)
+			else
 				expect(Mythlings[formId]).toBeNil()
 			end
 		end
-	)
+		expect(Mythlings.dragon).toBeNil()
+	end)
 
 	it("retains four-minute rarity lifetimes with no named-form overrides", function()
 		for _, rarity in RARITIES do

@@ -96,7 +96,7 @@ local Materials: { [string]: Types.MaterialDef } = {
 		category = "material",
 		guiColor = "9B6BFF",
 		thumbnail = "rbxassetid://97907732163601",
-		description = "Crystals are shed from the armored hide of the Crystal Dragon, a Mythling whose body naturally forms magical mineral plating. As these dragons grow, the crystalline plates along their spine and tail periodically crack and regrow, leaving behind sharp, luminous fragments infused with dormant draconic energy.",
+		description = "A luminous material produced by Salennu on a production stand.",
 	},
 	shadow_dust = {
 		launchEnabled = false,

@@ -7,6 +7,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
+local PrototypeMythlings = require(ReplicatedStorage.Shared.Configurations.Mythlings)
 
 local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
 local ServerTypes = require(ServerScriptService.Shared.Types)
@@ -38,7 +39,10 @@ local function hasProtectedShrineWork(
 ): boolean
 	-- Prototype deletion does not settle Shrine work. Permanent forms must use the atomic
 	-- sale/removal command, even while unassigned; pending XP can outlive its original Shrine.
-	if MythlingForms[entry.typeId] ~= nil or (entry.pendingXp ~= nil and entry.pendingXp ~= 0) then
+	if
+		(entry.legacyPrototype ~= true and MythlingForms[entry.typeId] ~= nil)
+		or (entry.pendingXp ~= nil and entry.pendingXp ~= 0)
+	then
 		return true
 	end
 	local shrines = data.base.shrines
@@ -94,7 +98,14 @@ function Mythlings.SaveWon(player: Player, params: { typeId: string, variantId: 
 		return nil
 	end
 
-	local result = grant.Grant(player, params)
+	local result = grant.Grant(player, {
+		typeId = params.typeId,
+		variantId = params.variantId,
+		legacyPrototype = if PrototypeMythlings[params.typeId]
+				and MythlingForms[params.typeId]
+			then true
+			else nil,
+	})
 	local instanceId = result.values and result.values.instanceId
 	if not result.ok or type(instanceId) ~= "string" then
 		return nil

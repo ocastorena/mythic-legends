@@ -144,16 +144,19 @@ build alone does not establish that Studio-authored content or live gameplay sur
 
 `Shared.Configurations.MythlingForms` contains the 18 permanent, neutrally identified launch forms
 and their approved business values; the [catalogue contract](docs/TECHNICAL_DESIGN.md#launch-mythling-form-catalogue)
-lists the exact six evolution chains and scalable ID rules. Creature names, concepts, models, icons,
-and descriptions remain open. IDs are not player-facing names or owned-instance IDs.
+lists the exact six evolution chains and scalable ID rules. Salennu's approved presentation is
+bound to Fire Common `mythling_0001`; other creature presentation remains open. IDs are not
+player-facing names or owned-instance IDs.
 
 `MythlingCatalogUtil.ValidateLaunch` validates this separate catalogue before server services start.
 Run the static suite and runtime tests above for catalogue and invalid-fixture checks. After syncing,
-a fresh Studio session should still use the unchanged three-form prototype capture/spawn and stand
-paths. The definitions are not exposed through the service context: metadata validation alone does
+a fresh Studio session should still use the three-form prototype capture/spawn and stand paths.
+Salennu now uses `mythling_0001`; its retained prototype entries carry `legacyPrototype = true` while
+canonical entries of that ID remain separate. The definitions are not exposed through the service context: metadata validation alone does
 not activate them in the Arena or menus. Canonical capture grants, Shrine commands, evolution, and
-Mythling sales consume the relevant metadata directly. The catalogue itself does not rewrite
-existing `typeId` values or change the save schema.
+Mythling sales consume the relevant metadata directly. Explicit profile preparation adapts saved
+Salennu `dragon` identities without changing earned state, production rules, namespace, or schema
+version. See [identity compatibility](docs/TECHNICAL_DESIGN.md#salennu-identity-compatibility).
 
 ### Arena spawn-policy review
 
@@ -188,8 +191,10 @@ caught form and creates one owned instance with level 1, XP 0, and explicit pend
 no Luck, Trait, copied rarity/Yield/sale value, automatic assignment, or Gold. Existing progression
 and inactive legacy records remain unchanged.
 
-The closed selection is `{ typeId, variantId }`; canonical forms accept only the retained
-`"regular"` sentinel, not a cosmetic variant or model binding. The grant validates supported
+The private closed selection is `{ typeId, variantId, legacyPrototype? }`; the optional boolean
+provenance is trusted server input. Canonical grants omit it and accept only the retained `"regular"`
+sentinel. The active prototype wrapper sets it for the shared Salennu ID, preserving stand behavior
+without changing direct canonical grants. The grant validates supported
 form/variant IDs, current-schema owned state, owned-instance identity, server time, and available
 Mythling capacity. Ownership creation and the repeated capacity check share one `DataService.Update`
 transaction. ClaimService owns the non-yielding contest resolution
@@ -201,7 +206,8 @@ Run the static suite and runtime tests above. Tests cover canonical grant defaul
 boundaries while retaining unrelated saved data. After syncing, the authored Arena still captures
 its three known prototype forms: their compatibility path remains enabled, but unknown IDs are
 rejected. Activating the 18-form spawn pool still requires approved asset bindings and spawn
-integration; no new model mapping, UI, remote, or schema migration is added here. Verify actual
+integration. Salennu's explicit identity compatibility does not activate that canonical pool or
+convert old earnings; no new client acquisition endpoint is added. Verify actual
 connected-player capture, reset/rejoin retention, and durable saves separately from injected and
 serialized-state tests.
 

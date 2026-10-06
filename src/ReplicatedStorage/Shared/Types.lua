@@ -61,6 +61,8 @@ export type MythlingEntry = {
 	typeId: string,
 	variantId: string,
 	claimedAt: number,
+	-- Retains stand-based prototype work when a saved species adopts its permanent form ID.
+	legacyPrototype: boolean?,
 	level: number?,
 	xp: number?,
 	-- Private earned batch credit; optional only for retained prototypes, never a copied rate.

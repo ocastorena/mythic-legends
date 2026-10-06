@@ -4,6 +4,8 @@ local StandPlacement = {}
 
 local ServerScriptService = game:GetService("ServerScriptService")
 local Types = require(game:GetService("ReplicatedStorage").Shared.Types)
+local MythlingForms =
+	require(game:GetService("ReplicatedStorage").Shared.Configurations.MythlingForms)
 
 local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
@@ -241,6 +243,9 @@ function StandPlacement.SetMythlingOnStand(
 ): (boolean, string?)
 	if type(mythlingEntry) ~= "table" then
 		return false, "Mythling entry is invalid"
+	end
+	if mythlingEntry.legacyPrototype ~= true and MythlingForms[mythlingEntry.typeId] then
+		return false, "Canonical Mythlings use Shrines rather than prototype stands"
 	end
 	if mythlingEntry.standId ~= nil then
 		return false, "Mythling already has a stand"

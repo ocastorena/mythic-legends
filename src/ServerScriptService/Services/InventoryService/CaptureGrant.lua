@@ -14,7 +14,7 @@ local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingFo
 local PrototypeMythlings = require(ReplicatedStorage.Shared.Configurations.Mythlings)
 local InventoryCapacity = require(ServerScriptService.Shared.InventoryCapacity)
 
-export type Params = { typeId: string, variantId: string }
+export type Params = { typeId: string, variantId: string, legacyPrototype: boolean? }
 export type DataSource = {
 	GetLoadedData: (Player) -> Types.PlayerDoc?,
 	Update: (Player, string, ServerTypes.ProfileMutation) -> Types.TransactionResult,
@@ -24,7 +24,7 @@ export type CaptureGrant = {
 }
 
 local CaptureGrant = {}
-local REQUEST_FIELDS = { typeId = true, variantId = true }
+local REQUEST_FIELDS = { typeId = true, variantId = true, legacyPrototype = true }
 
 local function isId(value: unknown): boolean
 	return type(value) == "string" and #value > 0 and #value <= 128
@@ -69,7 +69,14 @@ local function parseParams(value: unknown): Params?
 	if not isId(fields.typeId) or not isId(fields.variantId) then
 		return nil
 	end
-	return { typeId = fields.typeId :: string, variantId = fields.variantId :: string }
+	if fields.legacyPrototype ~= nil and type(fields.legacyPrototype) ~= "boolean" then
+		return nil
+	end
+	return {
+		typeId = fields.typeId :: string,
+		variantId = fields.variantId :: string,
+		legacyPrototype = fields.legacyPrototype :: boolean?,
+	}
 end
 
 local function validateInventory(data: Types.PlayerDoc): string?
@@ -101,14 +108,18 @@ local function validateInventory(data: Types.PlayerDoc): string?
 end
 
 local function validateDefinition(params: Params): string?
+	-- Only the authenticated active-pool wrapper marks retained stand production.
+	-- A direct canonical grant keeps its Shrine/progression semantics even for the same ID.
+	local prototype = PrototypeMythlings[params.typeId]
+	if params.legacyPrototype == true then
+		if not prototype then
+			return "InvalidMythling"
+		end
+		return if prototype.variants[params.variantId] then nil else "InvalidVariant"
+	end
 	if MythlingForms[params.typeId] then
-		-- The existing save schema retains an ordinary-variant sentinel. Canonical launch
-		-- forms have no cosmetic variants, and this does not choose any prototype model.
 		return if params.variantId == "regular" then nil else "InvalidVariant"
 	end
-	-- Compatibility only for the current, unchanged live prototype spawn pool. Unknown
-	-- metadata never becomes an owned record; this is not an additional launch catalogue.
-	local prototype = PrototypeMythlings[params.typeId]
 	if not prototype then
 		return "InvalidMythling"
 	end
@@ -173,6 +184,7 @@ function CaptureGrant.new(
 				typeId = params.typeId,
 				variantId = params.variantId,
 				claimedAt = timestamp,
+				legacyPrototype = params.legacyPrototype,
 				level = 1,
 				xp = 0,
 				pendingXp = 0,

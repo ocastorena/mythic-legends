@@ -9,6 +9,7 @@ local TweenService = game:GetService("TweenService")
 
 local Types = require(script.Parent.Parent.Parent.Types)
 local SharedTypes = require(ReplicatedStorage.Shared.Types)
+local MythlingForms = require(ReplicatedStorage.Shared.Configurations.MythlingForms)
 local Ui = script.Parent.Parent
 local ButtonUtil = require(Ui:WaitForChild("ButtonUtil"))
 local CardList = require(Ui:WaitForChild("Components"):WaitForChild("CardList"))
@@ -385,7 +386,10 @@ local function Stand(scope: Fusion.Scope<typeof(Fusion)>, props: Props): ScreenG
 		setHighlight = paintCard,
 		-- Only mythlings that are unplaced or already on THIS stand belong in the list.
 		filter = function(_id: string, data: SharedTypes.MythlingEntry)
-			return not data.standId or data.standId == standId
+			local usesStand = data.legacyPrototype == true or MythlingForms[data.typeId] == nil
+			return usesStand
+				and MythlingsMeta[data.typeId] ~= nil
+				and (not data.standId or data.standId == standId)
 		end,
 		decorate = function(card: GuiButton, id: string, data: SharedTypes.MythlingEntry)
 			local metadata = MythlingsMeta[data.typeId];

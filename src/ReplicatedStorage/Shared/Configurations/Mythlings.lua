@@ -24,14 +24,14 @@ local Mythlings: { [string]: Types.MythlingDef } = {
 			},
 		},
 	},
-	dragon = {
+	mythling_0001 = {
 		displayName = "Salennu",
 		rarity = "Common",
 		sizeClass = "M",
 		zoneRadius = 20,
 		fillRate = 5.0, -- 20 eligible seconds; one second absent removes one second earned.
 		drainRate = 5.0,
-		description = "A rare and regal dragon whose gemstone scales shimmer with light, drawing awe as much as power.",
+		description = "A small salamander-like Fire Mythling with a golden three-plate crest, an ember-orange underside, and a flame-plume tail.",
 		production = {
 			materialId = "crystal",
 			materialsPerMinute = 0.70,

@@ -141,7 +141,7 @@ local function snapshot(
 		if not isId(id) or not isPlain(entry) or not isId(entry.typeId) then
 			return nil, "InvalidMythlingRecord"
 		end
-		if metadata.forms[entry.typeId] == nil then
+		if entry.legacyPrototype == true or metadata.forms[entry.typeId] == nil then
 			-- Opaque prototypes can coexist only when they have no Shrine work to settle.
 			-- A missing/nonzero/invalid credit on a participating form is never silently dropped.
 			if assigned[id] or (entry.pendingXp ~= nil and entry.pendingXp ~= 0) then
