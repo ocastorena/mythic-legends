@@ -98,6 +98,9 @@ local function playLoopingAnimation(
 		track.Looped = true
 		track.Priority = priority
 		track:Play()
+		if animationName == "Walking" then
+			track:AdjustSpeed(1.75)
+		end
 	end)
 	if not started then
 		cleanup()
