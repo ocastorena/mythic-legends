@@ -25,7 +25,7 @@ local Mythlings: { [string]: Types.MythlingDef } = {
 		},
 	},
 	dragon = {
-		displayName = "Ember Fang",
+		displayName = "Salennu",
 		rarity = "Common",
 		sizeClass = "M",
 		zoneRadius = 20,
@@ -39,8 +39,15 @@ local Mythlings: { [string]: Types.MythlingDef } = {
 		},
 		variants = {
 			regular = {
-				model = "EmberFang",
-				thumbnail = "rbxassetid://93367789665855",
+				model = "Salennu",
+				thumbnail = "rbxassetid://111265214611913",
+				assetIds = {
+					mesh = "rbxassetid://71749755955847",
+					colorMap = "rbxassetid://85925298077007",
+					roughnessMap = "rbxassetid://93154169276908",
+					idleAnimation = "rbxassetid://132979692396272",
+					walkingAnimation = "rbxassetid://128497795139195",
+				},
 			},
 		},
 	},

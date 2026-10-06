@@ -79,6 +79,14 @@ export type MythlingProduction = {
 export type MythlingVariant = {
 	model: string,
 	thumbnail: string,
+	-- Published visual references; the authored model still supplies its rig and pivot.
+	assetIds: {
+		mesh: string,
+		colorMap: string,
+		roughnessMap: string,
+		idleAnimation: string?,
+		walkingAnimation: string?,
+	}?,
 }
 
 export type MythlingEvolutionDefinition = { targetFormId: string, requiredLevel: number }

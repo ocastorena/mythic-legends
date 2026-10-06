@@ -752,11 +752,24 @@ the server's `State` and fixed `ExpireAt`, including an explicit overtime label.
 The live lifecycle preserves the three existing prototype form IDs and their effective spawn
 weights through explicit `prototypeRarityWeights`. The shared selection implementation and startup
 validation also consume the separate [18-form business catalogue](#launch-mythling-form-catalogue)
-and canonical 75%/20%/5% `rarityWeights`, without activating its absent model bindings. Ember Fang
+and canonical 75%/20%/5% `rarityWeights`, without activating its absent model bindings. Salennu
 and Shadow Satyr now use their configured 20/35-second captures; Stream Axolotl retains its prototype
 10-second capture. All three decay one second of earned progress per second absent and use a
 240-second lifetime. Author the launch assets and integrate the new catalogue into spawning before
 release; do not infer live roster readiness from the 12-contest target or validated business metadata.
+
+The `dragon` prototype retains its saved identity and tuning while its display name and Studio-owned
+model template are `Salennu`. The model is two studs tall. Published mesh, texture, and optional
+Idle/Walking animation IDs
+are recorded in its optional `variants.regular.assetIds` metadata; `thumbnail` references the
+published Salennu inventory image. Templates may provide published `Animations.Idle` and
+`Animations.Walking` references. Idle loops on the server after Arena or Base placement, remains
+active through overtime, and stops before escort. Walking uses Movement priority during escort;
+idle uses Idle priority. Escort skips waypoints already at the root position before calculating
+the facing rotation. Encounter teardown and stand-model destruction stop and destroy their
+tracks. Missing optional clips leave the model static without changing capture or production.
+Editor clips and source models remain authoring data; temporary Studio preview IDs must not be
+retained as production animation references.
 
 Capture grants now enforce the configured Mythling limits of 24/36/48, derived from optional saved
 `inventoryUpgrades.mythlings` (absent means zero purchases). Existing owned entries, including those

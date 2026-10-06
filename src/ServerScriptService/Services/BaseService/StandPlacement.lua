@@ -9,6 +9,72 @@ local infrastructure = ServerScriptService:WaitForChild("Infrastructure")
 local LogUtil = require(infrastructure:WaitForChild("LogUtil"))
 local log = LogUtil.For("BaseService.StandPlacement")
 
+-- Stand clones own their optional idle track until unassignment or base removal.
+local function startIdle(model: Model)
+	local animationsFolder = model:FindFirstChild("Animations") or model:FindFirstChild("Animation")
+	local idle = animationsFolder and animationsFolder:FindFirstChild("Idle")
+	if not (idle and idle:IsA("Animation")) or not idle.AnimationId:match("%S") then
+		return
+	end
+
+	local animatorContainer = model:FindFirstChildOfClass("Humanoid")
+		or model:FindFirstChildOfClass("AnimationController")
+	if not animatorContainer then
+		local controller = Instance.new("AnimationController")
+		controller.Parent = model
+		animatorContainer = controller
+	end
+	assert(animatorContainer, "[BaseService.StandPlacement] Animation controller is unavailable")
+	local animatorHost = animatorContainer
+	local animator = animatorHost:FindFirstChildOfClass("Animator")
+	if not animator then
+		local created = Instance.new("Animator")
+		created.Parent = animatorHost
+		animator = created
+	end
+
+	assert(animator, "[BaseService.StandPlacement] Animator is unavailable")
+	local playbackAnimator = animator
+
+	local loaded, track = pcall(function()
+		return playbackAnimator:LoadAnimation(idle)
+	end)
+	if not loaded or not track then
+		log.warn(`Could not load Idle animation for {model.Name}: {track}`)
+		return
+	end
+
+	local isCleaned = false
+	local destroyingConn: RBXScriptConnection?
+	local function cleanup()
+		if isCleaned then
+			return
+		end
+		isCleaned = true
+		if destroyingConn then
+			destroyingConn:Disconnect()
+			destroyingConn = nil
+		end
+		pcall(function()
+			track:Stop(0)
+		end)
+		pcall(function()
+			track:Destroy()
+		end)
+	end
+	destroyingConn = model.Destroying:Connect(cleanup)
+
+	local started, startProblem = pcall(function()
+		track.Looped = true
+		track.Priority = Enum.AnimationPriority.Idle
+		track:Play()
+	end)
+	if not started then
+		cleanup()
+		log.warn(`Could not play Idle animation for {model.Name}: {startProblem}`)
+	end
+end
+
 local function getMythlingModel(
 	variantId: unknown,
 	mythlingAssets: Folder,
@@ -81,6 +147,7 @@ local function setMythlingModel(mythlingModel: Model, stand: BasePart): (boolean
 	if not placed then
 		return false, `Could not place Mythling model '{mythlingModel.Name}': {placementError}`
 	end
+	startIdle(mythlingModel)
 	return true, nil
 end
 

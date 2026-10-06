@@ -26,6 +26,7 @@ local serviceContext: ServerTypes.Context
 local population: SpawnPopulation.State
 local contests: { [string]: ServerTypes.SpawnEntry } = {}
 local encounterTroves: { [string]: Trove.Trove } = {}
+local idleCleanups: { [string]: () -> () } = {}
 local selection: SpawnSelection.Pool?
 local pumpQueued = false
 local freedPositions: { Vector3 } = {}
@@ -86,7 +87,16 @@ local function isValidEntry(entry: ServerTypes.SpawnEntry): boolean
 		and zone:IsDescendantOf(entry.model)
 end
 
+local function stopIdle(mythlingId: string)
+	local cleanup = idleCleanups[mythlingId]
+	idleCleanups[mythlingId] = nil
+	if cleanup then
+		cleanup()
+	end
+end
+
 local function destroyEntry(entry: ServerTypes.SpawnEntry)
+	stopIdle(entry.id)
 	local owner = encounterTroves[entry.id]
 	encounterTroves[entry.id] = nil
 	entry.state = "DESPAWNED"
@@ -347,6 +357,13 @@ local function spawnAttempt(attempt: SpawnPopulation.Attempt): (boolean, string)
 	owner:Add(model)
 	contests[id] = entry
 	model.Parent = serviceContext.Instances.Mythlings
+	local cleanupIdle = ClaimEscort.StartIdle(model)
+	if cleanupIdle then
+		idleCleanups[id] = cleanupIdle
+		owner:Add(function()
+			stopIdle(id)
+		end)
+	end
 	SpawnPopulation.Complete(population, attempt.id)
 	if activation then
 		activate(activation)
@@ -537,6 +554,7 @@ function MythlingSpawnService.Stop()
 	end
 	table.clear(contests)
 	lifecycle:Stop()
+	table.clear(idleCleanups)
 	table.clear(encounterTroves)
 	table.clear(population.pending)
 	table.clear(freedPositions)
@@ -592,6 +610,7 @@ function MythlingSpawnService.OnClaimed(mythlingId: string, winner: Player)
 	local anchor = base and base:FindFirstChild("Front")
 	local owner = encounterTroves[mythlingId]
 	if anchor and anchor:IsA("BasePart") and entry.model.PrimaryPart and owner then
+		stopIdle(mythlingId)
 		setState(entry, "ESCORT")
 		serviceContext.Remotes.World.Spawned:FireClient(
 			winner,

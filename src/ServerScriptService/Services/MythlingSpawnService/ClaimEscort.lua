@@ -1,6 +1,6 @@
 --!strict
 -- ServerScriptService/Services/MythlingSpawnService/ClaimEscort
--- Claimed-model presentation has an encounter-owned, cancellable lifetime.
+-- Idle and escort presentation have encounter-owned, cancellable lifetimes.
 
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
@@ -11,6 +11,7 @@ local ServerTypes = require(ServerScriptService.Shared.Types)
 local LogUtil = require(ServerScriptService.Infrastructure.LogUtil)
 local log = LogUtil.For("MythlingSpawnService.ClaimEscort")
 local ClaimEscort = {}
+local MIN_WAYPOINT_DISTANCE = 1e-4
 
 -- Tries to create or find an Animator on the model (Humanoid or AnimationController).
 local function getAnimator(model: Model): Animator?
@@ -48,15 +49,15 @@ local function getAnimator(model: Model): Animator?
 	return newAnimator
 end
 
--- Plays a looping Walking animation if present; returns a cleanup callback.
-local function playWalkingAnimation(model: Model): (() -> ())?
+-- Optional clips are authored on the template; their playback belongs to the cloned model.
+local function playLoopingAnimation(
+	model: Model,
+	animationName: string,
+	priority: Enum.AnimationPriority
+): (() -> ())?
 	local animationsFolder = model:FindFirstChild("Animations") or model:FindFirstChild("Animation")
-	if not animationsFolder then
-		return nil
-	end
-
-	local walking = animationsFolder:FindFirstChild("Walking")
-	if not (walking and walking:IsA("Animation")) then
+	local animation = animationsFolder and animationsFolder:FindFirstChild(animationName)
+	if not (animation and animation:IsA("Animation")) or not animation.AnimationId:match("%S") then
 		return nil
 	end
 
@@ -65,39 +66,49 @@ local function playWalkingAnimation(model: Model): (() -> ())?
 		return nil
 	end
 
-	local ok, track = pcall(function()
-		return animator:LoadAnimation(walking)
+	local loaded, track = pcall(function()
+		return animator:LoadAnimation(animation)
 	end)
-	if not ok or not track then
+	if not loaded or not track then
+		log.warn(`Could not load {animationName} animation for {model.Name}: {track}`)
 		return nil
 	end
 
-	track.Looped = true
-	track:Play()
-
+	local isCleaned = false
 	local destroyingConn: RBXScriptConnection?
-	destroyingConn = model.Destroying:Connect(function()
-		if destroyingConn then
-			destroyingConn:Disconnect()
+	local function cleanup()
+		if isCleaned then
+			return
 		end
-		if track then
-			pcall(function()
-				track:Stop()
-			end)
-		end
-	end)
-
-	return function()
+		isCleaned = true
 		if destroyingConn then
 			destroyingConn:Disconnect()
 			destroyingConn = nil
 		end
-		if track then
-			pcall(function()
-				track:Stop()
-			end)
-		end
+		pcall(function()
+			track:Stop(0)
+		end)
+		pcall(function()
+			track:Destroy()
+		end)
 	end
+	destroyingConn = model.Destroying:Connect(cleanup)
+
+	local started, startProblem = pcall(function()
+		track.Looped = true
+		track.Priority = priority
+		track:Play()
+	end)
+	if not started then
+		cleanup()
+		log.warn(`Could not play {animationName} animation for {model.Name}: {startProblem}`)
+		return nil
+	end
+	return cleanup
+end
+
+function ClaimEscort.StartIdle(model: Model): (() -> ())?
+	return playLoopingAnimation(model, "Idle", Enum.AnimationPriority.Idle)
 end
 
 function ClaimEscort.Start(
@@ -133,7 +144,8 @@ function ClaimEscort.Start(
 			return
 		end
 		if success then
-			local stopWalking = playWalkingAnimation(entry.model)
+			local stopWalking =
+				playLoopingAnimation(entry.model, "Walking", Enum.AnimationPriority.Movement)
 			if stopWalking then
 				owner:Add(function()
 					stopWalking()
@@ -145,9 +157,14 @@ function ClaimEscort.Start(
 				end
 				local target =
 					Vector3.new(waypoint.Position.X, root.Position.Y, waypoint.Position.Z)
+				local distance = (target - root.Position).Magnitude
+				-- Start and repeated end waypoints can already match the root position.
+				if distance <= MIN_WAYPOINT_DISTANCE then
+					continue
+				end
 				local facing = CFrame.lookAt(root.Position, target)
 				local destination = CFrame.new(target) * (facing - facing.Position)
-				local durationSeconds = math.max((target - root.Position).Magnitude / 4, 0.05)
+				local durationSeconds = math.max(distance / 4, 0.05)
 				local tween = TweenService:Create(
 					root,
 					TweenInfo.new(durationSeconds, Enum.EasingStyle.Linear),

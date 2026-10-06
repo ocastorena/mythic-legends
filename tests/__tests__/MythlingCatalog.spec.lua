@@ -131,12 +131,12 @@ describe("Launch Mythling form catalogue", function()
 	)
 
 	it(
-		"retains separate prototype identities and their original presentation/output mappings",
+		"retains separate prototype identities, configured presentation, and original outputs",
 		function()
 			expect(MythlingForms).never.toBe(Mythlings)
 			local legacy: { [string]: { name: string, materialId: string, model: string } } = {
 				axolotl = { name = "Stream Axolotl", materialId = "essence", model = "Axolotl" },
-				dragon = { name = "Ember Fang", materialId = "crystal", model = "EmberFang" },
+				dragon = { name = "Salennu", materialId = "crystal", model = "Salennu" },
 				satyr = { name = "Shadow Satyr", materialId = "shadow_dust", model = "Satyr" },
 			}
 			local count = 0
