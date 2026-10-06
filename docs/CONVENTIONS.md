@@ -65,7 +65,6 @@ mythic-legends/
         MythlingCatalogUtil.lua
       Infrastructure/             # cross-service technical runtime support
       Packages/                   # server-only vendored dependencies
-      PostLaunch/                 # retained prototypes; only Blockstorm is explicitly started
     ServerStorage/
       Databases/
         PlayerDataTemplate.lua
@@ -168,11 +167,10 @@ ServerScriptService
   Shared              -- server-only cross-feature contracts, arithmetic, and support
   Infrastructure      -- logging, rate limits, remotes, lifecycle, and server utilities
   Packages            -- server-only external libraries such as ProfileStore
-  PostLaunch          -- retained prototypes; only Blockstorm is explicitly started
 ServerStorage
   Databases           -- player-data templates and server-only definitions
   ServerAssets        -- production server-only model templates
-  Authoring           -- Studio-only backups, source templates, and staged content
+  Authoring           -- Studio-only source models and staged content
 StarterGui
   <empty>             -- production application roots are created under PlayerGui
 StarterPlayer
@@ -188,6 +186,8 @@ StarterPlayer
 
 Keep runtime content separate from authored content. Production UI is repository-owned and composed
 directly under `PlayerGui` by `UI/App`; do not add authored application roots to `StarterGui`.
+`Authoring` declares only the populated `Mythlings` collection; it does not create empty `Backups`
+or `TemplateSources` folders. Add other authoring collections only when they contain retained content.
 The [Studio/Rojo ownership rules](TECHNICAL_DESIGN.md#roblox-studio-and-rojo-ownership) determine which
 unknown authored descendants Rojo preserves. `ServerStorage.Tests` exists only in disposable builds
 from `test.project.json`; never live-sync that project into the authored development place. Places
@@ -472,7 +472,7 @@ wrapping and whitespace; do not hand-align code in ways that fight the formatter
 
 ## Consistency scan scope and findings
 
-Scan first-party runtime source, configurations, templates, tests, inactive `PostLaunch` source,
+Scan first-party runtime source, configurations, templates, tests, any retained inactive source,
 project/tooling definitions, and their documentation references. Include both server and client
 code. Review deferred code for conventions without activating it or expanding its functionality.
 

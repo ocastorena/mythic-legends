@@ -11,12 +11,14 @@ local RateLimiter = require(Infrastructure:WaitForChild("RateLimiter"))
 local LogUtil = require(Infrastructure:WaitForChild("LogUtil"))
 local CommandParser = require(script.CommandParser)
 local Teleportation = require(script.Teleportation)
+local Blockstorm = require(script.Blockstorm)
 local ServerTypes = require(ServerScriptService.Shared.Types)
 
 local log = LogUtil.For("AdminCommandService")
 local AdminCommandService = {}
 local context: ServerTypes.Context
 local limiter: RateLimiter.RateLimiter
+local blockstorm: Blockstorm.Blockstorm? = nil
 local running = false
 local connections: { RBXScriptConnection } = {}
 local pending: { [Player]: {} } = {}
@@ -106,7 +108,12 @@ local function handleCommand(originTextSource: TextSource, text: string)
 		return
 	end
 	if command.name == "event" then
-		local _, message = context.Services.DivineInterventionService.StartEvent(command.argument)
+		local effect = blockstorm
+		if not effect then
+			reply(player, "Events are not ready yet.")
+			return
+		end
+		local _, message = effect:StartEvent(command.argument)
 		reply(player, message)
 		return
 	end
@@ -143,6 +150,7 @@ function AdminCommandService.Start()
 		command and command:IsA("TextChatCommand"),
 		"[AdminCommandService] AdminCommand is missing"
 	)
+	blockstorm = Blockstorm.new(context.Instances.Arena, context.Instances.Runtime)
 	running = true
 	table.insert(connections, command.Triggered:Connect(handleCommand))
 	table.insert(
@@ -156,6 +164,10 @@ end
 
 function AdminCommandService.Stop()
 	running = false
+	if blockstorm then
+		blockstorm:Destroy()
+		blockstorm = nil
+	end
 	for _, connection in connections do
 		connection:Disconnect()
 	end

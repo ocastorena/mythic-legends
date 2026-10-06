@@ -82,13 +82,13 @@ still needs the same cache permissions and network access as the setup commands.
 The first run downloads the definitions into ignored `.tools/`; subsequent runs can use the
 verified cached copy. Sourcemaps and build outputs use ignored `.verification/`.
 
-The analyzer checks all first-party `src` and `tests` files, including inactive `PostLaunch` source.
+The analyzer checks all first-party `src` and `tests` files, including any retained inactive source.
 Vendor/generated diagnostics are excluded; first-party integration errors remain failures. To
 cross-check against the installed Studio version:
 
 1. Sync the intended checkout and installed dependencies into the Studio development place using
    `default.project.json`.
-2. Use Studio Script Analysis to check the production source, including inactive `PostLaunch`
+2. Use Studio Script Analysis to check the production source, including any retained inactive
    modules. Tests stay outside the authored place and are checked through the CLI test-project
    sourcemap. Confirm that the inspected files use strict checking; non-strict files remain
    compliance gaps even when they report no diagnostics.

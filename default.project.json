@@ -164,9 +164,6 @@
       },
       "Packages": {
         "$path": "src/ServerScriptService/Packages"
-      },
-      "PostLaunch": {
-        "$path": "src/ServerScriptService/PostLaunch"
       }
     },
 
@@ -191,15 +188,7 @@
       "Authoring": {
         "$className": "Folder",
         "$ignoreUnknownInstances": true,
-        "Backups": {
-          "$className": "Folder",
-          "$ignoreUnknownInstances": true
-        },
         "Mythlings": {
-          "$className": "Folder",
-          "$ignoreUnknownInstances": true
-        },
-        "TemplateSources": {
           "$className": "Folder",
           "$ignoreUnknownInstances": true
         }

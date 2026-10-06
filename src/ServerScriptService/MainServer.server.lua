@@ -56,7 +56,6 @@ local CombatService = require(ServerScriptService.Services.CombatService)
 local CraftingService = require(ServerScriptService.Services.CraftingService)
 local ShopService = require(ServerScriptService.Services.ShopService)
 local AdminCommandService = require(ServerScriptService.Services.AdminCommandService)
-local DivineInterventionService = require(ServerScriptService.PostLaunch.DivineInterventionService)
 local services: ServerTypes.Services = {
 	DataService = {
 		RegisterProfileSettlement = DataService.RegisterProfileSettlement,
@@ -126,10 +125,8 @@ local services: ServerTypes.Services = {
 		SetOvertime = MythlingSpawnService.SetOvertime,
 		OnClaimed = MythlingSpawnService.OnClaimed,
 	},
-	DivineInterventionService = { StartEvent = DivineInterventionService.StartEvent },
 }
 local ordered: { { name: string, service: ServerTypes.Service } } = {
-	{ name = "DivineInterventionService", service = DivineInterventionService },
 	{ name = "DataService", service = DataService },
 	{ name = "CraftingService", service = CraftingService },
 	{ name = "ShopService", service = ShopService },

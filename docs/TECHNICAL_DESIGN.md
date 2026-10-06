@@ -31,8 +31,8 @@ descendants are preserved only at explicitly mixed-ownership containers.
 
 - **MainServer** is the only server bootstrap. It initializes modules under
   `ServerScriptService.Services` in deterministic lifecycle order and owns the player join/leave
-  wiring. It explicitly starts the existing `PostLaunch.DivineInterventionService` visual prototype
-  through the same lifecycle. No other post-launch services are auto-loaded.
+  wiring. `AdminCommandService` owns the existing Blockstorm visual prototype through its private
+  helper. No post-launch services are auto-loaded.
 - **Server services** own validation, authoritative simulation, mutations, persistence requests, and
   grants. No domain service independently loads a profile or writes a Roblox DataStore.
 - **Feature-private modules** live beside their owning service's `init.lua`. Pure reducers there are
@@ -208,8 +208,10 @@ are checked again after the yield. Reset, disconnect, or shutdown invalidates th
 Stamina, action deadlines, elemental effects, and capture state stay with their owning services;
 ordinary position-based Arena/ring checks handle the new location.
 
-`DivineInterventionService.StartEvent` exposes only the existing Blockstorm presentation and retains
-its single-event guard and shutdown cleanup. It no longer owns a chat listener.
+`AdminCommandService.Blockstorm` implements only the existing Blockstorm presentation. The service
+constructs one helper when it starts and destroys it when it stops, retaining the single-event guard
+and cleanup of temporary parts, tweens, and tasks. It is not a separately bootstrapped service or a
+shared service dependency; the full Divine Intervention system remains deferred.
 `Network.Admin.Feedback` is server-to-client only: the server sends authored messages exclusively to
 the requesting player. `AdminCommandController` displays them in the standard system chat channel,
 with the existing toast system as fallback. Unfiltered command text is never echoed to clients.
@@ -3298,6 +3300,9 @@ never search that folder. Keep editor-only model data such as `InitialPoses` and
 `ServerStorage.Authoring.Mythlings.<ModelName>` so it is not cloned into the runtime world.
 `ServerStorage.ServerAssets.RBX_ANIMSAVES` is retained in place as Roblox Animation Clip Editor
 authoring data and is not a production asset or legacy code.
+The production mapping does not create empty `Authoring.Backups` or `Authoring.TemplateSources`
+folders. Obsolete map backups and source imports can be archived in the external asset workspace
+instead of the live place; retain authoring collections only while they contain useful content.
 
 ### Environment model interiors
 

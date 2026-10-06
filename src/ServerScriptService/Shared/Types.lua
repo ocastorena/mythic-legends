@@ -109,7 +109,6 @@ export type SpawnApi = {
 	OnClaimed: (string, Player) -> (),
 }
 export type Services = {
-	DivineInterventionService: { StartEvent: (string) -> (boolean, string) },
 	DataService: DataApi,
 	InventoryService: InventoryApi,
 	BaseService: BaseApi,
