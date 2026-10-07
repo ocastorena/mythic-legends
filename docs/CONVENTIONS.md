@@ -170,7 +170,6 @@ ServerScriptService
 ServerStorage
   Databases           -- player-data templates and server-only definitions
   ServerAssets        -- production server-only model templates
-  Authoring           -- Studio-only source models and staged content
 StarterGui
   <empty>             -- production application roots are created under PlayerGui
 StarterPlayer
@@ -186,8 +185,9 @@ StarterPlayer
 
 Keep runtime content separate from authored content. Production UI is repository-owned and composed
 directly under `PlayerGui` by `UI/App`; do not add authored application roots to `StarterGui`.
-`Authoring` declares only the populated `Mythlings` collection; it does not create empty `Backups`
-or `TemplateSources` folders. Add other authoring collections only when they contain retained content.
+The production mapping does not create `ServerStorage.Authoring` or `ReplicatedStorage.Assets.UI`
+while they contain no retained content. Add authoring or client-visible UI asset collections only
+when they have useful content; application components remain in `StarterPlayerScripts.UI.Components`.
 The [Studio/Rojo ownership rules](TECHNICAL_DESIGN.md#roblox-studio-and-rojo-ownership) determine which
 unknown authored descendants Rojo preserves. `ServerStorage.Tests` exists only in disposable builds
 from `test.project.json`; never live-sync that project into the authored development place. Places

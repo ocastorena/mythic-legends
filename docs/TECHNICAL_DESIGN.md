@@ -3298,11 +3298,12 @@ Keep production runtime templates under `ServerStorage.ServerAssets`. Put inacti
 place backups, and future Mythling models under `ServerStorage.Authoring`; runtime services must
 never search that folder. Keep editor-only model data such as `InitialPoses` and `AnimSaves` under
 `ServerStorage.Authoring.Mythlings.<ModelName>` so it is not cloned into the runtime world.
-`ServerStorage.ServerAssets.RBX_ANIMSAVES` is retained in place as Roblox Animation Clip Editor
-authoring data and is not a production asset or legacy code.
-The production mapping does not create empty `Authoring.Backups` or `Authoring.TemplateSources`
-folders. Obsolete map backups and source imports can be archived in the external asset workspace
-instead of the live place; retain authoring collections only while they contain useful content.
+`ServerStorage.ServerAssets.RBX_ANIMSAVES` and `ServerStorage.RBX_ANIMSAVES` are retained in place
+as Roblox Animation Clip Editor authoring data and are not production assets or legacy code.
+The production mapping does not create `ServerStorage.Authoring` or `ReplicatedStorage.Assets.UI`
+while those collections have no retained content. Add them to the mapping only when populated.
+Obsolete map backups and source imports can be archived in the external asset workspace instead
+of the live place; retain authoring collections only while they contain useful content.
 
 ### Environment model interiors
 

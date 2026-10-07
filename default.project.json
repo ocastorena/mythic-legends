@@ -136,14 +136,6 @@
         "Templates": {
           "$className": "Folder",
           "$ignoreUnknownInstances": true
-        },
-        "UI": {
-          "$className": "Folder",
-          "$ignoreUnknownInstances": true,
-          "Components": {
-            "$className": "Folder",
-            "$ignoreUnknownInstances": true
-          }
         }
       }
     },
@@ -180,14 +172,6 @@
           "$className": "Folder",
           "$ignoreUnknownInstances": true
         },
-        "Mythlings": {
-          "$className": "Folder",
-          "$ignoreUnknownInstances": true
-        }
-      },
-      "Authoring": {
-        "$className": "Folder",
-        "$ignoreUnknownInstances": true,
         "Mythlings": {
           "$className": "Folder",
           "$ignoreUnknownInstances": true
